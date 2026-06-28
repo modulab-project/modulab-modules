@@ -1,5 +1,5 @@
 name: "recipes"
-version: "0.1.0"
+version: "0.1.1"
 description: "Recipe collection with weekly meal plan, nutrition info, and URL import"
 author: "modulab-project"
 license: "AGPL-3.0"
@@ -7,7 +7,7 @@ category: "productivity"
 min_core_api: "v1"
 min_core_ui: "v1"
 tier: 2
-scope: "org"
+scope: "per-location"
 startup: "eager"
 
 handler: "handlers/index.ts"
