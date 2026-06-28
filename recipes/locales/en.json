@@ -65,6 +65,16 @@
   "slot_dinner": "Dinner",
   "slot_snack": "Snack",
 
+  "nav_categories": "Categories",
+  "categories_title": "Categories",
+  "no_categories": "No categories yet",
+  "new_category": "New Category",
+  "category_name_placeholder": "e.g. Pasta",
+  "category_sort_order": "Sort order",
+  "category_name_required": "Name is required",
+  "category_saved": "Saved",
+  "category_delete_confirm": "Delete this category? Recipes in it will not be deleted.",
+
   "import_title": "Import Recipe from URL",
   "import_description": "Paste the URL of a recipe page. ModuLab will try to extract the title, ingredients, and steps automatically (JSON-LD schema.org). You can edit the result afterwards.",
   "import_placeholder": "https://example.com/recipe/...",

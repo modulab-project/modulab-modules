@@ -1,5 +1,8 @@
 name: "recipes"
-version: "0.1.7"
+version: "0.1.8"
+display_name:
+  en: "Recipes"
+  de: "Rezepte"
 description: "Recipe collection with weekly meal plan, nutrition info, and URL import"
 author: "modulab-project"
 license: "AGPL-3.0"

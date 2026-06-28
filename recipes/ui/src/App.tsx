@@ -79,7 +79,8 @@ type View =
   | { type: "detail"; id: string }
   | { type: "editor"; id?: string }
   | { type: "meal-plan" }
-  | { type: "import" };
+  | { type: "import" }
+  | { type: "categories" };
 
 // ── API helper ────────────────────────────────────────────────────────────────
 
@@ -151,6 +152,13 @@ export default function RecipesApp({ apiBase, token }: ModuleComponentProps) {
         >
           <i className="ti ti-link text-[14px]" /> {t("nav_import")}
         </button>
+        <button
+          type="button"
+          onClick={() => setView({ type: "categories" })}
+          className={navCls(view.type === "categories")}
+        >
+          <i className="ti ti-tag text-[14px]" /> {t("nav_categories")}
+        </button>
         <div className="flex-1" />
         <button
           type="button"
@@ -184,6 +192,7 @@ export default function RecipesApp({ apiBase, token }: ModuleComponentProps) {
       {view.type === "import" && (
         <UrlImport api={api} onImported={(id) => setView({ type: "editor", id })} />
       )}
+      {view.type === "categories" && <CategoriesView api={api} />}
     </div>
   );
 }
@@ -911,6 +920,166 @@ function UrlImport({
       {error && (
         <p className="mt-3 text-sm text-red-600 dark:text-red-400">{error}</p>
       )}
+    </div>
+  );
+}
+
+// ── CategoriesView ────────────────────────────────────────────────────────────
+
+function CategoriesView({ api }: { api: ReturnType<typeof useApi> }) {
+  const { t } = useTranslation(NS);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [editingId, setEditingId] = useState<string | "new" | null>(null);
+  const [name, setName] = useState("");
+  const [sortOrder, setSortOrder] = useState("0");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const rows = await api.get<Category[]>("/categories");
+      setCategories(rows ?? []);
+    } finally {
+      setLoading(false);
+    }
+  }, [api]);
+
+  useEffect(() => { load(); }, [load]);
+
+  function startNew() {
+    setEditingId("new");
+    setName("");
+    setSortOrder("0");
+    setError(null);
+  }
+
+  function startEdit(cat: Category) {
+    setEditingId(cat.id);
+    setName(cat.name);
+    setSortOrder(String(cat.sort_order));
+    setError(null);
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setError(null);
+  }
+
+  async function handleSave() {
+    if (!name.trim()) { setError(t("category_name_required")); return; }
+    setSaving(true);
+    setError(null);
+    try {
+      if (editingId === "new") {
+        await api.mutate("POST", "/categories", { name: name.trim(), sort_order: parseInt(sortOrder) || 0 });
+      } else {
+        await api.mutate("PATCH", `/categories/${editingId}`, { name: name.trim(), sort_order: parseInt(sortOrder) || 0 });
+      }
+      setEditingId(null);
+      await load();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete(id: string) {
+    if (!window.confirm(t("category_delete_confirm"))) return;
+    try {
+      await api.mutate("DELETE", `/categories/${id}`);
+      await load();
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  const inputCls = "rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 dark:border-gray-700 dark:bg-gray-900";
+
+  return (
+    <div className="max-w-lg">
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-lg font-semibold">{t("categories_title")}</h2>
+        {editingId === null && (
+          <button type="button" onClick={startNew}
+            className="flex items-center gap-1.5 rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700">
+            <i className="ti ti-plus text-[13px]" /> {t("new_category")}
+          </button>
+        )}
+      </div>
+
+      {error && (
+        <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+          {error}
+        </div>
+      )}
+
+      {editingId !== null && (
+        <div className="mb-4 rounded-2xl border border-teal-200 bg-teal-50 p-4 dark:border-teal-800 dark:bg-teal-950">
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder={t("category_name_placeholder")}
+              className={`flex-1 ${inputCls}`}
+              style={{ fontSize: "16px" }}
+              // eslint-disable-next-line jsx-a11y/no-autofocus
+              autoFocus
+              onKeyDown={(e) => { if (e.key === "Enter") handleSave(); if (e.key === "Escape") cancelEdit(); }}
+            />
+            <input
+              type="number"
+              value={sortOrder}
+              onChange={(e) => setSortOrder(e.target.value)}
+              title={t("category_sort_order")}
+              placeholder="0"
+              className={`w-20 ${inputCls}`}
+              style={{ fontSize: "16px" }}
+            />
+          </div>
+          <div className="mt-3 flex justify-end gap-2">
+            <button type="button" onClick={cancelEdit}
+              className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900">
+              {t("cancel")}
+            </button>
+            <button type="button" onClick={handleSave} disabled={saving}
+              className="flex items-center gap-1.5 rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50">
+              {saving ? <i className="ti ti-loader-2 animate-spin text-[13px]" /> : <i className="ti ti-check text-[13px]" />}
+              {t("save")}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {loading && <p className="text-sm text-gray-400">{t("loading")}</p>}
+
+      {!loading && categories.length === 0 && (
+        <div className="rounded-2xl border border-dashed border-gray-200 px-6 py-10 text-center dark:border-gray-800">
+          <i className="ti ti-tag text-[32px] text-gray-300 dark:text-gray-700" />
+          <p className="mt-2 text-sm text-gray-400">{t("no_categories")}</p>
+        </div>
+      )}
+
+      <div className="space-y-1.5">
+        {categories.map((cat) => (
+          <div key={cat.id}
+            className="flex items-center gap-3 rounded-xl border border-gray-200 px-4 py-3 dark:border-gray-800">
+            <span className="flex-1 text-sm font-medium">{cat.name}</span>
+            <span className="text-xs text-gray-400">{cat.sort_order}</span>
+            <button type="button" onClick={() => startEdit(cat)}
+              className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800">
+              <i className="ti ti-pencil text-[14px]" />
+            </button>
+            <button type="button" onClick={() => handleDelete(cat.id)}
+              className="rounded-lg p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950">
+              <i className="ti ti-trash text-[14px]" />
+            </button>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
