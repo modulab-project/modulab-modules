@@ -1,9 +1,9 @@
 [
   {
     "name": "recipes",
-    "version": "0.1.6",
-    "release_url": "https://github.com/modulab-project/modulab-modules/releases/download/recipes-v0.1.6/recipes-v0.1.6.zip",
-    "sha256": "ab49e115179427cf0654b1977657d516ce306252684b080ba325c0da4192bb61",
+    "version": "0.1.7",
+    "release_url": "https://github.com/modulab-project/modulab-modules/releases/download/recipes-v0.1.7/recipes-v0.1.7.zip",
+    "sha256": "5a83b2416a592b84485d6304ed9d932b19966e59533f4a67e7c02b066c68f3d4",
     "cosign_sig_url": "",
     "category": "productivity"
   }
