@@ -1,5 +1,5 @@
 /**
- * Rezepte module — React frontend
+ * Recipes module — React frontend
  *
  * This component is built to ui/bundle.js and loaded dynamically by
  * ModulePage.tsx in modulab-core. It receives moduleName, apiBase, and token
@@ -114,12 +114,12 @@ function useApi(apiBase: string, token: string) {
 
 // ── Root component ────────────────────────────────────────────────────────────
 
-export default function RezepteApp({ apiBase, token }: ModuleComponentProps) {
+export default function RecipesApp({ apiBase, token }: ModuleComponentProps) {
   const [view, setView] = useState<View>({ type: "list" });
   const api = useApi(apiBase, token);
 
   return (
-    <div className="rezepte-module">
+    <div className="recipes-module">
       {/* Navigation bar */}
       <div className="mb-5 flex items-center gap-2">
         <button
@@ -127,7 +127,7 @@ export default function RezepteApp({ apiBase, token }: ModuleComponentProps) {
           onClick={() => setView({ type: "list" })}
           className={navCls(view.type === "list")}
         >
-          <i className="ti ti-book-2 text-[14px]" /> Rezepte
+          <i className="ti ti-book-2 text-[14px]" /> Recipes
         </button>
         <button
           type="button"
@@ -258,7 +258,7 @@ function RecipeList({
       {!loading && recipes.length === 0 && (
         <div className="rounded-2xl border border-dashed border-gray-200 px-6 py-12 text-center dark:border-gray-800">
           <i className="ti ti-book-off text-[36px] text-gray-300 dark:text-gray-700" />
-          <p className="mt-3 text-sm text-gray-400">Noch keine Rezepte</p>
+          <p className="mt-3 text-sm text-gray-400">No recipes yet</p>
         </div>
       )}
 
@@ -272,7 +272,7 @@ function RecipeList({
           >
             {r.image_path && (
               <img
-                src={`/modules/rezepte/storage/${r.image_path.split("/storage/")[1]}`}
+                src={`/modules/recipes/storage/${r.image_path.split("/storage/")[1]}`}
                 alt={r.title}
                 className="h-36 w-full rounded-xl object-cover"
               />
@@ -298,7 +298,7 @@ function RecipeList({
         ))}
       </div>
       {total > recipes.length && (
-        <p className="mt-4 text-center text-xs text-gray-400">{total} Rezepte insgesamt</p>
+        <p className="mt-4 text-center text-xs text-gray-400">{total} recipes total</p>
       )}
     </div>
   );
@@ -362,7 +362,7 @@ function RecipeDetail({
 
       {recipe.image_path && (
         <img
-          src={`/modules/rezepte/storage/${recipe.image_path.split("/storage/")[1]}`}
+          src={`/modules/recipes/storage/${recipe.image_path.split("/storage/")[1]}`}
           alt={recipe.title}
           className="mb-4 h-56 w-full rounded-2xl object-cover"
         />

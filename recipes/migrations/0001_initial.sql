@@ -1,5 +1,5 @@
--- Rezepte module initial schema
--- Schema: module_rezepte (set by Core before running this file via SET search_path)
+-- Recipes module initial schema
+-- Schema: module_recipes (set by Core before running this file via SET search_path)
 
 -- Categories (e.g. "Frühstück", "Hauptgericht", "Dessert")
 CREATE TABLE IF NOT EXISTS categories (

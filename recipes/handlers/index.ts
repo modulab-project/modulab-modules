@@ -1,7 +1,7 @@
 /**
- * Rezepte module — Deno Tier 2 handler
+ * Recipes module — Deno Tier 2 handler
  *
- * Routes (all under /v1/modules/rezepte/api/):
+ * Routes (all under /v1/modules/recipes/api/):
  *
  * Recipes
  *   GET    /recipes              list all (+ filter by category, tag, search)
@@ -482,7 +482,7 @@ async function recalcNutritionFromIngredients(db: ModuleDbClient, recipeId: stri
 async function searchNutrition(query: string): Promise<HandlerResponse> {
   const url =
     `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(query)}&search_simple=1&action=process&json=1&page_size=10&fields=id,product_name,nutriments,serving_size`;
-  const res = await fetch(url, { headers: { "User-Agent": "modulab-rezepte/0.1 (homelab)" } });
+  const res = await fetch(url, { headers: { "User-Agent": "modulab-recipes/0.1 (homelab)" } });
   if (!res.ok) return { status: 502, body: { error: "OFF API error" } };
   const data = await res.json();
   const products = (data.products ?? []).map(mapOFFProduct);
@@ -491,7 +491,7 @@ async function searchNutrition(query: string): Promise<HandlerResponse> {
 
 async function fetchNutrition(offId: string): Promise<HandlerResponse> {
   const url = `https://world.openfoodfacts.org/api/v0/product/${encodeURIComponent(offId)}.json?fields=product_name,nutriments,serving_size`;
-  const res = await fetch(url, { headers: { "User-Agent": "modulab-rezepte/0.1 (homelab)" } });
+  const res = await fetch(url, { headers: { "User-Agent": "modulab-recipes/0.1 (homelab)" } });
   if (!res.ok) return { status: 502, body: { error: "OFF API error" } };
   const data = await res.json();
   if (data.status !== 1) return notFound("product");
@@ -546,7 +546,7 @@ async function importFromUrl(url: string): Promise<HandlerResponse> {
   try {
     const res = await fetch(url, {
       headers: {
-        "User-Agent": "modulab-rezepte/0.1 (homelab recipe import)",
+        "User-Agent": "modulab-recipes/0.1 (homelab recipe import)",
         "Accept": "text/html",
       },
       signal: AbortSignal.timeout(15_000),
