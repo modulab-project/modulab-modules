@@ -298,7 +298,7 @@ async function getRecipe(db: ModuleDbClient, id: string): Promise<HandlerRespons
             COALESCE(
               json_agg(DISTINCT jsonb_build_object('id', t.id, 'name', t.name))
               FILTER (WHERE t.id IS NOT NULL),
-              '[]'::jsonb
+              '[]'::json
             ) AS tags
      FROM recipes r
      LEFT JOIN categories c ON c.id = r.category_id
