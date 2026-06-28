@@ -564,11 +564,14 @@ function RecipeEditor({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Image upload
+  // Image upload / delete
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [imageUploading, setImageUploading] = useState(false);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [savedRecipeId, setSavedRecipeId] = useState<string | null>(id ?? null);
+  // recipeIdRef tracks the ID of an already-created recipe so we can attach
+  // an image even before the user hits Save (avoids needlessly blocking upload
+  // behind the save flow and prevents double-creation bugs).
+  const recipeIdRef = useRef<string | null>(id ?? null);
 
   useEffect(() => {
     api.get<Category[]>("/categories").then(setCategories).catch(() => {});
@@ -620,10 +623,14 @@ function RecipeEditor({
       if (isEdit) {
         await api.mutate("PATCH", `/recipes/${id}`, body);
         recipeId = id!;
+      } else if (recipeIdRef.current) {
+        // Already created (e.g. for image upload) — just update
+        await api.mutate("PATCH", `/recipes/${recipeIdRef.current}`, body);
+        recipeId = recipeIdRef.current;
       } else {
         const created = await api.mutate<{ id: string }>("POST", "/recipes", body);
         recipeId = created.id;
-        setSavedRecipeId(recipeId);
+        recipeIdRef.current = recipeId;
       }
 
       // Save ingredients
@@ -651,40 +658,48 @@ function RecipeEditor({
   }
 
   async function handleImageUpload(file: File) {
-    // Must have a recipe ID to attach image. Save first if new.
-    let recipeId = savedRecipeId;
-    if (!recipeId) {
+    // Must have a recipe ID to attach image — create a draft if needed.
+    if (!recipeIdRef.current) {
       if (!title.trim()) { setError(t("title_required_for_image")); return; }
-      setSaving(true);
+      setError(null);
       try {
         const created = await api.mutate<{ id: string }>("POST", "/recipes", {
           title: title.trim(),
-          description: description.trim(),
-          category_id: categoryId || null,
           servings,
-          notes: notes.trim() || null,
         });
-        recipeId = created.id;
-        setSavedRecipeId(recipeId);
+        recipeIdRef.current = created.id;
       } catch (e) {
         setError(String(e));
-        setSaving(false);
         return;
-      } finally {
-        setSaving(false);
       }
     }
 
     setImageUploading(true);
+    setError(null);
     try {
       const fd = new FormData();
       fd.append("file", file); // Go router expects "file" field name
-      const res = await api.upload<{ image_path: string }>(`/recipes/${recipeId}/image`, fd);
+      const res = await api.upload<{ image_path: string }>(`/recipes/${recipeIdRef.current}/image`, fd);
       setImagePreview(imageUrl(res.image_path));
     } catch (e) {
       setError(String(e));
     } finally {
       setImageUploading(false);
+    }
+  }
+
+  async function handleImageDelete() {
+    setError(null);
+    try {
+      const recipeId = recipeIdRef.current ?? id;
+      if (recipeId) {
+        await api.mutate("DELETE", `/recipes/${recipeId}/image`);
+      }
+      setImagePreview(null);
+      // Reset file input so the same file can be re-selected
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    } catch (e) {
+      setError(String(e));
     }
   }
 
@@ -722,27 +737,39 @@ function RecipeEditor({
           {imagePreview ? (
             <div className="relative">
               <img src={imagePreview} alt="" className="h-40 w-full rounded-xl object-cover" />
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="absolute bottom-2 right-2 flex items-center gap-1.5 rounded-lg bg-black/60 px-3 py-1.5 text-xs font-medium text-white hover:bg-black/80"
-              >
-                {imageUploading
-                  ? <><i className="ti ti-loader-2 animate-spin text-[12px]" /> {t("uploading")}</>
-                  : <><i className="ti ti-camera text-[12px]" /> {t("change_image")}</>
-                }
-              </button>
+              <div className="absolute bottom-2 right-2 flex gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={imageUploading}
+                  className="flex items-center gap-1.5 rounded-lg bg-black/60 px-3 py-1.5 text-xs font-medium text-white hover:bg-black/80 disabled:opacity-50"
+                >
+                  {imageUploading
+                    ? <><i className="ti ti-loader-2 animate-spin text-[12px]" /> {t("uploading")}</>
+                    : <><i className="ti ti-camera text-[12px]" /> {t("change_image")}</>
+                  }
+                </button>
+                <button
+                  type="button"
+                  onClick={handleImageDelete}
+                  disabled={imageUploading}
+                  className="flex items-center justify-center rounded-lg bg-black/60 px-2 py-1.5 text-xs text-red-300 hover:bg-red-600/80 hover:text-white disabled:opacity-50"
+                  title={t("delete_image")}
+                >
+                  <i className="ti ti-trash text-[13px]" />
+                </button>
+              </div>
             </div>
           ) : (
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
               disabled={imageUploading}
-              className="flex h-32 w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-gray-300 text-sm text-gray-400 hover:border-teal-400 hover:text-teal-600 dark:border-gray-700 disabled:opacity-50"
+              className="flex h-32 w-full flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-gray-300 text-sm text-gray-400 hover:border-teal-400 hover:text-teal-600 dark:border-gray-700 disabled:opacity-50"
             >
               {imageUploading
-                ? <><i className="ti ti-loader-2 animate-spin text-[18px]" /> {t("uploading")}</>
-                : <><i className="ti ti-photo text-[24px]" /><br />{t("upload_image")}</>
+                ? <><i className="ti ti-loader-2 animate-spin text-[22px]" /><span>{t("uploading")}</span></>
+                : <><i className="ti ti-photo text-[28px]" /><span>{t("upload_image")}</span></>
               }
             </button>
           )}

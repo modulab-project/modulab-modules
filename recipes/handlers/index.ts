@@ -84,6 +84,14 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
     );
     return ok({ image_path: file_path });
   }
+  if (method === "DELETE" && path.match(/^\/recipes\/[^/]+\/image$/)) {
+    const id = path.split("/")[2];
+    await db.query(
+      `UPDATE recipes SET image_path = NULL, updated_at = now() WHERE id = $1`,
+      [id],
+    );
+    return noContent();
+  }
 
   // ── Ingredients ───────────────────────────────────────────────────────────
 
@@ -711,6 +719,7 @@ interface RecipeInput {
   cook_time_min?: number | null;
   source_url?: string | null;
   notes?: string | null;
+  image_path?: string | null;
 }
 
 interface IngredientInput {

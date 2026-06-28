@@ -42,6 +42,7 @@
   "image": "Image",
   "upload_image": "Upload image",
   "change_image": "Change image",
+  "delete_image": "Delete image",
   "uploading": "Uploading…",
   "title_required_for_image": "Please enter a title first",
 
