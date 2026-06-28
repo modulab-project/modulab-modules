@@ -3,6 +3,7 @@
   "nav_meal_plan": "Meal Plan",
   "nav_import": "URL Import",
   "btn_new_recipe": "New Recipe",
+  "btn_new": "New",
 
   "search_placeholder": "Search…",
   "all_categories": "All Categories",
@@ -34,6 +35,15 @@
   "unit_placeholder": "Unit",
   "ingredient_placeholder": "Ingredient",
   "add_ingredient": "Add ingredient",
+
+  "notes": "Notes",
+  "notes_placeholder": "Personal notes, tips, variations…",
+
+  "image": "Image",
+  "upload_image": "Upload image",
+  "change_image": "Change image",
+  "uploading": "Uploading…",
+  "title_required_for_image": "Please enter a title first",
 
   "steps": "Instructions",
   "step_placeholder": "Step {{n}}",

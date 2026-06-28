@@ -10,9 +10,10 @@
  *   - RecipeDetail
  *   - RecipeEditor (create / edit)
  *   - MealPlan
+ *   - CategoriesView
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import type { ModuleComponentProps } from "./types";
 
@@ -29,6 +30,7 @@ interface Recipe {
   cook_time_min: number | null;
   image_path: string | null;
   source_url: string | null;
+  notes: string | null;
   kcal_per_serving: number | null;
   protein_g_per_serving: number | null;
   fat_g_per_serving: number | null;
@@ -115,7 +117,24 @@ function useApi(apiBase: string, token: string) {
     [apiBase, token],
   );
 
-  return { get, mutate };
+  const upload = useCallback(
+    async <T,>(path: string, formData: FormData): Promise<T> => {
+      const url = base + (path.startsWith("/") ? path : "/" + path);
+      const r = await fetch(url, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+      if (!r.ok) {
+        const txt = await r.text();
+        throw new Error(txt || `HTTP ${r.status}`);
+      }
+      return r.json();
+    },
+    [base, token],
+  );
+
+  return { get, mutate, upload };
 }
 
 // ── Root component ────────────────────────────────────────────────────────────
@@ -129,8 +148,8 @@ export default function RecipesApp({ apiBase, token }: ModuleComponentProps) {
 
   return (
     <div className="recipes-module">
-      {/* Navigation bar */}
-      <div className="mb-5 flex items-center gap-2">
+      {/* Navigation bar — scrollable on mobile */}
+      <div className="mb-4 flex items-center gap-1 overflow-x-auto pb-1">
         <button
           type="button"
           onClick={() => setView({ type: "list" })}
@@ -159,13 +178,13 @@ export default function RecipesApp({ apiBase, token }: ModuleComponentProps) {
         >
           <i className="ti ti-tag text-[14px]" /> {t("nav_categories")}
         </button>
-        <div className="flex-1" />
+        <div className="flex-1 min-w-[8px]" />
         <button
           type="button"
           onClick={() => setView({ type: "editor" })}
-          className="flex items-center gap-1.5 rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700"
+          className="flex flex-none items-center gap-1.5 rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700"
         >
-          <i className="ti ti-plus text-[14px]" /> {t("btn_new_recipe")}
+          <i className="ti ti-plus text-[14px]" /> <span className="hidden sm:inline">{t("btn_new_recipe")}</span><span className="sm:hidden">{t("btn_new")}</span>
         </button>
       </div>
 
@@ -198,7 +217,7 @@ export default function RecipesApp({ apiBase, token }: ModuleComponentProps) {
 }
 
 function navCls(active: boolean) {
-  return `flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+  return `flex flex-none items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors whitespace-nowrap ${
     active
       ? "bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-gray-100"
       : "text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
@@ -218,50 +237,56 @@ function RecipeList({
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [total, setTotal] = useState(0);
   const [search, setSearch] = useState("");
-  const [category, setCategory] = useState("");
+  const [categoryId, setCategoryId] = useState("");
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams();
-      if (search) params.set("search", search);
-      if (category) params.set("category", category);
-      const res = await api.get<{ recipes: Recipe[]; total: number }>(
-        `/recipes${params.size ? "?" + params : ""}`,
-      );
-      setRecipes(res.recipes ?? []);
-      setTotal(res.total ?? 0);
-    } finally {
-      setLoading(false);
-    }
-  }, [api, search, category]);
 
   useEffect(() => {
     api.get<Category[]>("/categories").then(setCategories).catch(() => {});
   }, [api]);
 
+  // Separate load function that explicitly takes the current filter values
+  // to avoid stale-closure issues with useCallback deps
+  const load = useCallback(
+    async (searchVal: string, catVal: string) => {
+      setLoading(true);
+      try {
+        const params = new URLSearchParams();
+        if (searchVal) params.set("search", searchVal);
+        if (catVal) params.set("category", catVal);
+        const qs = params.toString();
+        const res = await api.get<{ recipes: Recipe[]; total: number }>(
+          `/recipes${qs ? "?" + qs : ""}`,
+        );
+        setRecipes(res.recipes ?? []);
+        setTotal(res.total ?? 0);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [api],
+  );
+
   useEffect(() => {
-    load();
-  }, [load]);
+    load(search, categoryId);
+  }, [load, search, categoryId]);
 
   return (
     <div>
-      {/* Filters */}
-      <div className="mb-4 flex flex-wrap gap-2">
+      {/* Filters — stacked on mobile, row on larger screens */}
+      <div className="mb-4 flex flex-col gap-2 sm:flex-row">
         <input
           type="search"
           placeholder={t("search_placeholder")}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="flex-1 min-w-[180px] rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 dark:border-gray-700 dark:bg-gray-900"
+          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 dark:border-gray-700 dark:bg-gray-900"
           style={{ fontSize: "16px" }}
         />
         <select
-          value={category}
-          onChange={(e) => setCategory(e.target.value)}
-          className="rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900"
+          value={categoryId}
+          onChange={(e) => setCategoryId(e.target.value)}
+          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900 sm:w-auto sm:min-w-[160px]"
           style={{ fontSize: "16px" }}
         >
           <option value="">{t("all_categories")}</option>
@@ -280,6 +305,7 @@ function RecipeList({
         </div>
       )}
 
+      {/* Grid: 1 col on mobile, 2 on sm, 3 on lg */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {recipes.map((r) => (
           <button
@@ -290,7 +316,7 @@ function RecipeList({
           >
             {r.image_path && (
               <img
-                src={`/modules/recipes/storage/${r.image_path.split("/storage/")[1]}`}
+                src={imageUrl(r.image_path)}
                 alt={r.title}
                 className="h-36 w-full rounded-xl object-cover"
               />
@@ -342,10 +368,8 @@ function RecipeDetail({
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    Promise.all([
-      api.get<Recipe & { ingredients: Ingredient[]; steps: Step[]; tags: Tag[] }>(`/recipes/${id}`),
-    ])
-      .then(([r]) => {
+    api.get<Recipe & { ingredients: Ingredient[]; steps: Step[]; tags: Tag[] }>(`/recipes/${id}`)
+      .then((r) => {
         setRecipe(r);
         setServings(r.servings);
       })
@@ -360,6 +384,7 @@ function RecipeDetail({
       )
       .then((n) => {
         if (n.available) setNutrition({ kcal: n.kcal!, protein: n.protein!, fat: n.fat!, carbs: n.carbs! });
+        else setNutrition(null);
       })
       .catch(() => {});
   }, [api, id, recipe, servings]);
@@ -370,20 +395,20 @@ function RecipeDetail({
   const totalMin = (recipe.prep_time_min ?? 0) + (recipe.cook_time_min ?? 0);
 
   return (
-    <div className="max-w-2xl">
+    <div className="mx-auto max-w-2xl">
       <button
         type="button"
         onClick={onBack}
-        className="mb-5 flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
+        className="mb-4 flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
       >
         <i className="ti ti-arrow-left text-[14px]" /> {t("back")}
       </button>
 
       {recipe.image_path && (
         <img
-          src={`/modules/recipes/storage/${recipe.image_path.split("/storage/")[1]}`}
+          src={imageUrl(recipe.image_path)}
           alt={recipe.title}
-          className="mb-4 h-56 w-full rounded-2xl object-cover"
+          className="mb-4 h-48 w-full rounded-2xl object-cover sm:h-56"
         />
       )}
 
@@ -399,14 +424,14 @@ function RecipeDetail({
         <button
           type="button"
           onClick={() => onEdit(id)}
-          className="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
+          className="flex flex-none items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
         >
           <i className="ti ti-pencil text-[14px]" /> {t("edit")}
         </button>
       </div>
 
       {/* Meta row */}
-      <div className="mb-4 flex flex-wrap gap-4 text-sm text-gray-500 dark:text-gray-400">
+      <div className="mb-4 flex flex-wrap gap-3 text-sm text-gray-500 dark:text-gray-400">
         {totalMin > 0 && <span><i className="ti ti-clock" /> {t("total_time", { min: totalMin })}</span>}
         <span><i className="ti ti-users" /> {recipe.servings} {t("servings")}</span>
         {recipe.source_url && (
@@ -421,10 +446,10 @@ function RecipeDetail({
         <div className="mb-3 flex items-center gap-3">
           <span className="text-sm font-medium">{t("servings")}:</span>
           <button type="button" onClick={() => setServings(Math.max(1, servings - 1))}
-            className="flex h-7 w-7 items-center justify-center rounded-full border border-gray-300 text-sm hover:bg-gray-50 dark:border-gray-700">−</button>
-          <span className="text-sm font-semibold">{servings}</span>
+            className="flex h-8 w-8 items-center justify-center rounded-full border border-gray-300 text-sm hover:bg-gray-50 dark:border-gray-700">−</button>
+          <span className="w-6 text-center text-sm font-semibold">{servings}</span>
           <button type="button" onClick={() => setServings(servings + 1)}
-            className="flex h-7 w-7 items-center justify-center rounded-full border border-gray-300 text-sm hover:bg-gray-50 dark:border-gray-700">+</button>
+            className="flex h-8 w-8 items-center justify-center rounded-full border border-gray-300 text-sm hover:bg-gray-50 dark:border-gray-700">+</button>
         </div>
         {nutrition && (
           <div className="grid grid-cols-4 gap-2 text-center text-xs">
@@ -447,6 +472,16 @@ function RecipeDetail({
         <p className="mb-5 text-sm text-gray-600 dark:text-gray-300">{recipe.description}</p>
       )}
 
+      {/* Notes */}
+      {recipe.notes && (
+        <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950">
+          <div className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-amber-700 dark:text-amber-400">
+            <i className="ti ti-note text-[13px]" /> {t("notes")}
+          </div>
+          <p className="whitespace-pre-wrap text-sm text-amber-900 dark:text-amber-200">{recipe.notes}</p>
+        </div>
+      )}
+
       {/* Ingredients */}
       {recipe.ingredients.length > 0 && (
         <div className="mb-5">
@@ -457,7 +492,7 @@ function RecipeDetail({
               const amount = ing.amount != null ? +(ing.amount * factor).toFixed(1) : null;
               return (
                 <li key={ing.id} className="flex items-baseline gap-2 text-sm">
-                  <span className="min-w-[80px] text-right font-medium">
+                  <span className="w-20 flex-none text-right font-medium">
                     {amount != null ? `${amount}${ing.unit ? " " + ing.unit : ""}` : ""}
                   </span>
                   <span className="text-gray-700 dark:text-gray-300">{ing.name}</span>
@@ -520,6 +555,7 @@ function RecipeEditor({
   const [servings, setServings] = useState(4);
   const [prepTime, setPrepTime] = useState("");
   const [cookTime, setCookTime] = useState("");
+  const [notes, setNotes] = useState("");
   const [categories, setCategories] = useState<Category[]>([]);
   const [ingredients, setIngredients] = useState<Array<{ name: string; amount: string; unit: string }>>([
     { name: "", amount: "", unit: "" },
@@ -527,6 +563,12 @@ function RecipeEditor({
   const [steps, setSteps] = useState<string[]>([""]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Image upload
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [imageUploading, setImageUploading] = useState(false);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [savedRecipeId, setSavedRecipeId] = useState<string | null>(id ?? null);
 
   useEffect(() => {
     api.get<Category[]>("/categories").then(setCategories).catch(() => {});
@@ -538,11 +580,13 @@ function RecipeEditor({
       .get<Recipe & { ingredients: Ingredient[]; steps: Step[] }>(`/recipes/${id}`)
       .then((r) => {
         setTitle(r.title);
-        setDescription(r.description);
+        setDescription(r.description ?? "");
         setCategoryId(r.category_id ?? "");
         setServings(r.servings);
         setPrepTime(r.prep_time_min?.toString() ?? "");
         setCookTime(r.cook_time_min?.toString() ?? "");
+        setNotes(r.notes ?? "");
+        if (r.image_path) setImagePreview(imageUrl(r.image_path));
         setIngredients(
           r.ingredients.length
             ? r.ingredients.map((i) => ({
@@ -569,6 +613,7 @@ function RecipeEditor({
         servings,
         prep_time_min: prepTime ? parseInt(prepTime) : null,
         cook_time_min: cookTime ? parseInt(cookTime) : null,
+        notes: notes.trim() || null,
       };
 
       let recipeId: string;
@@ -578,6 +623,7 @@ function RecipeEditor({
       } else {
         const created = await api.mutate<{ id: string }>("POST", "/recipes", body);
         recipeId = created.id;
+        setSavedRecipeId(recipeId);
       }
 
       // Save ingredients
@@ -604,13 +650,51 @@ function RecipeEditor({
     }
   }
 
+  async function handleImageUpload(file: File) {
+    // Must have a recipe ID to attach image. Save first if new.
+    let recipeId = savedRecipeId;
+    if (!recipeId) {
+      if (!title.trim()) { setError(t("title_required_for_image")); return; }
+      setSaving(true);
+      try {
+        const created = await api.mutate<{ id: string }>("POST", "/recipes", {
+          title: title.trim(),
+          description: description.trim(),
+          category_id: categoryId || null,
+          servings,
+          notes: notes.trim() || null,
+        });
+        recipeId = created.id;
+        setSavedRecipeId(recipeId);
+      } catch (e) {
+        setError(String(e));
+        setSaving(false);
+        return;
+      } finally {
+        setSaving(false);
+      }
+    }
+
+    setImageUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file); // Go router expects "file" field name
+      const res = await api.upload<{ image_path: string }>(`/recipes/${recipeId}/image`, fd);
+      setImagePreview(imageUrl(res.image_path));
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setImageUploading(false);
+    }
+  }
+
   const inputCls = "w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 dark:border-gray-700 dark:bg-gray-900";
   const labelCls = "mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300";
 
   return (
-    <div className="max-w-2xl">
+    <div className="mx-auto max-w-2xl">
       <button type="button" onClick={onCancel}
-        className="mb-5 flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 dark:text-gray-400">
+        className="mb-4 flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 dark:text-gray-400">
         <i className="ti ti-arrow-left text-[14px]" /> {t("cancel")}
       </button>
       <h1 className="mb-5 text-xl font-semibold">{isEdit ? t("edit_recipe") : t("new_recipe")}</h1>
@@ -622,6 +706,48 @@ function RecipeEditor({
       )}
 
       <div className="space-y-4">
+        {/* Image upload */}
+        <div>
+          <label className={labelCls}>{t("image")}</label>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) handleImageUpload(file);
+            }}
+          />
+          {imagePreview ? (
+            <div className="relative">
+              <img src={imagePreview} alt="" className="h-40 w-full rounded-xl object-cover" />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="absolute bottom-2 right-2 flex items-center gap-1.5 rounded-lg bg-black/60 px-3 py-1.5 text-xs font-medium text-white hover:bg-black/80"
+              >
+                {imageUploading
+                  ? <><i className="ti ti-loader-2 animate-spin text-[12px]" /> {t("uploading")}</>
+                  : <><i className="ti ti-camera text-[12px]" /> {t("change_image")}</>
+                }
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={imageUploading}
+              className="flex h-32 w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-gray-300 text-sm text-gray-400 hover:border-teal-400 hover:text-teal-600 dark:border-gray-700 disabled:opacity-50"
+            >
+              {imageUploading
+                ? <><i className="ti ti-loader-2 animate-spin text-[18px]" /> {t("uploading")}</>
+                : <><i className="ti ti-photo text-[24px]" /><br />{t("upload_image")}</>
+              }
+            </button>
+          )}
+        </div>
+
         <div>
           <label className={labelCls}>{t("title")} *</label>
           <input type="text" value={title} onChange={(e) => setTitle(e.target.value)}
@@ -632,6 +758,7 @@ function RecipeEditor({
           <textarea value={description} onChange={(e) => setDescription(e.target.value)}
             className={inputCls} rows={2} style={{ fontSize: "16px" }} />
         </div>
+        {/* Category + Servings — 2 cols on all screens (fields short enough) */}
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className={labelCls}>{t("category")}</label>
@@ -668,10 +795,10 @@ function RecipeEditor({
               <div key={i} className="flex gap-2">
                 <input type="number" step="0.1" min={0} placeholder={t("amount_placeholder")}
                   value={ing.amount} onChange={(e) => { const n = [...ingredients]; n[i].amount = e.target.value; setIngredients(n); }}
-                  className="w-20 rounded-lg border border-gray-300 px-2 py-2 text-sm dark:border-gray-700 dark:bg-gray-900" style={{ fontSize: "16px" }} />
+                  className="w-16 rounded-lg border border-gray-300 px-2 py-2 text-sm dark:border-gray-700 dark:bg-gray-900" style={{ fontSize: "16px" }} />
                 <input type="text" placeholder={t("unit_placeholder")}
                   value={ing.unit} onChange={(e) => { const n = [...ingredients]; n[i].unit = e.target.value; setIngredients(n); }}
-                  className="w-20 rounded-lg border border-gray-300 px-2 py-2 text-sm dark:border-gray-700 dark:bg-gray-900" style={{ fontSize: "16px" }} />
+                  className="w-16 rounded-lg border border-gray-300 px-2 py-2 text-sm dark:border-gray-700 dark:bg-gray-900" style={{ fontSize: "16px" }} />
                 <input type="text" placeholder={t("ingredient_placeholder")}
                   value={ing.name} onChange={(e) => { const n = [...ingredients]; n[i].name = e.target.value; setIngredients(n); }}
                   className="flex-1 rounded-lg border border-gray-300 px-2 py-2 text-sm dark:border-gray-700 dark:bg-gray-900" style={{ fontSize: "16px" }} />
@@ -694,7 +821,8 @@ function RecipeEditor({
           <div className="space-y-2">
             {steps.map((step, i) => (
               <div key={i} className="flex gap-2">
-                <span className="flex h-9 w-9 flex-none items-center justify-center rounded-full bg-teal-600 text-xs font-bold text-white">
+                <span style={{ width: "1.5rem", height: "1.5rem", flexShrink: 0, fontSize: "11px", fontWeight: 700, lineHeight: "1.5rem", marginTop: "10px" }}
+                  className="flex items-center justify-center rounded-full bg-teal-600 text-white">
                   {i + 1}
                 </span>
                 <textarea value={step} onChange={(e) => { const n = [...steps]; n[i] = e.target.value; setSteps(n); }}
@@ -711,6 +839,19 @@ function RecipeEditor({
             className="mt-2 flex items-center gap-1.5 text-sm text-teal-600 hover:text-teal-700">
             <i className="ti ti-plus text-[13px]" /> {t("add_step")}
           </button>
+        </div>
+
+        {/* Notes */}
+        <div>
+          <label className={labelCls}>{t("notes")}</label>
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            className={inputCls}
+            rows={3}
+            style={{ fontSize: "16px" }}
+            placeholder={t("notes_placeholder")}
+          />
         </div>
 
         <div className="flex justify-end gap-2 pt-2">
@@ -807,7 +948,7 @@ function MealPlanView({ api }: { api: ReturnType<typeof useApi> }) {
         <table className="w-full min-w-[500px] border-collapse text-sm">
           <thead>
             <tr>
-              <th className="w-24 py-2 text-left font-medium text-gray-500" />
+              <th className="w-20 py-2 text-left font-medium text-gray-500" />
               {DAY_KEYS.map((key) => (
                 <th key={key} className="py-2 text-center font-medium text-gray-700 dark:text-gray-300">{t(key)}</th>
               ))}
@@ -895,7 +1036,7 @@ function UrlImport({
   }
 
   return (
-    <div className="max-w-lg">
+    <div className="mx-auto max-w-lg">
       <h2 className="mb-4 text-lg font-semibold">{t("import_title")}</h2>
       <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">{t("import_description")}</p>
       <div className="flex gap-2">
@@ -1000,7 +1141,7 @@ function CategoriesView({ api }: { api: ReturnType<typeof useApi> }) {
   const inputCls = "rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 dark:border-gray-700 dark:bg-gray-900";
 
   return (
-    <div className="max-w-lg">
+    <div className="mx-auto max-w-lg">
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-lg font-semibold">{t("categories_title")}</h2>
         {editingId === null && (
@@ -1083,4 +1224,15 @@ function CategoriesView({ api }: { api: ReturnType<typeof useApi> }) {
       </div>
     </div>
   );
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function imageUrl(path: string): string {
+  // path is stored as absolute storage path like /home/user/.../storage/abc.jpg
+  // The core serves module storage at /modules/{name}/storage/...
+  // Extract everything after /storage/
+  const idx = path.indexOf("/storage/");
+  if (idx === -1) return path;
+  return `/modules/recipes/storage/${path.slice(idx + 9)}`;
 }

@@ -3,6 +3,7 @@
   "nav_meal_plan": "Wochenplan",
   "nav_import": "URL-Import",
   "btn_new_recipe": "Neues Rezept",
+  "btn_new": "Neu",
 
   "search_placeholder": "Suchen…",
   "all_categories": "Alle Kategorien",
@@ -34,6 +35,15 @@
   "unit_placeholder": "Einheit",
   "ingredient_placeholder": "Zutat",
   "add_ingredient": "Zutat hinzufügen",
+
+  "notes": "Notizen",
+  "notes_placeholder": "Persönliche Notizen, Tipps, Variationen…",
+
+  "image": "Bild",
+  "upload_image": "Bild hochladen",
+  "change_image": "Bild ändern",
+  "uploading": "Hochladen…",
+  "title_required_for_image": "Bitte zuerst einen Titel eingeben",
 
   "steps": "Zubereitung",
   "step_placeholder": "Schritt {{n}}",

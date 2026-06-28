@@ -330,8 +330,8 @@ async function createRecipe(
   const [row] = await db.query(
     `INSERT INTO recipes
        (title, description, category_id, servings, prep_time_min, cook_time_min,
-        source_url, nutrition_source, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,'manual',$8)
+        source_url, notes, nutrition_source, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'manual',$9)
      RETURNING *`,
     [
       input.title,
@@ -341,6 +341,7 @@ async function createRecipe(
       input.prep_time_min ?? null,
       input.cook_time_min ?? null,
       input.source_url ?? null,
+      input.notes ?? null,
       userId,
     ],
   );
@@ -366,6 +367,7 @@ async function updateRecipe(
        prep_time_min = $6,
        cook_time_min = $7,
        source_url    = $8,
+       notes         = $9,
        updated_at    = now()
      WHERE id = $1 RETURNING *`,
     [
@@ -377,6 +379,7 @@ async function updateRecipe(
       n(input.prep_time_min),
       n(input.cook_time_min),
       n(input.source_url),
+      n(input.notes),
     ],
   );
   if (!row) return notFound("recipe");
@@ -707,6 +710,7 @@ interface RecipeInput {
   prep_time_min?: number | null;
   cook_time_min?: number | null;
   source_url?: string | null;
+  notes?: string | null;
 }
 
 interface IngredientInput {
