@@ -10,6 +10,9 @@ import react from "@vitejs/plugin-react";
 // gzipped which is acceptable for a homelab module loaded once per session.
 export default defineConfig({
   plugins: [react()],
+  define: {
+    "process.env.NODE_ENV": JSON.stringify("production"),
+  },
   build: {
     lib: {
       entry: "src/main.tsx",
