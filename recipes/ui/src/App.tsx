@@ -13,6 +13,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import type { ModuleComponentProps } from "./types";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -114,7 +115,10 @@ function useApi(apiBase: string, token: string) {
 
 // ── Root component ────────────────────────────────────────────────────────────
 
+const NS = "mod_recipes";
+
 export default function RecipesApp({ apiBase, token }: ModuleComponentProps) {
+  const { t } = useTranslation(NS);
   const [view, setView] = useState<View>({ type: "list" });
   const api = useApi(apiBase, token);
 
@@ -127,21 +131,21 @@ export default function RecipesApp({ apiBase, token }: ModuleComponentProps) {
           onClick={() => setView({ type: "list" })}
           className={navCls(view.type === "list")}
         >
-          <i className="ti ti-book-2 text-[14px]" /> Recipes
+          <i className="ti ti-book-2 text-[14px]" /> {t("nav_recipes")}
         </button>
         <button
           type="button"
           onClick={() => setView({ type: "meal-plan" })}
           className={navCls(view.type === "meal-plan")}
         >
-          <i className="ti ti-calendar-week text-[14px]" /> Wochenplan
+          <i className="ti ti-calendar-week text-[14px]" /> {t("nav_meal_plan")}
         </button>
         <button
           type="button"
           onClick={() => setView({ type: "import" })}
           className={navCls(view.type === "import")}
         >
-          <i className="ti ti-link text-[14px]" /> URL-Import
+          <i className="ti ti-link text-[14px]" /> {t("nav_import")}
         </button>
         <div className="flex-1" />
         <button
@@ -149,7 +153,7 @@ export default function RecipesApp({ apiBase, token }: ModuleComponentProps) {
           onClick={() => setView({ type: "editor" })}
           className="flex items-center gap-1.5 rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700"
         >
-          <i className="ti ti-plus text-[14px]" /> Neues Rezept
+          <i className="ti ti-plus text-[14px]" /> {t("btn_new_recipe")}
         </button>
       </div>
 
@@ -197,6 +201,7 @@ function RecipeList({
   api: ReturnType<typeof useApi>;
   onSelect: (id: string) => void;
 }) {
+  const { t } = useTranslation(NS);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [total, setTotal] = useState(0);
   const [search, setSearch] = useState("");
@@ -234,7 +239,7 @@ function RecipeList({
       <div className="mb-4 flex flex-wrap gap-2">
         <input
           type="search"
-          placeholder="Suchen…"
+          placeholder={t("search_placeholder")}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="flex-1 min-w-[180px] rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 dark:border-gray-700 dark:bg-gray-900"
@@ -246,19 +251,19 @@ function RecipeList({
           className="rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900"
           style={{ fontSize: "16px" }}
         >
-          <option value="">Alle Kategorien</option>
+          <option value="">{t("all_categories")}</option>
           {categories.map((c) => (
             <option key={c.id} value={c.id}>{c.name}</option>
           ))}
         </select>
       </div>
 
-      {loading && <p className="text-sm text-gray-400">Lade…</p>}
+      {loading && <p className="text-sm text-gray-400">{t("loading")}</p>}
 
       {!loading && recipes.length === 0 && (
         <div className="rounded-2xl border border-dashed border-gray-200 px-6 py-12 text-center dark:border-gray-800">
           <i className="ti ti-book-off text-[36px] text-gray-300 dark:text-gray-700" />
-          <p className="mt-3 text-sm text-gray-400">No recipes yet</p>
+          <p className="mt-3 text-sm text-gray-400">{t("no_recipes")}</p>
         </div>
       )}
 
@@ -287,10 +292,10 @@ function RecipeList({
             </div>
             <div className="mt-auto flex items-center gap-3 text-xs text-gray-400">
               {r.prep_time_min != null && (
-                <span><i className="ti ti-clock text-[12px]" /> {r.prep_time_min} Min</span>
+                <span><i className="ti ti-clock text-[12px]" /> {t("total_time", { min: r.prep_time_min })}</span>
               )}
               {r.kcal_per_serving != null && (
-                <span><i className="ti ti-flame text-[12px]" /> {Math.round(r.kcal_per_serving)} kcal</span>
+                <span><i className="ti ti-flame text-[12px]" /> {Math.round(r.kcal_per_serving)} {t("kcal")}</span>
               )}
               <span className="ml-auto"><i className="ti ti-users text-[12px]" /> {r.servings}</span>
             </div>
@@ -298,7 +303,7 @@ function RecipeList({
         ))}
       </div>
       {total > recipes.length && (
-        <p className="mt-4 text-center text-xs text-gray-400">{total} recipes total</p>
+        <p className="mt-4 text-center text-xs text-gray-400">{t("recipes_total", { count: total })}</p>
       )}
     </div>
   );
@@ -317,6 +322,7 @@ function RecipeDetail({
   onBack: () => void;
   onEdit: (id: string) => void;
 }) {
+  const { t } = useTranslation(NS);
   const [recipe, setRecipe] = useState<Recipe & { ingredients: Ingredient[]; steps: Step[]; tags: Tag[] } | null>(null);
   const [nutrition, setNutrition] = useState<{ kcal: number; protein: number; fat: number; carbs: number } | null>(null);
   const [servings, setServings] = useState(4);
@@ -345,8 +351,8 @@ function RecipeDetail({
       .catch(() => {});
   }, [api, id, recipe, servings]);
 
-  if (loading) return <p className="text-sm text-gray-400">Lade…</p>;
-  if (!recipe) return <p className="text-sm text-red-500">Rezept nicht gefunden</p>;
+  if (loading) return <p className="text-sm text-gray-400">{t("loading")}</p>;
+  if (!recipe) return <p className="text-sm text-red-500">{t("recipe_not_found")}</p>;
 
   const totalMin = (recipe.prep_time_min ?? 0) + (recipe.cook_time_min ?? 0);
 
@@ -357,7 +363,7 @@ function RecipeDetail({
         onClick={onBack}
         className="mb-5 flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
       >
-        <i className="ti ti-arrow-left text-[14px]" /> Zurück
+        <i className="ti ti-arrow-left text-[14px]" /> {t("back")}
       </button>
 
       {recipe.image_path && (
@@ -382,17 +388,17 @@ function RecipeDetail({
           onClick={() => onEdit(id)}
           className="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
         >
-          <i className="ti ti-pencil text-[14px]" /> Bearbeiten
+          <i className="ti ti-pencil text-[14px]" /> {t("edit")}
         </button>
       </div>
 
       {/* Meta row */}
       <div className="mb-4 flex flex-wrap gap-4 text-sm text-gray-500 dark:text-gray-400">
-        {totalMin > 0 && <span><i className="ti ti-clock" /> {totalMin} Min</span>}
-        <span><i className="ti ti-users" /> {recipe.servings} Portionen</span>
+        {totalMin > 0 && <span><i className="ti ti-clock" /> {t("total_time", { min: totalMin })}</span>}
+        <span><i className="ti ti-users" /> {recipe.servings} {t("servings")}</span>
         {recipe.source_url && (
           <a href={recipe.source_url} target="_blank" rel="noreferrer" className="flex items-center gap-1 hover:text-teal-600">
-            <i className="ti ti-external-link" /> Quelle
+            <i className="ti ti-external-link" /> {t("source")}
           </a>
         )}
       </div>
@@ -400,7 +406,7 @@ function RecipeDetail({
       {/* Portion adjuster + nutrition */}
       <div className="mb-5 rounded-2xl border border-gray-200 p-4 dark:border-gray-800">
         <div className="mb-3 flex items-center gap-3">
-          <span className="text-sm font-medium">Portionen:</span>
+          <span className="text-sm font-medium">{t("servings")}:</span>
           <button type="button" onClick={() => setServings(Math.max(1, servings - 1))}
             className="flex h-7 w-7 items-center justify-center rounded-full border border-gray-300 text-sm hover:bg-gray-50 dark:border-gray-700">−</button>
           <span className="text-sm font-semibold">{servings}</span>
@@ -410,10 +416,10 @@ function RecipeDetail({
         {nutrition && (
           <div className="grid grid-cols-4 gap-2 text-center text-xs">
             {[
-              { label: "kcal", val: Math.round(nutrition.kcal) },
-              { label: "Protein", val: `${nutrition.protein.toFixed(1)}g` },
-              { label: "Fett", val: `${nutrition.fat.toFixed(1)}g` },
-              { label: "Kohlenhydrate", val: `${nutrition.carbs.toFixed(1)}g` },
+              { label: t("kcal"), val: Math.round(nutrition.kcal) },
+              { label: t("protein"), val: `${nutrition.protein.toFixed(1)}g` },
+              { label: t("fat"), val: `${nutrition.fat.toFixed(1)}g` },
+              { label: t("carbs"), val: `${nutrition.carbs.toFixed(1)}g` },
             ].map(({ label, val }) => (
               <div key={label} className="rounded-xl bg-gray-50 py-2 dark:bg-gray-900">
                 <div className="font-semibold text-gray-800 dark:text-gray-200">{val}</div>
@@ -431,7 +437,7 @@ function RecipeDetail({
       {/* Ingredients */}
       {recipe.ingredients.length > 0 && (
         <div className="mb-5">
-          <h2 className="mb-2 font-semibold">Zutaten</h2>
+          <h2 className="mb-2 font-semibold">{t("ingredients")}</h2>
           <ul className="space-y-1.5">
             {recipe.ingredients.map((ing) => {
               const factor = servings / (recipe.servings || 1);
@@ -452,7 +458,7 @@ function RecipeDetail({
       {/* Steps */}
       {recipe.steps.length > 0 && (
         <div className="mb-5">
-          <h2 className="mb-2 font-semibold">Zubereitung</h2>
+          <h2 className="mb-2 font-semibold">{t("steps")}</h2>
           <ol className="space-y-3">
             {recipe.steps.map((step) => (
               <li key={step.id} className="flex gap-3 text-sm">
@@ -492,6 +498,7 @@ function RecipeEditor({
   onDone: (id: string) => void;
   onCancel: () => void;
 }) {
+  const { t } = useTranslation(NS);
   const isEdit = !!id;
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -533,11 +540,11 @@ function RecipeEditor({
         );
         setSteps(r.steps.length ? r.steps.map((s) => s.instruction) : [""]);
       })
-      .catch(() => setError("Rezept konnte nicht geladen werden"));
-  }, [api, id]);
+      .catch(() => setError(t("recipe_load_error")));
+  }, [api, id, t]);
 
   async function handleSave() {
-    if (!title.trim()) { setError("Titel ist erforderlich"); return; }
+    if (!title.trim()) { setError(t("title_required")); return; }
     setSaving(true);
     setError(null);
     try {
@@ -590,9 +597,9 @@ function RecipeEditor({
     <div className="max-w-2xl">
       <button type="button" onClick={onCancel}
         className="mb-5 flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 dark:text-gray-400">
-        <i className="ti ti-arrow-left text-[14px]" /> Abbrechen
+        <i className="ti ti-arrow-left text-[14px]" /> {t("cancel")}
       </button>
-      <h1 className="mb-5 text-xl font-semibold">{isEdit ? "Rezept bearbeiten" : "Neues Rezept"}</h1>
+      <h1 className="mb-5 text-xl font-semibold">{isEdit ? t("edit_recipe") : t("new_recipe")}</h1>
 
       {error && (
         <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
@@ -602,18 +609,18 @@ function RecipeEditor({
 
       <div className="space-y-4">
         <div>
-          <label className={labelCls}>Titel *</label>
+          <label className={labelCls}>{t("title")} *</label>
           <input type="text" value={title} onChange={(e) => setTitle(e.target.value)}
-            className={inputCls} style={{ fontSize: "16px" }} placeholder="Spaghetti Bolognese" />
+            className={inputCls} style={{ fontSize: "16px" }} placeholder={t("title_placeholder")} />
         </div>
         <div>
-          <label className={labelCls}>Beschreibung</label>
+          <label className={labelCls}>{t("description")}</label>
           <textarea value={description} onChange={(e) => setDescription(e.target.value)}
             className={inputCls} rows={2} style={{ fontSize: "16px" }} />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className={labelCls}>Kategorie</label>
+            <label className={labelCls}>{t("category")}</label>
             <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}
               className={inputCls} style={{ fontSize: "16px" }}>
               <option value="">—</option>
@@ -621,19 +628,19 @@ function RecipeEditor({
             </select>
           </div>
           <div>
-            <label className={labelCls}>Portionen</label>
+            <label className={labelCls}>{t("servings")}</label>
             <input type="number" min={1} value={servings} onChange={(e) => setServings(parseInt(e.target.value) || 1)}
               className={inputCls} style={{ fontSize: "16px" }} />
           </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className={labelCls}>Vorbereitung (Min)</label>
+            <label className={labelCls}>{t("prep_time")}</label>
             <input type="number" min={0} value={prepTime} onChange={(e) => setPrepTime(e.target.value)}
               className={inputCls} style={{ fontSize: "16px" }} placeholder="15" />
           </div>
           <div>
-            <label className={labelCls}>Kochzeit (Min)</label>
+            <label className={labelCls}>{t("cook_time")}</label>
             <input type="number" min={0} value={cookTime} onChange={(e) => setCookTime(e.target.value)}
               className={inputCls} style={{ fontSize: "16px" }} placeholder="30" />
           </div>
@@ -641,17 +648,17 @@ function RecipeEditor({
 
         {/* Ingredients */}
         <div>
-          <label className={labelCls}>Zutaten</label>
+          <label className={labelCls}>{t("ingredients")}</label>
           <div className="space-y-2">
             {ingredients.map((ing, i) => (
               <div key={i} className="flex gap-2">
-                <input type="number" step="0.1" min={0} placeholder="Menge"
+                <input type="number" step="0.1" min={0} placeholder={t("amount_placeholder")}
                   value={ing.amount} onChange={(e) => { const n = [...ingredients]; n[i].amount = e.target.value; setIngredients(n); }}
                   className="w-20 rounded-lg border border-gray-300 px-2 py-2 text-sm dark:border-gray-700 dark:bg-gray-900" style={{ fontSize: "16px" }} />
-                <input type="text" placeholder="Einheit"
+                <input type="text" placeholder={t("unit_placeholder")}
                   value={ing.unit} onChange={(e) => { const n = [...ingredients]; n[i].unit = e.target.value; setIngredients(n); }}
                   className="w-20 rounded-lg border border-gray-300 px-2 py-2 text-sm dark:border-gray-700 dark:bg-gray-900" style={{ fontSize: "16px" }} />
-                <input type="text" placeholder="Zutat"
+                <input type="text" placeholder={t("ingredient_placeholder")}
                   value={ing.name} onChange={(e) => { const n = [...ingredients]; n[i].name = e.target.value; setIngredients(n); }}
                   className="flex-1 rounded-lg border border-gray-300 px-2 py-2 text-sm dark:border-gray-700 dark:bg-gray-900" style={{ fontSize: "16px" }} />
                 <button type="button" onClick={() => setIngredients(ingredients.filter((_, j) => j !== i))}
@@ -663,13 +670,13 @@ function RecipeEditor({
           </div>
           <button type="button" onClick={() => setIngredients([...ingredients, { name: "", amount: "", unit: "" }])}
             className="mt-2 flex items-center gap-1.5 text-sm text-teal-600 hover:text-teal-700">
-            <i className="ti ti-plus text-[13px]" /> Zutat hinzufügen
+            <i className="ti ti-plus text-[13px]" /> {t("add_ingredient")}
           </button>
         </div>
 
         {/* Steps */}
         <div>
-          <label className={labelCls}>Zubereitung</label>
+          <label className={labelCls}>{t("steps")}</label>
           <div className="space-y-2">
             {steps.map((step, i) => (
               <div key={i} className="flex gap-2">
@@ -678,7 +685,7 @@ function RecipeEditor({
                 </span>
                 <textarea value={step} onChange={(e) => { const n = [...steps]; n[i] = e.target.value; setSteps(n); }}
                   className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900"
-                  rows={2} style={{ fontSize: "16px" }} placeholder={`Schritt ${i + 1}`} />
+                  rows={2} style={{ fontSize: "16px" }} placeholder={t("step_placeholder", { n: i + 1 })} />
                 <button type="button" onClick={() => setSteps(steps.filter((_, j) => j !== i))}
                   className="flex h-9 w-9 flex-none items-center justify-center rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-500">
                   <i className="ti ti-trash text-[14px]" />
@@ -688,18 +695,18 @@ function RecipeEditor({
           </div>
           <button type="button" onClick={() => setSteps([...steps, ""])}
             className="mt-2 flex items-center gap-1.5 text-sm text-teal-600 hover:text-teal-700">
-            <i className="ti ti-plus text-[13px]" /> Schritt hinzufügen
+            <i className="ti ti-plus text-[13px]" /> {t("add_step")}
           </button>
         </div>
 
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" onClick={onCancel}
             className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900">
-            Abbrechen
+            {t("cancel")}
           </button>
           <button type="button" onClick={handleSave} disabled={saving}
             className="flex items-center gap-1.5 rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50">
-            {saving ? <><i className="ti ti-loader-2 animate-spin text-[13px]" /> Speichern…</> : "Speichern"}
+            {saving ? <><i className="ti ti-loader-2 animate-spin text-[13px]" /> {t("saving")}</> : t("save")}
           </button>
         </div>
       </div>
@@ -709,14 +716,7 @@ function RecipeEditor({
 
 // ── MealPlanView ──────────────────────────────────────────────────────────────
 
-const DAY_LABELS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
 const SLOTS = ["breakfast", "lunch", "dinner", "snack"] as const;
-const SLOT_LABELS: Record<string, string> = {
-  breakfast: "Frühstück",
-  lunch: "Mittag",
-  dinner: "Abend",
-  snack: "Snack",
-};
 
 function mondayOfWeek(offset = 0): string {
   const d = new Date();
@@ -726,12 +726,15 @@ function mondayOfWeek(offset = 0): string {
 }
 
 function MealPlanView({ api }: { api: ReturnType<typeof useApi> }) {
+  const { t } = useTranslation(NS);
   const [weekOffset, setWeekOffset] = useState(0);
   const weekStart = mondayOfWeek(weekOffset);
   const [entries, setEntries] = useState<MealPlanEntry[]>([]);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [loading, setLoading] = useState(true);
   const [pickerCell, setPickerCell] = useState<{ day: number; slot: string } | null>(null);
+
+  const DAY_KEYS = ["day_mon", "day_tue", "day_wed", "day_thu", "day_fri", "day_sat", "day_sun"] as const;
 
   useEffect(() => {
     setLoading(true);
@@ -775,31 +778,31 @@ function MealPlanView({ api }: { api: ReturnType<typeof useApi> }) {
           className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900">
           <i className="ti ti-chevron-left" />
         </button>
-        <span className="text-sm font-medium">Woche ab {weekStart}</span>
+        <span className="text-sm font-medium">{t("meal_plan_week", { date: weekStart })}</span>
         <button type="button" onClick={() => setWeekOffset((o) => o + 1)}
           className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900">
           <i className="ti ti-chevron-right" />
         </button>
         <button type="button" onClick={() => setWeekOffset(0)}
-          className="text-xs text-teal-600 hover:underline">Diese Woche</button>
+          className="text-xs text-teal-600 hover:underline">{t("this_week")}</button>
       </div>
 
-      {loading && <p className="text-sm text-gray-400">Lade…</p>}
+      {loading && <p className="text-sm text-gray-400">{t("loading")}</p>}
 
       <div className="overflow-x-auto">
         <table className="w-full min-w-[500px] border-collapse text-sm">
           <thead>
             <tr>
               <th className="w-24 py-2 text-left font-medium text-gray-500" />
-              {DAY_LABELS.map((d) => (
-                <th key={d} className="py-2 text-center font-medium text-gray-700 dark:text-gray-300">{d}</th>
+              {DAY_KEYS.map((key) => (
+                <th key={key} className="py-2 text-center font-medium text-gray-700 dark:text-gray-300">{t(key)}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {SLOTS.map((slot) => (
               <tr key={slot}>
-                <td className="pr-2 py-1.5 text-right text-xs font-medium text-gray-400">{SLOT_LABELS[slot]}</td>
+                <td className="pr-2 py-1.5 text-right text-xs font-medium text-gray-400">{t(`slot_${slot}`)}</td>
                 {[1,2,3,4,5,6,7].map((day) => {
                   const entry = entryFor(day, slot);
                   const isOpen = pickerCell?.day === day && pickerCell?.slot === slot;
@@ -820,7 +823,7 @@ function MealPlanView({ api }: { api: ReturnType<typeof useApi> }) {
                           {entry && (
                             <button type="button" onClick={() => clearEntry(day, slot)}
                               className="mb-1 flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs text-red-600 hover:bg-red-50 dark:hover:bg-red-950">
-                              <i className="ti ti-trash text-[12px]" /> Leeren
+                              <i className="ti ti-trash text-[12px]" /> {t("clear")}
                             </button>
                           )}
                           {recipes.slice(0, 20).map((r) => (
@@ -852,6 +855,7 @@ function UrlImport({
   api: ReturnType<typeof useApi>;
   onImported: (id: string) => void;
 }) {
+  const { t } = useTranslation(NS);
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -864,9 +868,8 @@ function UrlImport({
       const { draft } = await api.mutate<{ draft: { title: string }; source_url: string }>(
         "POST", "/import/url", { url: url.trim() },
       );
-      // Create the recipe from the draft and go to editor
       const created = await api.mutate<{ id: string }>("POST", "/recipes", {
-        title: draft.title || "Importiertes Rezept",
+        title: draft.title || t("imported_recipe_title"),
         source_url: url.trim(),
       });
       onImported(created.id);
@@ -879,17 +882,14 @@ function UrlImport({
 
   return (
     <div className="max-w-lg">
-      <h2 className="mb-4 text-lg font-semibold">Rezept per URL importieren</h2>
-      <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">
-        Füge die URL einer Rezeptseite ein. ModuLab versucht, Titel, Zutaten und Schritte
-        automatisch zu erkennen (JSON-LD schema.org). Das Ergebnis kann danach bearbeitet werden.
-      </p>
+      <h2 className="mb-4 text-lg font-semibold">{t("import_title")}</h2>
+      <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">{t("import_description")}</p>
       <div className="flex gap-2">
         <input
           type="url"
           value={url}
           onChange={(e) => setUrl(e.target.value)}
-          placeholder="https://example.com/rezept/..."
+          placeholder={t("import_placeholder")}
           className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 dark:border-gray-700 dark:bg-gray-900"
           style={{ fontSize: "16px" }}
           onKeyDown={(e) => e.key === "Enter" && handleImport()}
@@ -901,7 +901,7 @@ function UrlImport({
           className="flex items-center gap-1.5 rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50"
         >
           {loading ? <i className="ti ti-loader-2 animate-spin text-[13px]" /> : <i className="ti ti-download text-[13px]" />}
-          {loading ? "Importiere…" : "Importieren"}
+          {loading ? t("importing") : t("import_btn")}
         </button>
       </div>
       {error && (

@@ -12,10 +12,20 @@ export default defineConfig({
       fileName: () => "bundle.js",
       formats: ["es"],
     },
-    // Keep bundle self-contained — no external dependencies.
-    // React and ReactDOM are bundled in so the host doesn't need to share them.
+    // react-i18next and i18next are provided by the Core host bundle.
+    // React and ReactDOM are also externalized so the host's singleton is used
+    // (avoids double-React which breaks hooks).
     rollupOptions: {
-      external: [],
+      external: ["react", "react-dom", "react/jsx-runtime", "i18next", "react-i18next"],
+      output: {
+        globals: {
+          react: "React",
+          "react-dom": "ReactDOM",
+          "react/jsx-runtime": "ReactJSXRuntime",
+          i18next: "i18next",
+          "react-i18next": "ReactI18next",
+        },
+      },
     },
     outDir: "../bundle",
     emptyOutDir: true,
