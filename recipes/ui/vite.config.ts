@@ -1,15 +1,41 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 
-// Build the Recipes UI as a single self-contained ES module (bundle.js).
-// ModulePage.tsx loads it via dynamic import() at runtime.
-//
-// All dependencies (React, i18next, etc.) are bundled in — the browser has no
-// import map for bare specifiers like "react", so externalising them would cause
-// the dynamic import() to fail with a resolution error. The bundle is ~300 KB
-// gzipped which is acceptable for a homelab module loaded once per session.
+// Rollup plugin that rewrites bare-specifier imports to window.__MODULAB_HOST__
+// property accesses. This is needed because:
+//   - ES module bundles loaded via Blob URL cannot resolve bare specifiers
+//     like "react" (no import map available)
+//   - globals: {} only works for iife/umd formats, not "es"
+//   - The host exposes its singletons on window.__MODULAB_HOST__ so that
+//     module and host share the same React instance (required for hooks)
+function modulabExternalsPlugin(): Plugin {
+  const hostMap: Record<string, string> = {
+    react:             "window.__MODULAB_HOST__.React",
+    "react-dom":       "window.__MODULAB_HOST__.ReactDOM",
+    "react/jsx-runtime": "window.__MODULAB_HOST__.ReactJSXRuntime",
+    i18next:           "window.__MODULAB_HOST__.i18next",
+    "react-i18next":   "window.__MODULAB_HOST__.ReactI18next",
+  };
+
+  return {
+    name: "modulab-externals",
+    resolveId(id) {
+      if (id in hostMap) return `\0modulab-external:${id}`;
+    },
+    load(id) {
+      const prefix = "\0modulab-external:";
+      if (id.startsWith(prefix)) {
+        const pkg = id.slice(prefix.length);
+        const expr = hostMap[pkg];
+        // Re-export everything from the host object so named + default imports work.
+        return `const mod = ${expr}; export default mod; export * from mod;`;
+      }
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), modulabExternalsPlugin()],
   define: {
     "process.env.NODE_ENV": JSON.stringify("production"),
   },
