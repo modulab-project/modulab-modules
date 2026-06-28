@@ -74,7 +74,7 @@ blue "════════════════════════�
 # ── Build UI ──────────────────────────────────────────────────────────────────
 UI_DIR="$MODULE_DIR/ui"
 if [[ -f "$UI_DIR/package.json" ]]; then
-  step "Building React UI…"
+  step "Building React UI..."
   cd "$UI_DIR"
   npm install --silent
   npm run build --silent
@@ -85,7 +85,7 @@ else
 fi
 
 # ── Create ZIP ────────────────────────────────────────────────────────────────
-step "Creating $ZIP_NAME…"
+step "Creating $ZIP_NAME..."
 DIST_DIR="$REPO_ROOT/dist"
 mkdir -p "$DIST_DIR"
 ZIP_PATH="$DIST_DIR/$ZIP_NAME"
@@ -104,7 +104,7 @@ cd "$REPO_ROOT"
 ok "$ZIP_PATH"
 
 # ── SHA256 ────────────────────────────────────────────────────────────────────
-step "Computing SHA256…"
+step "Computing SHA256..."
 if command -v shasum &>/dev/null; then
   SHA256=$(shasum -a 256 "$ZIP_PATH" | awk '{print $1}')
 else
@@ -114,7 +114,7 @@ echo "$SHA256" > "$ZIP_PATH.sha256"
 ok "$SHA256"
 
 # ── GitHub Release ────────────────────────────────────────────────────────────
-step "Creating GitHub Release $TAG…"
+step "Creating GitHub Release $TAG..."
 
 # Check if release already exists
 EXISTING=$(curl -sf \
@@ -147,7 +147,7 @@ else
 fi
 
 # ── Upload assets ─────────────────────────────────────────────────────────────
-step "Uploading assets…"
+step "Uploading assets..."
 
 upload_asset() {
   local FILE="$1"
@@ -190,7 +190,7 @@ upload_asset "$ZIP_PATH"
 upload_asset "$ZIP_PATH.sha256"
 
 # ── Update registry.json ──────────────────────────────────────────────────────
-step "Updating registry.json…"
+step "Updating registry.json..."
 
 REGISTRY="$REPO_ROOT/registry.json"
 RELEASE_URL="https://github.com/$GITHUB_REPO/releases/download/$TAG/$ZIP_NAME"
@@ -236,7 +236,7 @@ with open('$REGISTRY', 'w') as f:
 ok "registry.json updated"
 
 # ── Git commit + push ─────────────────────────────────────────────────────────
-step "Committing and pushing registry.json…"
+step "Committing and pushing registry.json..."
 
 cd "$REPO_ROOT"
 git add registry.json

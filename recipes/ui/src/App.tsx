@@ -85,7 +85,7 @@ type View =
 
 function useApi(apiBase: string, token: string) {
   const get = useCallback(
-    async <T>(path: string): Promise<T> => {
+    async <T,>(path: string): Promise<T> => {
       const r = await fetch(apiBase + path, { headers: { Authorization: `Bearer ${token}` } });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       return r.json();
@@ -94,7 +94,7 @@ function useApi(apiBase: string, token: string) {
   );
 
   const mutate = useCallback(
-    async <T>(method: string, path: string, body?: unknown): Promise<T> => {
+    async <T,>(method: string, path: string, body?: unknown): Promise<T> => {
       const r = await fetch(apiBase + path, {
         method,
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
