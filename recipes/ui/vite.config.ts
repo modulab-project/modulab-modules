@@ -3,6 +3,11 @@ import react from "@vitejs/plugin-react";
 
 // Build the Recipes UI as a single self-contained ES module (bundle.js).
 // ModulePage.tsx loads it via dynamic import() at runtime.
+//
+// All dependencies (React, i18next, etc.) are bundled in — the browser has no
+// import map for bare specifiers like "react", so externalising them would cause
+// the dynamic import() to fail with a resolution error. The bundle is ~300 KB
+// gzipped which is acceptable for a homelab module loaded once per session.
 export default defineConfig({
   plugins: [react()],
   build: {
@@ -11,21 +16,6 @@ export default defineConfig({
       name: "RecipesModule",
       fileName: () => "bundle.js",
       formats: ["es"],
-    },
-    // react-i18next and i18next are provided by the Core host bundle.
-    // React and ReactDOM are also externalized so the host's singleton is used
-    // (avoids double-React which breaks hooks).
-    rollupOptions: {
-      external: ["react", "react-dom", "react/jsx-runtime", "i18next", "react-i18next"],
-      output: {
-        globals: {
-          react: "React",
-          "react-dom": "ReactDOM",
-          "react/jsx-runtime": "ReactJSXRuntime",
-          i18next: "i18next",
-          "react-i18next": "ReactI18next",
-        },
-      },
     },
     outDir: "../bundle",
     emptyOutDir: true,
