@@ -145,6 +145,8 @@ export default function RecipesApp({ apiBase, token }: ModuleComponentProps) {
   const { t } = useTranslation(NS);
   const [view, setView] = useState<View>({ type: "list" });
   const api = useApi(apiBase, token);
+  // Initialise storage base URL (used by imageUrl() helper)
+  setStorageBase(apiBase, token);
 
   return (
     <div className="recipes-module">
@@ -1255,11 +1257,25 @@ function CategoriesView({ api }: { api: ReturnType<typeof useApi> }) {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+// storageBase is set once from the apiBase prop and used by imageUrl().
+// apiBase = "https://host/v1/modules/recipes/api"
+// storageBase = "https://host/v1/modules/recipes/storage"
+let _storageBase = "";
+let _token = "";
+
+function setStorageBase(apiBase: string, token: string) {
+  // Strip trailing /api (with or without trailing slash)
+  _storageBase = apiBase.replace(/\/api\/?$/, "") + "/storage";
+  _token = token;
+}
+
 function imageUrl(path: string): string {
-  // path is stored as absolute storage path like /home/user/.../storage/abc.jpg
-  // The core serves module storage at /modules/{name}/storage/...
-  // Extract everything after /storage/
+  // path from DB: absolute path on disk, e.g.
+  //   /Users/.../modulab-data/modules/recipes/storage/uploads/foo.jpg
+  // Extract the part after /storage/
   const idx = path.indexOf("/storage/");
   if (idx === -1) return path;
-  return `/modules/recipes/storage/${path.slice(idx + 9)}`;
+  const rel = path.slice(idx + 9); // e.g. "uploads/foo.jpg"
+  // Append token as query param since <img> can't send Authorization header
+  return `${_storageBase}/${rel}?t=${encodeURIComponent(_token)}`;
 }
