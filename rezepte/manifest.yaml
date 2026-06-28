@@ -1,0 +1,28 @@
+name: "rezepte"
+version: "0.1.0"
+description: "Rezeptsammlung mit Wochenplan, Nährwerten und URL-Import"
+author: "modulab-project"
+license: "AGPL-3.0"
+category: "productivity"
+min_core_api: "v1"
+min_core_ui: "v1"
+tier: 2
+scope: "org"
+startup: "eager"
+
+handler: "handlers/index.ts"
+
+resources:
+  memory: "256m"
+  timeout: "30s"
+
+storage:
+  quota: "2g"
+
+egress_allowlist:
+  - "world.openfoodfacts.org"   # Nährwert-Lookup
+  - "api.openfoodfacts.org"     # Nährwert-Lookup (alt. Endpoint)
+
+requested_scopes:
+  - "Nährwerte werden von Open Food Facts (world.openfoodfacts.org) abgefragt"
+  - "Beim URL-Import werden Rezept-Webseiten abgerufen (Domain wird zur Laufzeit bestimmt)"
