@@ -352,26 +352,31 @@ async function updateRecipe(
   id: string,
   input: Partial<RecipeInput>,
 ): Promise<HandlerResponse> {
+  // postgres.js does not accept undefined as a parameter value — only null.
+  // n() converts undefined (and empty string for nullable fields) to null so
+  // COALESCE($n, col) correctly falls back to the existing column value.
+  const n = (v: unknown) => (v === undefined || v === "" ? null : v);
+
   const [row] = await db.query(
     `UPDATE recipes SET
        title         = COALESCE($2, title),
        description   = COALESCE($3, description),
-       category_id   = COALESCE($4, category_id),
+       category_id   = $4,
        servings      = COALESCE($5, servings),
-       prep_time_min = COALESCE($6, prep_time_min),
-       cook_time_min = COALESCE($7, cook_time_min),
-       source_url    = COALESCE($8, source_url),
+       prep_time_min = $6,
+       cook_time_min = $7,
+       source_url    = $8,
        updated_at    = now()
      WHERE id = $1 RETURNING *`,
     [
       id,
-      input.title,
-      input.description,
-      input.category_id,
-      input.servings,
-      input.prep_time_min,
-      input.cook_time_min,
-      input.source_url,
+      n(input.title),
+      n(input.description) ?? "",
+      n(input.category_id),
+      n(input.servings),
+      n(input.prep_time_min),
+      n(input.cook_time_min),
+      n(input.source_url),
     ],
   );
   if (!row) return notFound("recipe");

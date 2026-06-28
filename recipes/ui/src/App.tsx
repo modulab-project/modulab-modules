@@ -475,7 +475,7 @@ function RecipeDetail({
           <ol className="space-y-3">
             {recipe.steps.map((step) => (
               <li key={step.id} className="flex gap-3 text-sm">
-                <span className="flex h-6 w-6 flex-none items-center justify-center rounded-full bg-teal-600 text-[11px] font-bold text-white">
+                <span className="flex h-6 min-w-[1.5rem] shrink-0 items-center justify-center rounded-full bg-teal-600 text-[11px] font-bold leading-none text-white">
                   {step.step_number}
                 </span>
                 <p className="text-gray-700 dark:text-gray-300">{step.instruction}</p>
