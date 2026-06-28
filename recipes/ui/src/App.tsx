@@ -84,18 +84,22 @@ type View =
 // ── API helper ────────────────────────────────────────────────────────────────
 
 function useApi(apiBase: string, token: string) {
+  const base = apiBase.endsWith("/") ? apiBase.slice(0, -1) : apiBase;
+
   const get = useCallback(
     async <T,>(path: string): Promise<T> => {
-      const r = await fetch(apiBase + path, { headers: { Authorization: `Bearer ${token}` } });
+      const url = base + (path.startsWith("/") ? path : "/" + path);
+      const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       return r.json();
     },
-    [apiBase, token],
+    [base, token],
   );
 
   const mutate = useCallback(
     async <T,>(method: string, path: string, body?: unknown): Promise<T> => {
-      const r = await fetch(apiBase + path, {
+      const url = base + (path.startsWith("/") ? path : "/" + path);
+      const r = await fetch(url, {
         method,
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         body: body !== undefined ? JSON.stringify(body) : undefined,
