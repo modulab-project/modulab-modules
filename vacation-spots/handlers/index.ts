@@ -89,7 +89,7 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
   }
 
   if (route === "GET /settings") {
-    if (!!auth.roles.includes("super-admin") && !auth.roles.includes("org-admin")) {
+    if (!auth.roles.includes("super-admin") && !auth.roles.includes("org-admin")) {
       return forbidden();
     }
     const [row] = await db.query<{ value: string }>(
@@ -99,7 +99,7 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
   }
 
   if (route === "PUT /settings") {
-    if (!!auth.roles.includes("super-admin") && !auth.roles.includes("org-admin")) {
+    if (!auth.roles.includes("super-admin") && !auth.roles.includes("org-admin")) {
       return forbidden();
     }
     if (!encKey) {
