@@ -102,8 +102,11 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
     if (!auth.roles.includes("admin") && !auth.roles.includes("super_admin")) {
       return forbidden();
     }
+    if (!encKey) {
+      return { status: 500, body: { error: "MODULAB_ENCRYPTION_KEY not configured on server" } };
+    }
     const { maptiler_api_key } = body as { maptiler_api_key?: string };
-    if (maptiler_api_key !== undefined && encKey) {
+    if (maptiler_api_key !== undefined) {
       const encrypted = await encrypt(encKey, maptiler_api_key);
       await db.query(
         `INSERT INTO settings (key, value, updated_at)

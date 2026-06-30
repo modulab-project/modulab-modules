@@ -798,6 +798,7 @@ function SettingsView({ api, onMapConfigured, t }: {
   const [key, setKey] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [configured, setConfigured] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -812,6 +813,7 @@ function SettingsView({ api, onMapConfigured, t }: {
   const save = async () => {
     if (!key.trim()) return;
     setSaving(true);
+    setSaveError(null);
     try {
       await api.mutate("PUT", "/settings", { maptiler_api_key: key.trim() });
       // Reload config so map picks up new key
@@ -821,6 +823,8 @@ function SettingsView({ api, onMapConfigured, t }: {
       setKey("");
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
+    } catch (e) {
+      setSaveError(t("error_save"));
     } finally {
       setSaving(false);
     }
@@ -865,6 +869,9 @@ function SettingsView({ api, onMapConfigured, t }: {
         >
           {saved ? t("settings_saved") : saving ? t("saving") : t("btn_save")}
         </button>
+        {saveError && (
+          <p style={{ fontSize: 13, color: "var(--text-danger)", margin: 0 }}>{saveError}</p>
+        )}
       </div>
     </div>
   );
