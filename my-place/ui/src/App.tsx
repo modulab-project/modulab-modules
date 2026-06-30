@@ -1,5 +1,5 @@
 /**
- * Vacation Spots module — React frontend v0.2.5
+ * My Places module — React frontend v0.1.0
  *
  * Views: map | spots | spot-new | spot-edit | spot-detail | trips | categories | settings
  */
@@ -82,54 +82,57 @@ const btnDanger =
 
 // ── API helper ─────────────────────────────────────────────────────────────────
 
+// Module-level storage base — same pattern as Recipes module
+let _storageBase = "";
+let _token = "";
+
+function setStorageBase(apiBase: string, token: string) {
+  _storageBase = apiBase.replace(/\/api\/?$/, "") + "/storage";
+  _token = token;
+}
+
+function storageUrl(path: string): string {
+  if (!path) return "";
+  const storageIdx = path.indexOf("/storage/");
+  const rel = storageIdx !== -1 ? path.slice(storageIdx + 9) : path;
+  return `${_storageBase}/${rel}?t=${encodeURIComponent(_token)}`;
+}
+
 function useApi(apiBase: string, token: string) {
   const base = apiBase.endsWith("/") ? apiBase.slice(0, -1) : apiBase;
-  const baseRef = useRef(base);
-  const tokenRef = useRef(token);
-  useEffect(() => { baseRef.current = base; }, [base]);
-  useEffect(() => { tokenRef.current = token; }, [token]);
 
   const get = useCallback(async <T,>(path: string): Promise<T> => {
-    const r = await fetch(baseRef.current + path, {
-      headers: { Authorization: `Bearer ${tokenRef.current}` },
+    const r = await fetch(base + path, {
+      headers: { Authorization: `Bearer ${token}` },
     });
     if (!r.ok) { const txt = await r.text(); throw new Error(txt || `HTTP ${r.status}`); }
     return r.json();
-  }, []);
+  }, [base, token]);
 
   const mutate = useCallback(async <T,>(method: string, path: string, body?: unknown): Promise<T> => {
-    const r = await fetch(baseRef.current + path, {
+    const r = await fetch(base + path, {
       method,
-      headers: { Authorization: `Bearer ${tokenRef.current}`, "Content-Type": "application/json" },
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
     if (!r.ok) { const txt = await r.text(); throw new Error(txt || `HTTP ${r.status}`); }
     if (r.status === 204) return undefined as T;
     return r.json();
-  }, []);
+  }, [base, token]);
 
-  // Upload a file via multipart/form-data — Core intercepts and saves the file
+  // Upload a file via multipart/form-data — Core intercepts and saves the file,
+  // then forwards { file_path } to the Deno handler which does the DB insert.
   const upload = useCallback(async <T = { file_path: string },>(path: string, formData: FormData): Promise<T> => {
-    const r = await fetch(baseRef.current + path, {
+    const r = await fetch(base + path, {
       method: "POST",
-      headers: { Authorization: `Bearer ${tokenRef.current}` },
+      headers: { Authorization: `Bearer ${token}` },
       body: formData,
     });
     if (!r.ok) { const txt = await r.text(); throw new Error(txt || `HTTP ${r.status}`); }
     return r.json();
-  }, []);
+  }, [base, token]);
 
-  // Build a URL for a stored file (goes through Core's storage handler).
-  // Auth is required, so the token is passed as a query param (same pattern as Recipes).
-  const storageUrl = useCallback((filePath: string): string => {
-    const moduleBase = baseRef.current.replace(/\/api\/?$/, "");
-    // Handle old absolute paths that still contain /storage/
-    const storageIdx = filePath.indexOf("/storage/");
-    const rel = storageIdx !== -1 ? filePath.slice(storageIdx + 9) : filePath;
-    return `${moduleBase}/storage/${rel}?t=${encodeURIComponent(tokenRef.current)}`;
-  }, []);
-
-  return useMemo(() => ({ get, mutate, upload, storageUrl }), [get, mutate, upload, storageUrl]);
+  return useMemo(() => ({ get, mutate, upload }), [get, mutate, upload]);
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -155,11 +158,60 @@ function Stars({ value, onChange }: { value: number | null; onChange?: (v: numbe
   );
 }
 
+// ── PhotoGrid — reusable photo upload/delete grid ──────────────────────────────
+
+function PhotoGrid({ photos, uploading, uploadErr, onUpload, onDelete, fileInputRef }: {
+  photos: SpotPhoto[];
+  uploading: boolean;
+  uploadErr: string | null;
+  onUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onDelete: (id: string) => void;
+  fileInputRef: React.RefObject<HTMLInputElement>;
+}) {
+  return (
+    <div>
+      <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={onUpload} />
+      {uploadErr && <p className="mb-2 text-xs text-red-500">{uploadErr}</p>}
+      {uploading && (
+        <p className="mb-2 flex items-center gap-1.5 text-xs text-teal-600">
+          <i className="ti ti-loader-2 animate-spin" /> Hochladen…
+        </p>
+      )}
+      <div className="grid grid-cols-3 gap-2">
+        {photos.map((p) => (
+          <div key={p.id} className="relative aspect-square rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800">
+            <img src={storageUrl(p.file_path)} alt="" className="w-full h-full object-cover" loading="lazy" />
+            {/* Delete-Button: always visible, never hover-only (Touch-safe) */}
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onDelete(p.id); }}
+              className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/70 text-white flex items-center justify-center hover:bg-red-600 active:bg-red-700 transition-colors"
+              aria-label="Foto löschen"
+            >
+              <i className="ti ti-x text-[11px]" />
+            </button>
+          </div>
+        ))}
+        {/* Add button */}
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploading}
+          className="aspect-square rounded-lg border-2 border-dashed border-gray-200 dark:border-gray-700 flex items-center justify-center text-gray-400 hover:border-teal-400 hover:text-teal-500 active:bg-teal-50 transition-colors disabled:opacity-50"
+        >
+          <i className="ti ti-plus text-xl" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Root App ───────────────────────────────────────────────────────────────────
 
 export default function App({ apiBase, token }: ModuleComponentProps) {
   const { t } = useTranslation(NS);
   const api = useApi(apiBase, token);
+  setStorageBase(apiBase, token);
 
   const [view, setView] = useState<View>({ type: "map" });
   const [spots, setSpots] = useState<Spot[]>([]);
@@ -531,11 +583,18 @@ function SpotDetail({ api, id, onBack, onEdit, onDeleted, t }: {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const reload = useCallback(() => {
-    api.get<Spot>(`/spots/${id}`).then(setSpot).catch(() => null);
+    setUploadErr(null);
+    api.get<Spot>(`/spots/${id}`)
+      .then((s) => setSpot(s))
+      .catch(() => setUploadErr("Laden fehlgeschlagen"));
   }, [api, id]);
 
   useEffect(() => {
-    api.get<Spot>(`/spots/${id}`).then(setSpot).finally(() => setLoading(false));
+    setLoading(true);
+    api.get<Spot>(`/spots/${id}`)
+      .then(setSpot)
+      .catch(() => null)
+      .finally(() => setLoading(false));
   }, [api, id]);
 
   async function handleDelete() {
@@ -550,8 +609,6 @@ function SpotDetail({ api, id, onBack, onEdit, onDeleted, t }: {
     setUploading(true);
     setUploadErr(null);
     try {
-      // Core intercepts multipart/form-data, saves the file, then forwards
-      // body = { file_path } to the Deno handler — one call does everything.
       const fd = new FormData();
       fd.append("file", file);
       await api.upload(`/spots/${id}/photos`, fd);
@@ -565,9 +622,10 @@ function SpotDetail({ api, id, onBack, onEdit, onDeleted, t }: {
   }
 
   async function handleDeletePhoto(photoId: string) {
+    setUploadErr(null);
     try {
-      await api.mutate("DELETE", `/spots/${id}/photos/${photoId}`);
-      reload();
+      await api.mutate<void>("DELETE", `/spots/${id}/photos/${photoId}`);
+      setSpot((prev) => prev ? { ...prev, photos: (prev.photos ?? []).filter((p) => p.id !== photoId) } : prev);
     } catch (err) {
       setUploadErr(String(err));
     }
@@ -613,11 +671,11 @@ function SpotDetail({ api, id, onBack, onEdit, onDeleted, t }: {
         <span className="flex items-center gap-1.5"><i className="ti ti-map-pin" />{spot.lat.toFixed(5)}, {spot.lng.toFixed(5)}</span>
         <span className="flex items-center gap-2">
           <a href={`maps://?q=${spot.lat},${spot.lng}`}
-            className="flex items-center gap-1 text-teal-600 hover:underline dark:text-teal-400" title="In Apple Maps öffnen">
+            className="flex items-center gap-1 text-teal-600 hover:underline dark:text-teal-400">
             <i className="ti ti-brand-apple text-[13px]" /> Apple Maps
           </a>
           <a href={`https://maps.google.com/?q=${spot.lat},${spot.lng}`} target="_blank" rel="noopener noreferrer"
-            className="flex items-center gap-1 text-teal-600 hover:underline dark:text-teal-400" title="In Google Maps öffnen">
+            className="flex items-center gap-1 text-teal-600 hover:underline dark:text-teal-400">
             <i className="ti ti-map-2 text-[13px]" /> Google Maps
           </a>
         </span>
@@ -626,42 +684,15 @@ function SpotDetail({ api, id, onBack, onEdit, onDeleted, t }: {
 
       {/* Photos */}
       <div>
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300">{t("spot_photos")}</h2>
-          <button type="button" onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-            className={`${btnSecondary} text-xs px-3 py-1.5`}>
-            {uploading
-              ? <><i className="ti ti-loader-2 animate-spin text-[13px]" /> {t("uploading")}</>
-              : <><i className="ti ti-camera text-[13px]" /> {t("btn_add_photo")}</>}
-          </button>
-          <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} />
-        </div>
-        {uploadErr && <p className="mb-2 text-xs text-red-500">{uploadErr}</p>}
-        {(spot.photos ?? []).length === 0 ? (
-          <button type="button" onClick={() => fileInputRef.current?.click()}
-            className="w-full rounded-xl border-2 border-dashed border-gray-200 dark:border-gray-700 py-8 text-center text-sm text-gray-400 hover:border-teal-400 hover:text-teal-500 transition-colors">
-            <i className="ti ti-photo block text-2xl mb-1" />
-            {t("btn_add_photo")}
-          </button>
-        ) : (
-          <div className="grid grid-cols-3 gap-2">
-            {(spot.photos ?? []).map((p) => (
-              <div key={p.id} className="relative aspect-square rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800">
-                <img src={api.storageUrl(p.file_path)} alt="" className="w-full h-full object-cover" loading="lazy" />
-                <button type="button"
-                  onClick={() => handleDeletePhoto(p.id)}
-                  className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 text-white flex items-center justify-center hover:bg-red-600 transition-colors">
-                  <i className="ti ti-x text-[11px]" />
-                </button>
-              </div>
-            ))}
-            <button type="button" onClick={() => fileInputRef.current?.click()}
-              className="aspect-square rounded-lg border-2 border-dashed border-gray-200 dark:border-gray-700 flex items-center justify-center text-gray-400 hover:border-teal-400 hover:text-teal-500 transition-colors">
-              <i className="ti ti-plus text-xl" />
-            </button>
-          </div>
-        )}
+        <h2 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-300">{t("spot_photos")}</h2>
+        <PhotoGrid
+          photos={spot.photos ?? []}
+          uploading={uploading}
+          uploadErr={uploadErr}
+          onUpload={handlePhotoUpload}
+          onDelete={handleDeletePhoto}
+          fileInputRef={fileInputRef}
+        />
       </div>
     </div>
   );
@@ -690,13 +721,25 @@ function SpotEditor({ api, id, trips, categories, onDone, onCancel, t }: {
   const [error, setError] = useState<string | null>(null);
   const [nameErr, setNameErr] = useState(false);
 
+  // Photo state — available after spot is saved (new) or immediately (edit)
+  const [savedId, setSavedId] = useState<string | null>(id ?? null);
+  const [photos, setPhotos] = useState<SpotPhoto[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [uploadErr, setUploadErr] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     if (!id) return;
     api.get<Spot>(`/spots/${id}`).then((s) => {
       setName(s.name); setNote(s.note ?? ""); setLat(s.lat.toFixed(6)); setLng(s.lng.toFixed(6));
       setRating(s.rating); setTripId(s.trip_id ?? ""); setCategoryId(s.category_id ?? "");
+      setPhotos(s.photos ?? []);
     }).catch(() => setError(t("error_load")));
-  }, [api, id]);
+  }, [api, id, t]);
+
+  const reloadPhotos = useCallback((spotId: string) => {
+    api.get<Spot>(`/spots/${spotId}`).then((s) => setPhotos(s.photos ?? [])).catch(() => {});
+  }, [api]);
 
   const handleGps = () => {
     navigator.geolocation.getCurrentPosition(
@@ -709,12 +752,54 @@ function SpotEditor({ api, id, trips, categories, onDone, onCancel, t }: {
     if (!name.trim()) { setNameErr(true); return; }
     setSaving(true); setError(null);
     try {
-      const body = { name: name.trim(), note: note.trim() || null, lat: parseFloat(lat), lng: parseFloat(lng), rating, trip_id: tripId || null, category_id: categoryId || null };
-      if (isEdit) { await api.mutate("PATCH", `/spots/${id}`, body); onDone(id!); }
-      else { const c = await api.mutate<{ id: string }>("POST", "/spots", body); onDone(c.id); }
+      const body = {
+        name: name.trim(), note: note.trim() || null,
+        lat: parseFloat(lat), lng: parseFloat(lng),
+        rating, trip_id: tripId || null, category_id: categoryId || null,
+      };
+      if (isEdit) {
+        await api.mutate("PATCH", `/spots/${id}`, body);
+        onDone(id!);
+      } else {
+        const c = await api.mutate<{ id: string }>("POST", "/spots", body);
+        setSavedId(c.id);
+        // Stay on editor to allow photo upload — user clicks "Fertig" when done
+      }
     } catch (e) { setError(String(e)); }
     finally { setSaving(false); }
   };
+
+  async function handlePhotoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !savedId) return;
+    setUploading(true); setUploadErr(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      await api.upload(`/spots/${savedId}/photos`, fd);
+      reloadPhotos(savedId);
+    } catch (err) {
+      setUploadErr(String(err));
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  async function handleDeletePhoto(photoId: string) {
+    if (!savedId) return;
+    setUploadErr(null);
+    try {
+      await api.mutate<void>("DELETE", `/spots/${savedId}/photos/${photoId}`);
+      setPhotos((prev) => prev.filter((p) => p.id !== photoId));
+      reloadPhotos(savedId);
+    } catch (err) {
+      setUploadErr(String(err));
+    }
+  }
+
+  // After first save (new spot): show photo section + "Fertig" button
+  const showPhotoSection = savedId !== null;
 
   return (
     <div className="mx-auto max-w-xl overflow-y-auto h-full px-4 py-6">
@@ -726,60 +811,90 @@ function SpotEditor({ api, id, trips, categories, onDone, onCancel, t }: {
 
       {error && <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">{error}</div>}
 
-      <div className="space-y-5">
-        <div>
-          <label className={labelCls}>{t("spot_name")} *</label>
-          <input type="text" value={name} onChange={(e) => { setName(e.target.value); setNameErr(false); }}
-            placeholder={t("spot_name_placeholder")} className={`${inputCls} ${nameErr ? "border-red-400" : ""}`}
-            style={{ fontSize: "16px" }} autoFocus />
-          {nameErr && <p className="mt-1 text-sm text-red-500">{t("spot_name_required")}</p>}
-        </div>
-        <div className="grid grid-cols-2 gap-3">
+      {/* Form fields — hidden after first save of a new spot */}
+      {!showPhotoSection || isEdit ? (
+        <div className="space-y-5">
           <div>
-            <label className={labelCls}>{t("spot_trip")}</label>
-            <select value={tripId} onChange={(e) => setTripId(e.target.value)} className={inputCls} style={{ fontSize: "16px" }}>
-              <option value="">—</option>
-              {trips.map((tr) => <option key={tr.id} value={tr.id}>{tr.name}</option>)}
-            </select>
+            <label className={labelCls}>{t("spot_name")} *</label>
+            <input type="text" value={name} onChange={(e) => { setName(e.target.value); setNameErr(false); }}
+              placeholder={t("spot_name_placeholder")} className={`${inputCls} ${nameErr ? "border-red-400" : ""}`}
+              style={{ fontSize: "16px" }} autoFocus />
+            {nameErr && <p className="mt-1 text-sm text-red-500">{t("spot_name_required")}</p>}
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelCls}>{t("spot_trip")}</label>
+              <select value={tripId} onChange={(e) => setTripId(e.target.value)} className={inputCls} style={{ fontSize: "16px" }}>
+                <option value="">—</option>
+                {trips.map((tr) => <option key={tr.id} value={tr.id}>{tr.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className={labelCls}>{t("spot_category")}</label>
+              <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className={inputCls} style={{ fontSize: "16px" }}>
+                <option value="">—</option>
+                {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
           </div>
           <div>
-            <label className={labelCls}>{t("spot_category")}</label>
-            <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className={inputCls} style={{ fontSize: "16px" }}>
-              <option value="">—</option>
-              {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
+            <label className={labelCls}>{t("spot_rating")}</label>
+            <div className="flex items-center gap-3">
+              <Stars value={rating} onChange={setRating} />
+              {rating && <button type="button" onClick={() => setRating(null)} className="text-sm text-gray-400 hover:text-gray-600">×</button>}
+            </div>
+          </div>
+          <div>
+            <label className={labelCls}>{t("spot_note")}</label>
+            <textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder={t("spot_note_placeholder")}
+              className={inputCls} rows={4} style={{ fontSize: "16px" }} />
+          </div>
+          <div>
+            <label className={labelCls}>{t("spot_location")}</label>
+            <div className="grid grid-cols-2 gap-2 mb-2">
+              <input value={lat} onChange={(e) => setLat(e.target.value)} placeholder="Lat" className={inputCls} style={{ fontSize: "16px" }} />
+              <input value={lng} onChange={(e) => setLng(e.target.value)} placeholder="Lng" className={inputCls} style={{ fontSize: "16px" }} />
+            </div>
+            <button type="button" onClick={handleGps} className={btnSecondary}>
+              <i className="ti ti-current-location text-[13px]" /> {t("btn_use_gps")}
+            </button>
+            <p className="mt-1.5 text-sm text-gray-400">{t("spot_location_hint")}</p>
+          </div>
+          <div className="flex justify-end gap-3 pt-2">
+            <button type="button" onClick={onCancel} className={btnSecondary}>{t("btn_cancel")}</button>
+            <button type="button" onClick={handleSave} disabled={saving} className={btnPrimary}>
+              {saving
+                ? <><i className="ti ti-loader-2 animate-spin text-[13px]" /> {t("saving")}</>
+                : isEdit ? t("btn_save") : t("btn_save_and_add_photos")}
+            </button>
           </div>
         </div>
-        <div>
-          <label className={labelCls}>{t("spot_rating")}</label>
-          <div className="flex items-center gap-3">
-            <Stars value={rating} onChange={setRating} />
-            {rating && <button type="button" onClick={() => setRating(null)} className="text-sm text-gray-400 hover:text-gray-600">×</button>}
+      ) : null}
+
+      {/* Photo section — shown after new spot is saved */}
+      {showPhotoSection && !isEdit && (
+        <div className="space-y-5">
+          <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300">
+            <i className="ti ti-check mr-1.5" />{t("spot_saved_add_photos")}
+          </div>
+          <div>
+            <h2 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-300">{t("spot_photos")}</h2>
+            <PhotoGrid
+              photos={photos}
+              uploading={uploading}
+              uploadErr={uploadErr}
+              onUpload={handlePhotoUpload}
+              onDelete={handleDeletePhoto}
+              fileInputRef={fileInputRef}
+            />
+          </div>
+          <div className="flex justify-end">
+            <button type="button" onClick={() => onDone(savedId!)} className={btnPrimary}>
+              <i className="ti ti-check text-[13px]" /> {t("btn_done")}
+            </button>
           </div>
         </div>
-        <div>
-          <label className={labelCls}>{t("spot_note")}</label>
-          <textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder={t("spot_note_placeholder")}
-            className={inputCls} rows={4} style={{ fontSize: "16px" }} />
-        </div>
-        <div>
-          <label className={labelCls}>{t("spot_location")}</label>
-          <div className="grid grid-cols-2 gap-2 mb-2">
-            <input value={lat} onChange={(e) => setLat(e.target.value)} placeholder="Lat" className={inputCls} style={{ fontSize: "16px" }} />
-            <input value={lng} onChange={(e) => setLng(e.target.value)} placeholder="Lng" className={inputCls} style={{ fontSize: "16px" }} />
-          </div>
-          <button type="button" onClick={handleGps} className={btnSecondary}>
-            <i className="ti ti-current-location text-[13px]" /> {t("btn_use_gps")}
-          </button>
-          <p className="mt-1.5 text-sm text-gray-400">{t("spot_location_hint")}</p>
-        </div>
-        <div className="flex justify-end gap-3 pt-2">
-          <button type="button" onClick={onCancel} className={btnSecondary}>{t("btn_cancel")}</button>
-          <button type="button" onClick={handleSave} disabled={saving} className={btnPrimary}>
-            {saving ? <><i className="ti ti-loader-2 animate-spin text-[13px]" /> {t("saving")}</> : t("btn_save")}
-          </button>
-        </div>
-      </div>
+      )}
     </div>
   );
 }

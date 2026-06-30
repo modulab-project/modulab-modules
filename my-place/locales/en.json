@@ -9,6 +9,8 @@
   "btn_new_trip": "New Trip",
   "btn_new_category": "New Category",
   "btn_save": "Save",
+  "btn_save_and_add_photos": "Save & add photos",
+  "btn_done": "Done",
   "btn_cancel": "Cancel",
   "btn_delete": "Delete",
   "btn_edit": "Edit",
@@ -45,6 +47,7 @@
   "spot_photos": "Photos",
   "spot_added_by": "Added by {{name}}",
   "spot_delete_confirm": "Really delete this place?",
+  "spot_saved_add_photos": "Place saved! You can now add photos.",
 
   "trip_name": "Name",
   "trip_name_placeholder": "e.g. Sardinia 2025",

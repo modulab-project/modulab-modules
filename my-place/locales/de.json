@@ -9,6 +9,8 @@
   "btn_new_trip": "Neue Reise",
   "btn_new_category": "Neue Kategorie",
   "btn_save": "Speichern",
+  "btn_save_and_add_photos": "Speichern & Fotos hinzufügen",
+  "btn_done": "Fertig",
   "btn_cancel": "Abbrechen",
   "btn_delete": "Löschen",
   "btn_edit": "Bearbeiten",
@@ -45,6 +47,7 @@
   "spot_photos": "Fotos",
   "spot_added_by": "Eingetragen von {{name}}",
   "spot_delete_confirm": "Diesen Ort wirklich löschen?",
+  "spot_saved_add_photos": "Ort gespeichert! Du kannst jetzt Fotos hinzufügen.",
 
   "trip_name": "Name",
   "trip_name_placeholder": "z.B. Sardinien 2025",
@@ -52,7 +55,7 @@
   "trip_year": "Jahr",
   "trip_description": "Beschreibung",
   "trip_description_placeholder": "Optionale Notizen zu dieser Reise",
-  "trip_delete_confirm": "Reise wirklich löschen? Spots werden nicht gelöscht.",
+  "trip_delete_confirm": "Reise wirklich löschen? Orte werden nicht gelöscht.",
 
   "category_name": "Name",
   "category_name_placeholder": "z.B. Geheimtipp",
@@ -60,7 +63,7 @@
   "category_color": "Marker-Farbe",
   "category_icon": "Icon",
   "category_sort_order": "Reihenfolge",
-  "category_delete_confirm": "Kategorie wirklich löschen? Spots darin werden nicht gelöscht.",
+  "category_delete_confirm": "Kategorie wirklich löschen? Orte darin werden nicht gelöscht.",
 
   "settings_title": "Einstellungen",
   "settings_subtitle": "Kartenanbieter für Meine Orte konfigurieren.",
