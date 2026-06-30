@@ -252,6 +252,7 @@ function MapView({ spots, mapStyleUrl, mapConfigured, trips, categories, onSpotC
   const mapRef = useRef<maplibregl.Map | null>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const markersRef = useRef<maplibregl.Marker[]>([]);
+  const [mapLoaded, setMapLoaded] = useState(false);
   const [filterTrip, setFilterTrip] = useState("");
   const [filterCategory, setFilterCategory] = useState("");
 
@@ -274,15 +275,16 @@ function MapView({ spots, mapStyleUrl, mapConfigured, trips, categories, onSpotC
     });
     map.addControl(new maplibregl.NavigationControl(), "bottom-right");
     map.on("click", (e) => onMapClick(e.lngLat.lat, e.lngLat.lng));
+    map.on("load", () => setMapLoaded(true));
     mapRef.current = map;
 
-    return () => { map.remove(); mapRef.current = null; };
+    return () => { map.remove(); mapRef.current = null; setMapLoaded(false); };
   }, [mapStyleUrl]);
 
-  // Markers
+  // Markers — only after map is fully loaded
   useEffect(() => {
     const map = mapRef.current;
-    if (!map) return;
+    if (!map || !mapLoaded) return;
     markersRef.current.forEach((m) => m.remove());
     markersRef.current = [];
 
@@ -303,7 +305,7 @@ function MapView({ spots, mapStyleUrl, mapConfigured, trips, categories, onSpotC
         new maplibregl.Marker({ element: el }).setLngLat([spot.lng, spot.lat]).addTo(map)
       );
     });
-  }, [filtered, mapStyleUrl]);
+  }, [filtered, mapLoaded]);
 
   return (
     <div className="flex h-full">
