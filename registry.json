@@ -9,9 +9,9 @@
   },
   {
     "name": "vacation-spots",
-    "version": "0.2.2",
-    "release_url": "https://github.com/modulab-project/modulab-modules/releases/download/vacation-spots-v0.2.2/vacation-spots-v0.2.2.zip",
-    "sha256": "3c55e5fffc09622e09c62cdab0f3d6c9fb24ff25e2b9c65fd319b841efcedf4f",
+    "version": "0.2.3",
+    "release_url": "https://github.com/modulab-project/modulab-modules/releases/download/vacation-spots-v0.2.3/vacation-spots-v0.2.3.zip",
+    "sha256": "62a245347872c107eb1c0c56d9f6a560dee2b220d80aadcba2f890e9db68621c",
     "cosign_sig_url": "",
     "category": "lifestyle"
   }
