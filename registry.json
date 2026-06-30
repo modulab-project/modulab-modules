@@ -11,7 +11,7 @@
     "name": "vacation-spots",
     "version": "0.1.8",
     "release_url": "https://github.com/modulab-project/modulab-modules/releases/download/vacation-spots-v0.1.8/vacation-spots-v0.1.8.zip",
-    "sha256": "adba491a2ccf8b0fd66112f76fd9448cd573190b1ac833fcb57e7aa53953416d",
+    "sha256": "777d4fd9410bee08484a92217a3bd4fb48c7bad8d4455e3dcb967ebc97280404",
     "cosign_sig_url": "",
     "category": "lifestyle"
   }
