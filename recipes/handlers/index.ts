@@ -53,30 +53,36 @@ import type { HandlerRequest, HandlerResponse, ModuleDbClient } from "./types.ts
 
 export default async function handler(req: HandlerRequest): Promise<HandlerResponse> {
   const { method, path, body, auth, db } = req;
-  const route = `${method} ${path}`;
+
+  // path may include a query string (e.g. "/recipes?search=foo").
+  // Split it so route matching works on the pathname only, while filter
+  // functions still receive the full path (with "?...") for URLSearchParams.
+  const qIdx = path.indexOf("?");
+  const pathname = qIdx === -1 ? path : path.slice(0, qIdx);
+  const route = `${method} ${pathname}`;
 
   // ── Recipes ───────────────────────────────────────────────────────────────
 
   if (route === "GET /recipes") {
     return listRecipes(db, path);
   }
-  if (method === "GET" && path.match(/^\/recipes\/[^/]+$/)) {
-    return getRecipe(db, segId(path));
+  if (method === "GET" && pathname.match(/^\/recipes\/[^/]+$/)) {
+    return getRecipe(db, segId(pathname));
   }
   if (route === "POST /recipes") {
     return createRecipe(db, body as RecipeInput, auth.userId);
   }
-  if (method === "PATCH" && path.match(/^\/recipes\/[^/]+$/)) {
-    return updateRecipe(db, segId(path), body as Partial<RecipeInput>);
+  if (method === "PATCH" && pathname.match(/^\/recipes\/[^/]+$/)) {
+    return updateRecipe(db, segId(pathname), body as Partial<RecipeInput>);
   }
-  if (method === "DELETE" && path.match(/^\/recipes\/[^/]+$/)) {
-    return deleteRecipe(db, segId(path));
+  if (method === "DELETE" && pathname.match(/^\/recipes\/[^/]+$/)) {
+    return deleteRecipe(db, segId(pathname));
   }
 
   // ── Recipe image ──────────────────────────────────────────────────────────
 
-  if (method === "POST" && path.match(/^\/recipes\/[^/]+\/image$/)) {
-    const id = path.split("/")[2];
+  if (method === "POST" && pathname.match(/^\/recipes\/[^/]+\/image$/)) {
+    const id = pathname.split("/")[2];
     const { file_path } = body as { file_path: string };
     await db.query(
       `UPDATE recipes SET image_path = $1, updated_at = now() WHERE id = $2`,
@@ -84,8 +90,8 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
     );
     return ok({ image_path: file_path });
   }
-  if (method === "DELETE" && path.match(/^\/recipes\/[^/]+\/image$/)) {
-    const id = path.split("/")[2];
+  if (method === "DELETE" && pathname.match(/^\/recipes\/[^/]+\/image$/)) {
+    const id = pathname.split("/")[2];
     await db.query(
       `UPDATE recipes SET image_path = NULL, updated_at = now() WHERE id = $1`,
       [id],
@@ -95,31 +101,31 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
 
   // ── Ingredients ───────────────────────────────────────────────────────────
 
-  if (method === "GET" && path.match(/^\/recipes\/[^/]+\/ingredients$/)) {
-    const id = path.split("/")[2];
+  if (method === "GET" && pathname.match(/^\/recipes\/[^/]+\/ingredients$/)) {
+    const id = pathname.split("/")[2];
     const rows = await db.query<Ingredient>(
       `SELECT * FROM ingredients WHERE recipe_id = $1 ORDER BY position ASC`,
       [id],
     );
     return ok(rows);
   }
-  if (method === "PUT" && path.match(/^\/recipes\/[^/]+\/ingredients$/)) {
-    const id = path.split("/")[2];
+  if (method === "PUT" && pathname.match(/^\/recipes\/[^/]+\/ingredients$/)) {
+    const id = pathname.split("/")[2];
     return replaceIngredients(db, id, body as IngredientInput[]);
   }
 
   // ── Steps ─────────────────────────────────────────────────────────────────
 
-  if (method === "GET" && path.match(/^\/recipes\/[^/]+\/steps$/)) {
-    const id = path.split("/")[2];
+  if (method === "GET" && pathname.match(/^\/recipes\/[^/]+\/steps$/)) {
+    const id = pathname.split("/")[2];
     const rows = await db.query<Step>(
       `SELECT * FROM recipe_steps WHERE recipe_id = $1 ORDER BY step_number ASC`,
       [id],
     );
     return ok(rows);
   }
-  if (method === "PUT" && path.match(/^\/recipes\/[^/]+\/steps$/)) {
-    const id = path.split("/")[2];
+  if (method === "PUT" && pathname.match(/^\/recipes\/[^/]+\/steps$/)) {
+    const id = pathname.split("/")[2];
     return replaceSteps(db, id, body as StepInput[]);
   }
 
@@ -137,12 +143,12 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
     );
     return created(row);
   }
-  if (method === "DELETE" && path.match(/^\/tags\/[^/]+$/)) {
-    await db.query(`DELETE FROM tags WHERE id = $1`, [segId(path)]);
+  if (method === "DELETE" && pathname.match(/^\/tags\/[^/]+$/)) {
+    await db.query(`DELETE FROM tags WHERE id = $1`, [segId(pathname)]);
     return noContent();
   }
-  if (method === "PUT" && path.match(/^\/recipes\/[^/]+\/tags$/)) {
-    const id = path.split("/")[2];
+  if (method === "PUT" && pathname.match(/^\/recipes\/[^/]+\/tags$/)) {
+    const id = pathname.split("/")[2];
     const tagIds = (body as { tag_ids: string[] }).tag_ids ?? [];
     await db.query(`DELETE FROM recipe_tags WHERE recipe_id = $1`, [id]);
     for (const tagId of tagIds) {
@@ -170,38 +176,38 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
     );
     return created(row);
   }
-  if (method === "PATCH" && path.match(/^\/categories\/[^/]+$/)) {
+  if (method === "PATCH" && pathname.match(/^\/categories\/[^/]+$/)) {
     const { name, sort_order } = body as { name?: string; sort_order?: number };
     const [row] = await db.query(
       `UPDATE categories SET
         name       = COALESCE($2, name),
         sort_order = COALESCE($3, sort_order)
        WHERE id = $1 RETURNING *`,
-      [segId(path), name, sort_order],
+      [segId(pathname), name, sort_order],
     );
     if (!row) return notFound("category");
     return ok(row);
   }
-  if (method === "DELETE" && path.match(/^\/categories\/[^/]+$/)) {
-    await db.query(`DELETE FROM categories WHERE id = $1`, [segId(path)]);
+  if (method === "DELETE" && pathname.match(/^\/categories\/[^/]+$/)) {
+    await db.query(`DELETE FROM categories WHERE id = $1`, [segId(pathname)]);
     return noContent();
   }
 
   // ── Nutrition (Open Food Facts) ───────────────────────────────────────────
 
-  if (method === "GET" && path.startsWith("/nutrition/search")) {
+  if (method === "GET" && pathname.startsWith("/nutrition/search")) {
     const q = new URL("http://x" + path).searchParams.get("q") ?? "";
     if (!q) return { status: 400, body: { error: "q parameter required" } };
     return searchNutrition(q);
   }
-  if (method === "GET" && path.match(/^\/nutrition\/[^/]+$/)) {
-    return fetchNutrition(segId(path));
+  if (method === "GET" && pathname.match(/^\/nutrition\/[^/]+$/)) {
+    return fetchNutrition(segId(pathname));
   }
 
   // ── Portion calculator ────────────────────────────────────────────────────
 
-  if (method === "GET" && path.match(/^\/recipes\/[^/]+\/nutrition/)) {
-    const id = path.split("/")[2];
+  if (method === "GET" && pathname.match(/^\/recipes\/[^/]+\/nutrition$/)) {
+    const id = pathname.split("/")[2];
     const params = new URL("http://x" + path).searchParams;
     const servings = parseInt(params.get("servings") ?? "1", 10);
     return calcNutrition(db, id, servings);
@@ -216,16 +222,16 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
 
   // ── Meal plan ─────────────────────────────────────────────────────────────
 
-  if (method === "GET" && path.startsWith("/meal-plan")) {
+  if (method === "GET" && pathname.startsWith("/meal-plan")) {
     const week = new URL("http://x" + path).searchParams.get("week") ?? mondayOfCurrentWeek();
     return getMealPlan(db, week);
   }
-  if (method === "PUT" && path.match(/^\/meal-plan\/[^/]+\/\d\/\w+$/)) {
-    const [, , weekStart, day, slot] = path.split("/");
+  if (method === "PUT" && pathname.match(/^\/meal-plan\/[^/]+\/\d+\/\w+$/)) {
+    const [, , weekStart, day, slot] = pathname.split("/");
     return setMealPlanEntry(db, weekStart, parseInt(day), slot, body as MealPlanInput, auth.userId);
   }
-  if (method === "DELETE" && path.match(/^\/meal-plan\/[^/]+\/\d\/\w+$/)) {
-    const [, , weekStart, day, slot] = path.split("/");
+  if (method === "DELETE" && pathname.match(/^\/meal-plan\/[^/]+\/\d+\/\w+$/)) {
+    const [, , weekStart, day, slot] = pathname.split("/");
     await db.query(
       `DELETE FROM meal_plan_entries WHERE week_start = $1 AND day_of_week = $2 AND meal_slot = $3`,
       [weekStart, parseInt(day), slot],

@@ -391,6 +391,7 @@ function RecipeDetail({
   const [nutrition, setNutrition] = useState<{ available: boolean; kcal?: number; protein?: number; fat?: number; carbs?: number } | null>(null);
   const [servings, setServings] = useState(4);
   const [loading, setLoading] = useState(true);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     api.get<Recipe & { ingredients: Ingredient[]; steps: Step[]; tags: Tag[] }>(`/recipes/${id}`)
@@ -400,6 +401,17 @@ function RecipeDetail({
       })
       .finally(() => setLoading(false));
   }, [api, id]);
+
+  async function handleDelete() {
+    if (!window.confirm(t("recipe_delete_confirm"))) return;
+    setDeleting(true);
+    try {
+      await api.mutate("DELETE", `/recipes/${id}`);
+      onBack();
+    } catch {
+      setDeleting(false);
+    }
+  }
 
   useEffect(() => {
     if (!recipe) return;
@@ -450,13 +462,24 @@ function RecipeDetail({
             ))}
           </div>
         </div>
-        <button
-          type="button"
-          onClick={() => onEdit(id)}
-          className="flex flex-none items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
-        >
-          <i className="ti ti-pencil text-[14px]" /> {t("edit")}
-        </button>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => onEdit(id)}
+            className="flex flex-none items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
+          >
+            <i className="ti ti-pencil text-[14px]" /> {t("edit")}
+          </button>
+          <button
+            type="button"
+            onClick={handleDelete}
+            disabled={deleting}
+            className="flex flex-none items-center gap-1.5 rounded-lg border border-red-200 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950 disabled:opacity-50"
+          >
+            <i className="ti ti-trash text-[14px]" />
+            <span className="hidden sm:inline">{t("delete")}</span>
+          </button>
+        </div>
       </div>
 
       {/* Meta row */}

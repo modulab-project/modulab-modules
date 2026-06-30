@@ -66,6 +66,7 @@
 
   "recipe_not_found": "Recipe not found",
   "recipe_load_error": "Could not load recipe",
+  "recipe_delete_confirm": "Really delete this recipe?",
 
   "new_recipe": "New Recipe",
   "edit_recipe": "Edit Recipe",
