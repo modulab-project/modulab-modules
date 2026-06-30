@@ -1,8 +1,9 @@
 /**
- * Vacation Spots module — React frontend v0.2.0
+ * Vacation Spots module — React frontend v0.2.3
  *
  * Views (page-based, no modals/overlays):
  *   map        — full-screen MapLibre GL map with spot markers
+ *   spots      — spot list / overview
  *   spot-new   — full-page spot editor (new)
  *   spot-edit  — full-page spot editor (edit existing)
  *   spot-detail — spot detail page
@@ -58,6 +59,7 @@ interface Category {
 
 type View =
   | { type: "map" }
+  | { type: "spots" }
   | { type: "spot-new"; lat?: number; lng?: number }
   | { type: "spot-edit"; id: string }
   | { type: "spot-detail"; id: string }
@@ -66,21 +68,22 @@ type View =
   | { type: "settings" };
 
 // ── API helper ─────────────────────────────────────────────────────────────────
+// Uses refs so the returned object is always the same identity (no render loop).
 
 function useApi(apiBase: string, token: string) {
   const base = apiBase.endsWith("/") ? apiBase.slice(0, -1) : apiBase;
-
-  // Stable refs so downstream useCallbacks/useEffects don't re-fire on every render
   const baseRef = useRef(base);
   const tokenRef = useRef(token);
   useEffect(() => { baseRef.current = base; }, [base]);
   useEffect(() => { tokenRef.current = token; }, [token]);
 
   const get = useCallback(async <T,>(path: string): Promise<T> => {
-    const r = await fetch(baseRef.current + path, { headers: { Authorization: `Bearer ${tokenRef.current}` } });
+    const r = await fetch(baseRef.current + path, {
+      headers: { Authorization: `Bearer ${tokenRef.current}` },
+    });
     if (!r.ok) { const txt = await r.text(); throw new Error(txt || `HTTP ${r.status}`); }
     return r.json();
-  }, []); // stable — reads from refs
+  }, []);
 
   const mutate = useCallback(async <T,>(method: string, path: string, body?: unknown): Promise<T> => {
     const r = await fetch(baseRef.current + path, {
@@ -91,7 +94,7 @@ function useApi(apiBase: string, token: string) {
     if (!r.ok) { const txt = await r.text(); throw new Error(txt || `HTTP ${r.status}`); }
     if (r.status === 204) return undefined as T;
     return r.json();
-  }, []); // stable — reads from refs
+  }, []);
 
   return useMemo(() => ({ get, mutate }), [get, mutate]);
 }
@@ -106,15 +109,21 @@ function navCls(active: boolean) {
   }`;
 }
 
-const inputCls = "w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 dark:border-gray-700 dark:bg-gray-900";
+const inputCls =
+  "w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 dark:border-gray-700 dark:bg-gray-900";
 const labelCls = "mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300";
 
 function Stars({ value, onChange }: { value: number | null; onChange?: (v: number) => void }) {
   return (
     <span className="inline-flex gap-1">
       {[1, 2, 3, 4, 5].map((n) => (
-        <span key={n} onClick={() => onChange?.(n)}
-          className={`text-xl leading-none ${onChange ? "cursor-pointer" : ""} ${value && n <= value ? "text-amber-400" : "text-gray-300"}`}>
+        <span
+          key={n}
+          onClick={() => onChange?.(n)}
+          className={`text-xl leading-none ${onChange ? "cursor-pointer" : ""} ${
+            value && n <= value ? "text-amber-400" : "text-gray-300"
+          }`}
+        >
           ★
         </span>
       ))}
@@ -135,10 +144,13 @@ export default function App({ apiBase, token }: ModuleComponentProps) {
   const [mapStyleUrl, setMapStyleUrl] = useState<string | null>(null);
   const [mapConfigured, setMapConfigured] = useState<boolean | null>(null);
 
-  // Load config on mount
   useEffect(() => {
-    api.get<{ map_configured: boolean; map_style_url: string | null }>("/config")
-      .then((cfg) => { setMapConfigured(cfg.map_configured); setMapStyleUrl(cfg.map_style_url); })
+    api
+      .get<{ map_configured: boolean; map_style_url: string | null }>("/config")
+      .then((cfg) => {
+        setMapConfigured(cfg.map_configured);
+        setMapStyleUrl(cfg.map_style_url);
+      })
       .catch(() => setMapConfigured(false));
   }, [api]);
 
@@ -153,7 +165,9 @@ export default function App({ apiBase, token }: ModuleComponentProps) {
     setCategories(cat);
   }, [api]);
 
-  useEffect(() => { loadAll(); }, [loadAll]);
+  useEffect(() => {
+    loadAll();
+  }, [loadAll]);
 
   const vt = view.type;
 
@@ -165,6 +179,10 @@ export default function App({ apiBase, token }: ModuleComponentProps) {
         <button type="button" onClick={() => setView({ type: "map" })} className={navCls(vt === "map")} title={t("nav_map")}>
           <i className="ti ti-map text-[15px]" />
           <span className="hidden sm:inline">{t("nav_map")}</span>
+        </button>
+        <button type="button" onClick={() => setView({ type: "spots" })} className={navCls(vt === "spots")} title={t("nav_spots")}>
+          <i className="ti ti-list text-[15px]" />
+          <span className="hidden sm:inline">{t("nav_spots")}</span>
         </button>
         <button type="button" onClick={() => setView({ type: "trips" })} className={navCls(vt === "trips")} title={t("nav_trips")}>
           <i className="ti ti-route text-[15px]" />
@@ -203,6 +221,16 @@ export default function App({ apiBase, token }: ModuleComponentProps) {
             t={t}
           />
         )}
+        {vt === "spots" && (
+          <SpotsListView
+            spots={spots}
+            trips={trips}
+            categories={categories}
+            onSpotClick={(id) => setView({ type: "spot-detail", id })}
+            onNewSpot={() => setView({ type: "spot-new" })}
+            t={t}
+          />
+        )}
         {(vt === "spot-new" || vt === "spot-edit") && (
           <SpotEditor
             api={api}
@@ -210,7 +238,10 @@ export default function App({ apiBase, token }: ModuleComponentProps) {
             initialCoords={vt === "spot-new" ? { lat: view.lat, lng: view.lng } : undefined}
             trips={trips}
             categories={categories}
-            onDone={(id) => { loadAll(); setView({ type: "spot-detail", id }); }}
+            onDone={(id) => {
+              loadAll();
+              setView({ type: "spot-detail", id });
+            }}
             onCancel={() => setView({ type: "map" })}
             t={t}
           />
@@ -221,20 +252,24 @@ export default function App({ apiBase, token }: ModuleComponentProps) {
             id={view.id}
             onBack={() => setView({ type: "map" })}
             onEdit={(id) => setView({ type: "spot-edit", id })}
-            onDeleted={() => { loadAll(); setView({ type: "map" }); }}
+            onDeleted={() => {
+              loadAll();
+              setView({ type: "map" });
+            }}
             t={t}
           />
         )}
-        {vt === "trips" && (
-          <TripsView trips={trips} api={api} onReload={loadAll} t={t} />
-        )}
+        {vt === "trips" && <TripsView trips={trips} api={api} onReload={loadAll} t={t} />}
         {vt === "categories" && (
           <CategoriesView categories={categories} api={api} onReload={loadAll} t={t} />
         )}
         {vt === "settings" && (
           <SettingsView
             api={api}
-            onSaved={(styleUrl) => { setMapStyleUrl(styleUrl); setMapConfigured(!!styleUrl); }}
+            onSaved={(styleUrl) => {
+              setMapStyleUrl(styleUrl);
+              setMapConfigured(!!styleUrl);
+            }}
             t={t}
           />
         )}
@@ -245,7 +280,16 @@ export default function App({ apiBase, token }: ModuleComponentProps) {
 
 // ── MapView ────────────────────────────────────────────────────────────────────
 
-function MapView({ spots, mapStyleUrl, mapConfigured, trips, categories, onSpotClick, onMapClick, t }: {
+function MapView({
+  spots,
+  mapStyleUrl,
+  mapConfigured,
+  trips,
+  categories,
+  onSpotClick,
+  onMapClick,
+  t,
+}: {
   spots: Spot[];
   mapStyleUrl: string | null;
   mapConfigured: boolean | null;
@@ -262,11 +306,15 @@ function MapView({ spots, mapStyleUrl, mapConfigured, trips, categories, onSpotC
   const [filterTrip, setFilterTrip] = useState("");
   const [filterCategory, setFilterCategory] = useState("");
 
-  const filtered = useMemo(() => spots.filter((s) => {
-    if (filterTrip && s.trip_id !== filterTrip) return false;
-    if (filterCategory && s.category_id !== filterCategory) return false;
-    return true;
-  }), [spots, filterTrip, filterCategory]);
+  const filtered = useMemo(
+    () =>
+      spots.filter((s) => {
+        if (filterTrip && s.trip_id !== filterTrip) return false;
+        if (filterCategory && s.category_id !== filterCategory) return false;
+        return true;
+      }),
+    [spots, filterTrip, filterCategory],
+  );
 
   // Init map
   useEffect(() => {
@@ -284,60 +332,150 @@ function MapView({ spots, mapStyleUrl, mapConfigured, trips, categories, onSpotC
     map.on("load", () => setMapLoaded(true));
     mapRef.current = map;
 
-    return () => { map.remove(); mapRef.current = null; setMapLoaded(false); };
+    return () => {
+      map.remove();
+      mapRef.current = null;
+      setMapLoaded(false);
+    };
   }, [mapStyleUrl]);
 
-  // Markers — only after map is fully loaded
+  // Place markers. Runs when mapLoaded flips to true OR when filtered spots change.
+  // Key insight: use a version counter so the effect always re-runs when spots change,
+  // even if the filtered array reference appears equal.
+  const filteredRef = useRef(filtered);
+  filteredRef.current = filtered;
+  const onSpotClickRef = useRef(onSpotClick);
+  onSpotClickRef.current = onSpotClick;
+
   useEffect(() => {
+    if (!mapLoaded) return;
+
+    function placeMarkers() {
+      const map = mapRef.current;
+      if (!map) return;
+
+      markersRef.current.forEach((m) => m.remove());
+      markersRef.current = [];
+
+      filteredRef.current.forEach((spot) => {
+        const color = spot.category_color ?? "#0d9488";
+        const el = document.createElement("div");
+        el.style.cssText = [
+          "width:28px",
+          "height:28px",
+          "border-radius:50%",
+          `background:${color}`,
+          "border:2px solid white",
+          "cursor:pointer",
+          "display:flex",
+          "align-items:center",
+          "justify-content:center",
+          "box-shadow:0 1px 4px rgba(0,0,0,.35)",
+        ].join(";");
+        el.innerHTML = `<i class="ti ${spot.category_icon ?? "ti-map-pin"}" style="font-size:13px;color:white;pointer-events:none"></i>`;
+
+        const popupHtml = [
+          `<div style="font-family:sans-serif;padding:4px">`,
+          `<div style="font-weight:600;font-size:13px;margin-bottom:4px">${spot.name}</div>`,
+          spot.category_name
+            ? `<span style="font-size:11px;background:${color}22;color:${color};padding:2px 6px;border-radius:4px">${spot.category_name}</span>`
+            : "",
+          spot.rating
+            ? `<div style="color:#f59e0b;margin-top:4px">${"★".repeat(spot.rating)}${"☆".repeat(5 - spot.rating)}</div>`
+            : "",
+          spot.note
+            ? `<div style="font-size:12px;color:#666;margin-top:4px">${spot.note.slice(0, 80)}${spot.note.length > 80 ? "…" : ""}</div>`
+            : "",
+          `</div>`,
+        ].join("");
+
+        const popup = new maplibregl.Popup({
+          closeButton: false,
+          closeOnClick: false,
+          offset: 16,
+          maxWidth: "220px",
+        }).setHTML(popupHtml);
+
+        el.addEventListener("mouseenter", () => popup.addTo(map));
+        el.addEventListener("mouseleave", () => popup.remove());
+        el.addEventListener("click", (e) => {
+          e.stopPropagation();
+          onSpotClickRef.current(spot.id);
+        });
+
+        markersRef.current.push(
+          new maplibregl.Marker({ element: el }).setLngLat([spot.lng, spot.lat]).addTo(map),
+        );
+      });
+    }
+
+    // If map style is still loading, wait for idle before placing markers
     const map = mapRef.current;
-    if (!map || !mapLoaded) return;
-    markersRef.current.forEach((m) => m.remove());
-    markersRef.current = [];
+    if (map && map.isStyleLoaded()) {
+      placeMarkers();
+    } else if (map) {
+      map.once("idle", placeMarkers);
+    }
 
-    filtered.forEach((spot) => {
-      const color = spot.category_color ?? "#888780";
-      const el = document.createElement("div");
-      el.style.cssText = `width:28px;height:28px;border-radius:50%;background:${color};border:2px solid white;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 4px rgba(0,0,0,.3)`;
-      el.innerHTML = `<i class="ti ${spot.category_icon ?? "ti-map-pin"}" style="font-size:13px;color:white;pointer-events:none"></i>`;
-
-      const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 16, maxWidth: "220px" })
-        .setHTML(`<div style="font-family:sans-serif;padding:4px"><div style="font-weight:500;font-size:13px;margin-bottom:4px">${spot.name}</div>${spot.category_name ? `<span style="font-size:11px;background:${color}22;color:${color};padding:2px 6px;border-radius:4px">${spot.category_name}</span>` : ""}${spot.rating ? `<div style="color:#EF9F27;margin-top:4px">${"★".repeat(spot.rating)}${"☆".repeat(5 - spot.rating)}</div>` : ""}${spot.note ? `<div style="font-size:12px;color:#666;margin-top:4px">${spot.note.slice(0, 80)}${spot.note.length > 80 ? "…" : ""}</div>` : ""}</div>`);
-
-      el.addEventListener("mouseenter", () => popup.addTo(map));
-      el.addEventListener("mouseleave", () => popup.remove());
-      el.addEventListener("click", (e) => { e.stopPropagation(); onSpotClick(spot.id); });
-
-      markersRef.current.push(
-        new maplibregl.Marker({ element: el }).setLngLat([spot.lng, spot.lat]).addTo(map)
-      );
-    });
-  }, [filtered, mapLoaded]);
+    return () => {
+      map?.off("idle", placeMarkers);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapLoaded, filtered]); // filtered in deps so new spots trigger a re-run
 
   return (
     <div className="flex h-full">
       {/* Sidebar */}
       <div className="w-44 flex-shrink-0 border-r border-gray-200 bg-gray-50 p-3 flex flex-col gap-3 overflow-y-auto dark:border-gray-800 dark:bg-gray-900">
         <div>
-          <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-gray-400">{t("nav_trips")}</label>
-          <select value={filterTrip} onChange={(e) => { setFilterTrip(e.target.value); setFilterCategory(""); }}
-            className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-xs dark:border-gray-700 dark:bg-gray-800" style={{ fontSize: "14px" }}>
+          <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+            {t("nav_trips")}
+          </label>
+          <select
+            value={filterTrip}
+            onChange={(e) => {
+              setFilterTrip(e.target.value);
+              setFilterCategory("");
+            }}
+            className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
+            style={{ fontSize: "14px" }}
+          >
             <option value="">{t("all_trips")}</option>
-            {trips.map((tr) => <option key={tr.id} value={tr.id}>{tr.name}</option>)}
+            {trips.map((tr) => (
+              <option key={tr.id} value={tr.id}>
+                {tr.name}
+              </option>
+            ))}
           </select>
         </div>
         <div>
-          <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-gray-400">{t("nav_categories")}</label>
-          <select value={filterCategory} onChange={(e) => { setFilterCategory(e.target.value); setFilterTrip(""); }}
-            className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-xs dark:border-gray-700 dark:bg-gray-800" style={{ fontSize: "14px" }}>
+          <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+            {t("nav_categories")}
+          </label>
+          <select
+            value={filterCategory}
+            onChange={(e) => {
+              setFilterCategory(e.target.value);
+              setFilterTrip("");
+            }}
+            className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
+            style={{ fontSize: "14px" }}
+          >
             <option value="">{t("all_categories")}</option>
-            {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            {categories.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
           </select>
         </div>
-        <div className="mt-auto text-xs text-gray-400">{filtered.length} spot{filtered.length !== 1 ? "s" : ""}</div>
+        <div className="mt-auto text-xs text-gray-400">
+          {filtered.length} spot{filtered.length !== 1 ? "s" : ""}
+        </div>
       </div>
 
       {/* Map */}
-      <div className="flex-1">
+      <div className="flex-1 relative">
         {mapConfigured === false ? (
           <div className="flex h-full items-center justify-center text-center text-sm text-gray-500 px-8">
             <div>
@@ -353,9 +491,206 @@ function MapView({ spots, mapStyleUrl, mapConfigured, trips, categories, onSpotC
   );
 }
 
+// ── SpotsListView ──────────────────────────────────────────────────────────────
+
+function SpotsListView({
+  spots,
+  trips,
+  categories,
+  onSpotClick,
+  onNewSpot,
+  t,
+}: {
+  spots: Spot[];
+  trips: Trip[];
+  categories: Category[];
+  onSpotClick: (id: string) => void;
+  onNewSpot: () => void;
+  t: (k: string, opts?: Record<string, unknown>) => string;
+}) {
+  const [search, setSearch] = useState("");
+  const [filterTrip, setFilterTrip] = useState("");
+  const [filterCategory, setFilterCategory] = useState("");
+  const [sortBy, setSortBy] = useState<"date" | "name" | "rating">("date");
+
+  const filtered = useMemo(() => {
+    let list = spots;
+    if (filterTrip) list = list.filter((s) => s.trip_id === filterTrip);
+    if (filterCategory) list = list.filter((s) => s.category_id === filterCategory);
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      list = list.filter(
+        (s) =>
+          s.name.toLowerCase().includes(q) ||
+          (s.note ?? "").toLowerCase().includes(q) ||
+          (s.trip_name ?? "").toLowerCase().includes(q) ||
+          (s.category_name ?? "").toLowerCase().includes(q),
+      );
+    }
+    return [...list].sort((a, b) => {
+      if (sortBy === "name") return a.name.localeCompare(b.name);
+      if (sortBy === "rating") return (b.rating ?? 0) - (a.rating ?? 0);
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+  }, [spots, filterTrip, filterCategory, search, sortBy]);
+
+  return (
+    <div className="flex flex-col h-full overflow-hidden">
+      {/* Toolbar */}
+      <div className="flex flex-wrap gap-2 border-b border-gray-200 dark:border-gray-800 px-4 py-2.5 bg-gray-50 dark:bg-gray-900 flex-shrink-0">
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder={t("spots_search_placeholder")}
+          className="flex-1 min-w-[140px] rounded-lg border border-gray-300 px-3 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-teal-500"
+          style={{ fontSize: "16px" }}
+        />
+        <select
+          value={filterTrip}
+          onChange={(e) => setFilterTrip(e.target.value)}
+          className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800"
+          style={{ fontSize: "14px" }}
+        >
+          <option value="">{t("all_trips")}</option>
+          {trips.map((tr) => (
+            <option key={tr.id} value={tr.id}>
+              {tr.name}
+            </option>
+          ))}
+        </select>
+        <select
+          value={filterCategory}
+          onChange={(e) => setFilterCategory(e.target.value)}
+          className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800"
+          style={{ fontSize: "14px" }}
+        >
+          <option value="">{t("all_categories")}</option>
+          {categories.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+        <select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value as "date" | "name" | "rating")}
+          className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800"
+          style={{ fontSize: "14px" }}
+        >
+          <option value="date">{t("sort_date")}</option>
+          <option value="name">{t("sort_name")}</option>
+          <option value="rating">{t("sort_rating")}</option>
+        </select>
+      </div>
+
+      {/* List */}
+      <div className="flex-1 overflow-y-auto px-4 py-3">
+        {filtered.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 text-center">
+            <i className="ti ti-map-pin-off text-[40px] text-gray-300 dark:text-gray-700 mb-3" />
+            <p className="text-sm text-gray-400">
+              {spots.length === 0 ? t("no_spots") : t("no_spots_filter")}
+            </p>
+            {spots.length === 0 && (
+              <button
+                type="button"
+                onClick={onNewSpot}
+                className="mt-4 flex items-center gap-1.5 rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700"
+              >
+                <i className="ti ti-plus text-[13px]" /> {t("btn_new_spot")}
+              </button>
+            )}
+          </div>
+        ) : (
+          <>
+            <p className="mb-3 text-xs text-gray-400">
+              {filtered.length} {filtered.length === 1 ? "Spot" : "Spots"}
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {filtered.map((spot) => {
+                const color = spot.category_color ?? "#0d9488";
+                return (
+                  <button
+                    key={spot.id}
+                    type="button"
+                    onClick={() => onSpotClick(spot.id)}
+                    className="text-left rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 hover:border-teal-400 dark:hover:border-teal-600 hover:shadow-sm transition-all"
+                  >
+                    <div className="flex items-start gap-3">
+                      {/* Category dot */}
+                      <span
+                        className="mt-0.5 flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center"
+                        style={{ background: color + "22" }}
+                      >
+                        <i
+                          className={`ti ${spot.category_icon ?? "ti-map-pin"} text-sm`}
+                          style={{ color }}
+                        />
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-sm text-gray-900 dark:text-gray-100 truncate">
+                          {spot.name}
+                        </div>
+                        {/* Meta row */}
+                        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-gray-400">
+                          {spot.trip_name && (
+                            <span className="flex items-center gap-0.5">
+                              <i className="ti ti-route text-[10px]" />
+                              {spot.trip_name}
+                            </span>
+                          )}
+                          {spot.category_name && (
+                            <span
+                              className="rounded-full px-1.5 py-0.5 text-[10px] font-medium"
+                              style={{ background: color + "22", color }}
+                            >
+                              {spot.category_name}
+                            </span>
+                          )}
+                        </div>
+                        {/* Rating */}
+                        {spot.rating != null && (
+                          <div className="mt-1 text-amber-400 text-xs leading-none">
+                            {"★".repeat(spot.rating)}
+                            <span className="text-gray-200 dark:text-gray-700">
+                              {"★".repeat(5 - spot.rating)}
+                            </span>
+                          </div>
+                        )}
+                        {/* Note preview */}
+                        {spot.note && (
+                          <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400 line-clamp-2 leading-relaxed">
+                            {spot.note}
+                          </p>
+                        )}
+                        {/* Date */}
+                        <div className="mt-2 text-[10px] text-gray-300 dark:text-gray-600">
+                          {new Date(spot.created_at).toLocaleDateString()}
+                        </div>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── SpotDetail ─────────────────────────────────────────────────────────────────
 
-function SpotDetail({ api, id, onBack, onEdit, onDeleted, t }: {
+function SpotDetail({
+  api,
+  id,
+  onBack,
+  onEdit,
+  onDeleted,
+  t,
+}: {
   api: ReturnType<typeof useApi>;
   id: string;
   onBack: () => void;
@@ -367,7 +702,10 @@ function SpotDetail({ api, id, onBack, onEdit, onDeleted, t }: {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    api.get<Spot>(`/spots/${id}`).then(setSpot).finally(() => setLoading(false));
+    api
+      .get<Spot>(`/spots/${id}`)
+      .then(setSpot)
+      .finally(() => setLoading(false));
   }, [api, id]);
 
   async function handleDelete() {
@@ -381,8 +719,11 @@ function SpotDetail({ api, id, onBack, onEdit, onDeleted, t }: {
 
   return (
     <div className="mx-auto max-w-xl overflow-y-auto h-full px-4 py-6">
-      <button type="button" onClick={onBack}
-        className="mb-4 flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200">
+      <button
+        type="button"
+        onClick={onBack}
+        className="mb-4 flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
+      >
         <i className="ti ti-arrow-left text-[14px]" /> {t("back")}
       </button>
 
@@ -390,40 +731,77 @@ function SpotDetail({ api, id, onBack, onEdit, onDeleted, t }: {
         <div>
           <h1 className="text-xl font-semibold">{spot.name}</h1>
           {spot.category_name && (
-            <span className="mt-1 inline-block rounded-full px-2 py-0.5 text-xs"
-              style={{ background: (spot.category_color ?? "#888") + "22", color: spot.category_color ?? "#888" }}>
+            <span
+              className="mt-1 inline-block rounded-full px-2 py-0.5 text-xs"
+              style={{
+                background: (spot.category_color ?? "#888") + "22",
+                color: spot.category_color ?? "#888",
+              }}
+            >
               {spot.category_name}
             </span>
           )}
         </div>
         <div className="flex gap-2">
-          <button type="button" onClick={() => onEdit(id)}
-            className="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900">
+          <button
+            type="button"
+            onClick={() => onEdit(id)}
+            className="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
+          >
             <i className="ti ti-pencil text-[14px]" /> {t("btn_edit")}
           </button>
-          <button type="button" onClick={handleDelete}
-            className="flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400">
+          <button
+            type="button"
+            onClick={handleDelete}
+            className="flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400"
+          >
             <i className="ti ti-trash text-[14px]" />
           </button>
         </div>
       </div>
 
-      {spot.rating && <div className="mb-4"><Stars value={spot.rating} /></div>}
+      {spot.rating && (
+        <div className="mb-4">
+          <Stars value={spot.rating} />
+        </div>
+      )}
 
-      {spot.note && <p className="mb-4 text-sm text-gray-600 dark:text-gray-300 leading-relaxed">{spot.note}</p>}
+      {spot.note && (
+        <p className="mb-4 text-sm text-gray-600 dark:text-gray-300 leading-relaxed">{spot.note}</p>
+      )}
 
       <div className="flex flex-wrap gap-3 text-sm text-gray-500 dark:text-gray-400 mb-4">
-        {spot.trip_name && <span><i className="ti ti-route mr-1" />{spot.trip_name}</span>}
-        <span><i className="ti ti-map-pin mr-1" />{spot.lat.toFixed(5)}, {spot.lng.toFixed(5)}</span>
-        <span><i className="ti ti-calendar mr-1" />{new Date(spot.created_at).toLocaleDateString()}</span>
+        {spot.trip_name && (
+          <span>
+            <i className="ti ti-route mr-1" />
+            {spot.trip_name}
+          </span>
+        )}
+        <span>
+          <i className="ti ti-map-pin mr-1" />
+          {spot.lat.toFixed(5)}, {spot.lng.toFixed(5)}
+        </span>
+        <span>
+          <i className="ti ti-calendar mr-1" />
+          {new Date(spot.created_at).toLocaleDateString()}
+        </span>
       </div>
     </div>
   );
 }
 
-// ── SpotEditor (new + edit, full page) ────────────────────────────────────────
+// ── SpotEditor ─────────────────────────────────────────────────────────────────
 
-function SpotEditor({ api, id, initialCoords, trips, categories, onDone, onCancel, t }: {
+function SpotEditor({
+  api,
+  id,
+  initialCoords,
+  trips,
+  categories,
+  onDone,
+  onCancel,
+  t,
+}: {
   api: ReturnType<typeof useApi>;
   id?: string;
   initialCoords?: { lat?: number; lng?: number };
@@ -447,26 +825,35 @@ function SpotEditor({ api, id, initialCoords, trips, categories, onDone, onCance
 
   useEffect(() => {
     if (!id) return;
-    api.get<Spot>(`/spots/${id}`).then((s) => {
-      setName(s.name);
-      setNote(s.note ?? "");
-      setLat(s.lat.toFixed(6));
-      setLng(s.lng.toFixed(6));
-      setRating(s.rating);
-      setTripId(s.trip_id ?? "");
-      setCategoryId(s.category_id ?? "");
-    }).catch(() => setError(t("error_load")));
+    api
+      .get<Spot>(`/spots/${id}`)
+      .then((s) => {
+        setName(s.name);
+        setNote(s.note ?? "");
+        setLat(s.lat.toFixed(6));
+        setLng(s.lng.toFixed(6));
+        setRating(s.rating);
+        setTripId(s.trip_id ?? "");
+        setCategoryId(s.category_id ?? "");
+      })
+      .catch(() => setError(t("error_load")));
   }, [api, id]);
 
   const handleGps = () => {
     navigator.geolocation.getCurrentPosition(
-      (pos) => { setLat(pos.coords.latitude.toFixed(6)); setLng(pos.coords.longitude.toFixed(6)); },
+      (pos) => {
+        setLat(pos.coords.latitude.toFixed(6));
+        setLng(pos.coords.longitude.toFixed(6));
+      },
       () => setError(t("error_location")),
     );
   };
 
   const handleSave = async () => {
-    if (!name.trim()) { setNameErr(true); return; }
+    if (!name.trim()) {
+      setNameErr(true);
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -497,14 +884,15 @@ function SpotEditor({ api, id, initialCoords, trips, categories, onDone, onCance
 
   return (
     <div className="mx-auto max-w-xl overflow-y-auto h-full px-4 py-6">
-      <button type="button" onClick={onCancel}
-        className="mb-4 flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 dark:text-gray-400">
+      <button
+        type="button"
+        onClick={onCancel}
+        className="mb-4 flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 dark:text-gray-400"
+      >
         <i className="ti ti-arrow-left text-[14px]" /> {t("btn_cancel")}
       </button>
 
-      <h1 className="mb-5 text-xl font-semibold">
-        {isEdit ? t("btn_edit") : t("btn_new_spot")}
-      </h1>
+      <h1 className="mb-5 text-xl font-semibold">{isEdit ? t("btn_edit") : t("btn_new_spot")}</h1>
 
       {error && (
         <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
@@ -513,13 +901,15 @@ function SpotEditor({ api, id, initialCoords, trips, categories, onDone, onCance
       )}
 
       <div className="space-y-4">
-        {/* Name */}
         <div>
           <label className={labelCls}>{t("spot_name")} *</label>
           <input
             type="text"
             value={name}
-            onChange={(e) => { setName(e.target.value); setNameErr(false); }}
+            onChange={(e) => {
+              setName(e.target.value);
+              setNameErr(false);
+            }}
             placeholder={t("spot_name_placeholder")}
             className={`${inputCls} ${nameErr ? "border-red-400 ring-red-300" : ""}`}
             style={{ fontSize: "16px" }}
@@ -528,35 +918,55 @@ function SpotEditor({ api, id, initialCoords, trips, categories, onDone, onCance
           {nameErr && <p className="mt-1 text-xs text-red-500">{t("spot_name_required")}</p>}
         </div>
 
-        {/* Trip + Category */}
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className={labelCls}>{t("spot_trip")}</label>
-            <select value={tripId} onChange={(e) => setTripId(e.target.value)} className={inputCls} style={{ fontSize: "16px" }}>
+            <select
+              value={tripId}
+              onChange={(e) => setTripId(e.target.value)}
+              className={inputCls}
+              style={{ fontSize: "16px" }}
+            >
               <option value="">—</option>
-              {trips.map((tr) => <option key={tr.id} value={tr.id}>{tr.name}</option>)}
+              {trips.map((tr) => (
+                <option key={tr.id} value={tr.id}>
+                  {tr.name}
+                </option>
+              ))}
             </select>
           </div>
           <div>
             <label className={labelCls}>{t("spot_category")}</label>
-            <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className={inputCls} style={{ fontSize: "16px" }}>
+            <select
+              value={categoryId}
+              onChange={(e) => setCategoryId(e.target.value)}
+              className={inputCls}
+              style={{ fontSize: "16px" }}
+            >
               <option value="">—</option>
-              {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
             </select>
           </div>
         </div>
 
-        {/* Rating */}
         <div>
           <label className={labelCls}>{t("spot_rating")}</label>
           <Stars value={rating} onChange={setRating} />
           {rating && (
-            <button type="button" onClick={() => setRating(null)}
-              className="ml-3 text-xs text-gray-400 hover:text-gray-600">×</button>
+            <button
+              type="button"
+              onClick={() => setRating(null)}
+              className="ml-3 text-xs text-gray-400 hover:text-gray-600"
+            >
+              ×
+            </button>
           )}
         </div>
 
-        {/* Note */}
         <div>
           <label className={labelCls}>{t("spot_note")}</label>
           <textarea
@@ -569,33 +979,55 @@ function SpotEditor({ api, id, initialCoords, trips, categories, onDone, onCance
           />
         </div>
 
-        {/* Coordinates */}
         <div>
           <label className={labelCls}>{t("spot_location")}</label>
           <div className="grid grid-cols-2 gap-2 mb-2">
-            <input value={lat} onChange={(e) => setLat(e.target.value)} placeholder="Lat"
-              className={inputCls} style={{ fontSize: "16px" }} />
-            <input value={lng} onChange={(e) => setLng(e.target.value)} placeholder="Lng"
-              className={inputCls} style={{ fontSize: "16px" }} />
+            <input
+              value={lat}
+              onChange={(e) => setLat(e.target.value)}
+              placeholder="Lat"
+              className={inputCls}
+              style={{ fontSize: "16px" }}
+            />
+            <input
+              value={lng}
+              onChange={(e) => setLng(e.target.value)}
+              placeholder="Lng"
+              className={inputCls}
+              style={{ fontSize: "16px" }}
+            />
           </div>
-          <button type="button" onClick={handleGps}
-            className="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900">
+          <button
+            type="button"
+            onClick={handleGps}
+            className="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
+          >
             <i className="ti ti-current-location text-[13px]" /> {t("btn_use_gps")}
           </button>
           <p className="mt-1.5 text-xs text-gray-400">{t("spot_location_hint")}</p>
         </div>
 
-        {/* Actions */}
         <div className="flex justify-end gap-2 pt-2">
-          <button type="button" onClick={onCancel}
-            className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
+          >
             {t("btn_cancel")}
           </button>
-          <button type="button" onClick={handleSave} disabled={saving}
-            className="flex items-center gap-1.5 rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50">
-            {saving
-              ? <><i className="ti ti-loader-2 animate-spin text-[13px]" /> {t("saving")}</>
-              : t("btn_save")}
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving}
+            className="flex items-center gap-1.5 rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50"
+          >
+            {saving ? (
+              <>
+                <i className="ti ti-loader-2 animate-spin text-[13px]" /> {t("saving")}
+              </>
+            ) : (
+              t("btn_save")
+            )}
           </button>
         </div>
       </div>
@@ -605,7 +1037,12 @@ function SpotEditor({ api, id, initialCoords, trips, categories, onDone, onCance
 
 // ── TripsView ──────────────────────────────────────────────────────────────────
 
-function TripsView({ trips, api, onReload, t }: {
+function TripsView({
+  trips,
+  api,
+  onReload,
+  t,
+}: {
   trips: Trip[];
   api: ReturnType<typeof useApi>;
   onReload: () => void;
@@ -618,12 +1055,30 @@ function TripsView({ trips, api, onReload, t }: {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  function startNew() { setEditingId("new"); setName(""); setYear(""); setDesc(""); setError(null); }
-  function startEdit(tr: Trip) { setEditingId(tr.id); setName(tr.name); setYear(String(tr.year ?? "")); setDesc(tr.description ?? ""); setError(null); }
-  function cancelEdit() { setEditingId(null); setError(null); }
+  function startNew() {
+    setEditingId("new");
+    setName("");
+    setYear("");
+    setDesc("");
+    setError(null);
+  }
+  function startEdit(tr: Trip) {
+    setEditingId(tr.id);
+    setName(tr.name);
+    setYear(String(tr.year ?? ""));
+    setDesc(tr.description ?? "");
+    setError(null);
+  }
+  function cancelEdit() {
+    setEditingId(null);
+    setError(null);
+  }
 
   const save = async () => {
-    if (!name.trim()) { setError(t("trip_name_required")); return; }
+    if (!name.trim()) {
+      setError(t("trip_name_required"));
+      return;
+    }
     setSaving(true);
     try {
       const body = { name: name.trim(), year: year ? parseInt(year) : null, description: desc };
@@ -633,7 +1088,9 @@ function TripsView({ trips, api, onReload, t }: {
       onReload();
     } catch (e) {
       setError(String(e));
-    } finally { setSaving(false); }
+    } finally {
+      setSaving(false);
+    }
   };
 
   const del = async (id: string) => {
@@ -647,8 +1104,11 @@ function TripsView({ trips, api, onReload, t }: {
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-lg font-semibold">{t("nav_trips")}</h2>
         {editingId === null && (
-          <button type="button" onClick={startNew}
-            className="flex items-center gap-1.5 rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700">
+          <button
+            type="button"
+            onClick={startNew}
+            className="flex items-center gap-1.5 rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700"
+          >
             <i className="ti ti-plus text-[13px]" /> {t("btn_new_trip")}
           </button>
         )}
@@ -662,21 +1122,54 @@ function TripsView({ trips, api, onReload, t }: {
 
       {editingId !== null && (
         <div className="mb-4 rounded-2xl border border-teal-200 bg-teal-50 p-4 dark:border-teal-800 dark:bg-teal-950 space-y-2">
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t("trip_name_placeholder")}
-            className={inputCls} style={{ fontSize: "16px" }} autoFocus
-            onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") cancelEdit(); }} />
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder={t("trip_name_placeholder")}
+            className={inputCls}
+            style={{ fontSize: "16px" }}
+            autoFocus
+            onKeyDown={(e) => {
+              if (e.key === "Enter") save();
+              if (e.key === "Escape") cancelEdit();
+            }}
+          />
           <div className="grid grid-cols-3 gap-2">
-            <input value={year} onChange={(e) => setYear(e.target.value)} placeholder={t("trip_year")}
-              type="number" className={inputCls} style={{ fontSize: "16px" }} />
-            <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder={t("trip_description_placeholder")}
-              className={`${inputCls} col-span-2`} style={{ fontSize: "16px" }} />
+            <input
+              value={year}
+              onChange={(e) => setYear(e.target.value)}
+              placeholder={t("trip_year")}
+              type="number"
+              className={inputCls}
+              style={{ fontSize: "16px" }}
+            />
+            <input
+              value={desc}
+              onChange={(e) => setDesc(e.target.value)}
+              placeholder={t("trip_description_placeholder")}
+              className={`${inputCls} col-span-2`}
+              style={{ fontSize: "16px" }}
+            />
           </div>
           <div className="flex justify-end gap-2">
-            <button type="button" onClick={cancelEdit}
-              className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900">{t("btn_cancel")}</button>
-            <button type="button" onClick={save} disabled={saving}
-              className="flex items-center gap-1.5 rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50">
-              {saving ? <i className="ti ti-loader-2 animate-spin text-[13px]" /> : <i className="ti ti-check text-[13px]" />}
+            <button
+              type="button"
+              onClick={cancelEdit}
+              className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
+            >
+              {t("btn_cancel")}
+            </button>
+            <button
+              type="button"
+              onClick={save}
+              disabled={saving}
+              className="flex items-center gap-1.5 rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50"
+            >
+              {saving ? (
+                <i className="ti ti-loader-2 animate-spin text-[13px]" />
+              ) : (
+                <i className="ti ti-check text-[13px]" />
+              )}
               {t("btn_save")}
             </button>
           </div>
@@ -691,18 +1184,29 @@ function TripsView({ trips, api, onReload, t }: {
       ) : (
         <div className="space-y-1.5">
           {trips.map((tr) => (
-            <div key={tr.id} className="flex items-center gap-3 rounded-xl border border-gray-200 px-4 py-3 dark:border-gray-800">
+            <div
+              key={tr.id}
+              className="flex items-center gap-3 rounded-xl border border-gray-200 px-4 py-3 dark:border-gray-800"
+            >
               <div className="flex-1 min-w-0">
                 <span className="font-medium text-sm">{tr.name}</span>
                 {tr.year && <span className="ml-2 text-xs text-gray-400">{tr.year}</span>}
-                {tr.description && <p className="text-xs text-gray-500 truncate mt-0.5">{tr.description}</p>}
+                {tr.description && (
+                  <p className="text-xs text-gray-500 truncate mt-0.5">{tr.description}</p>
+                )}
               </div>
-              <button type="button" onClick={() => startEdit(tr)}
-                className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800">
+              <button
+                type="button"
+                onClick={() => startEdit(tr)}
+                className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800"
+              >
                 <i className="ti ti-pencil text-[14px]" />
               </button>
-              <button type="button" onClick={() => del(tr.id)}
-                className="rounded-lg p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950">
+              <button
+                type="button"
+                onClick={() => del(tr.id)}
+                className="rounded-lg p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950"
+              >
                 <i className="ti ti-trash text-[14px]" />
               </button>
             </div>
@@ -715,7 +1219,12 @@ function TripsView({ trips, api, onReload, t }: {
 
 // ── CategoriesView ─────────────────────────────────────────────────────────────
 
-function CategoriesView({ categories, api, onReload, t }: {
+function CategoriesView({
+  categories,
+  api,
+  onReload,
+  t,
+}: {
   categories: Category[];
   api: ReturnType<typeof useApi>;
   onReload: () => void;
@@ -727,12 +1236,28 @@ function CategoriesView({ categories, api, onReload, t }: {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  function startNew() { setEditingId("new"); setName(""); setColor("#888780"); setError(null); }
-  function startEdit(c: Category) { setEditingId(c.id); setName(c.name); setColor(c.color); setError(null); }
-  function cancelEdit() { setEditingId(null); setError(null); }
+  function startNew() {
+    setEditingId("new");
+    setName("");
+    setColor("#888780");
+    setError(null);
+  }
+  function startEdit(c: Category) {
+    setEditingId(c.id);
+    setName(c.name);
+    setColor(c.color);
+    setError(null);
+  }
+  function cancelEdit() {
+    setEditingId(null);
+    setError(null);
+  }
 
   const save = async () => {
-    if (!name.trim()) { setError(t("category_name_required")); return; }
+    if (!name.trim()) {
+      setError(t("category_name_required"));
+      return;
+    }
     setSaving(true);
     try {
       const body = { name: name.trim(), color };
@@ -742,7 +1267,9 @@ function CategoriesView({ categories, api, onReload, t }: {
       onReload();
     } catch (e) {
       setError(String(e));
-    } finally { setSaving(false); }
+    } finally {
+      setSaving(false);
+    }
   };
 
   const del = async (id: string) => {
@@ -756,8 +1283,11 @@ function CategoriesView({ categories, api, onReload, t }: {
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-lg font-semibold">{t("nav_categories")}</h2>
         {editingId === null && (
-          <button type="button" onClick={startNew}
-            className="flex items-center gap-1.5 rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700">
+          <button
+            type="button"
+            onClick={startNew}
+            className="flex items-center gap-1.5 rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700"
+          >
             <i className="ti ti-plus text-[13px]" /> {t("btn_new_category")}
           </button>
         )}
@@ -771,21 +1301,47 @@ function CategoriesView({ categories, api, onReload, t }: {
 
       {editingId !== null && (
         <div className="mb-4 rounded-2xl border border-teal-200 bg-teal-50 p-4 dark:border-teal-800 dark:bg-teal-950 space-y-3">
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t("category_name_placeholder")}
-            className={inputCls} style={{ fontSize: "16px" }} autoFocus
-            onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") cancelEdit(); }} />
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder={t("category_name_placeholder")}
+            className={inputCls}
+            style={{ fontSize: "16px" }}
+            autoFocus
+            onKeyDown={(e) => {
+              if (e.key === "Enter") save();
+              if (e.key === "Escape") cancelEdit();
+            }}
+          />
           <div className="flex items-center gap-3">
             <label className="text-sm text-gray-600 dark:text-gray-400">{t("category_color")}</label>
-            <input type="color" value={color} onChange={(e) => setColor(e.target.value)}
-              className="h-9 w-14 cursor-pointer rounded border border-gray-300 p-1 dark:border-gray-700" />
+            <input
+              type="color"
+              value={color}
+              onChange={(e) => setColor(e.target.value)}
+              className="h-9 w-14 cursor-pointer rounded border border-gray-300 p-1 dark:border-gray-700"
+            />
             <span className="text-sm text-gray-500 font-mono">{color}</span>
           </div>
           <div className="flex justify-end gap-2">
-            <button type="button" onClick={cancelEdit}
-              className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900">{t("btn_cancel")}</button>
-            <button type="button" onClick={save} disabled={saving}
-              className="flex items-center gap-1.5 rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50">
-              {saving ? <i className="ti ti-loader-2 animate-spin text-[13px]" /> : <i className="ti ti-check text-[13px]" />}
+            <button
+              type="button"
+              onClick={cancelEdit}
+              className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
+            >
+              {t("btn_cancel")}
+            </button>
+            <button
+              type="button"
+              onClick={save}
+              disabled={saving}
+              className="flex items-center gap-1.5 rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50"
+            >
+              {saving ? (
+                <i className="ti ti-loader-2 animate-spin text-[13px]" />
+              ) : (
+                <i className="ti ti-check text-[13px]" />
+              )}
               {t("btn_save")}
             </button>
           </div>
@@ -800,17 +1356,29 @@ function CategoriesView({ categories, api, onReload, t }: {
       ) : (
         <div className="space-y-1.5">
           {categories.map((c) => (
-            <div key={c.id} className="flex items-center gap-3 rounded-xl border border-gray-200 px-4 py-3 dark:border-gray-800">
-              <span className="w-4 h-4 rounded-full flex-shrink-0" style={{ background: c.color }} />
+            <div
+              key={c.id}
+              className="flex items-center gap-3 rounded-xl border border-gray-200 px-4 py-3 dark:border-gray-800"
+            >
+              <span
+                className="w-4 h-4 rounded-full flex-shrink-0"
+                style={{ background: c.color }}
+              />
               <span className="flex-1 text-sm font-medium">{c.name}</span>
               {c.created_by !== "system" && (
                 <>
-                  <button type="button" onClick={() => startEdit(c)}
-                    className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800">
+                  <button
+                    type="button"
+                    onClick={() => startEdit(c)}
+                    className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800"
+                  >
                     <i className="ti ti-pencil text-[14px]" />
                   </button>
-                  <button type="button" onClick={() => del(c.id)}
-                    className="rounded-lg p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950">
+                  <button
+                    type="button"
+                    onClick={() => del(c.id)}
+                    className="rounded-lg p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950"
+                  >
                     <i className="ti ti-trash text-[14px]" />
                   </button>
                 </>
@@ -825,7 +1393,11 @@ function CategoriesView({ categories, api, onReload, t }: {
 
 // ── SettingsView ───────────────────────────────────────────────────────────────
 
-function SettingsView({ api, onSaved, t }: {
+function SettingsView({
+  api,
+  onSaved,
+  t,
+}: {
   api: ReturnType<typeof useApi>;
   onSaved: (styleUrl: string | null) => void;
   t: (k: string) => string;
@@ -837,7 +1409,8 @@ function SettingsView({ api, onSaved, t }: {
   const [configured, setConfigured] = useState<boolean | null>(null);
 
   useEffect(() => {
-    api.get<{ map_configured: boolean; map_style_url: string | null }>("/config")
+    api
+      .get<{ map_configured: boolean; map_style_url: string | null }>("/config")
       .then((cfg) => setConfigured(cfg.map_configured))
       .catch(() => setConfigured(false));
   }, [api]);
@@ -854,7 +1427,7 @@ function SettingsView({ api, onSaved, t }: {
       setKey("");
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
-    } catch (e) {
+    } catch {
       setError(t("error_save"));
     } finally {
       setSaving(false);
@@ -866,29 +1439,36 @@ function SettingsView({ api, onSaved, t }: {
       <h2 className="mb-5 text-lg font-semibold">{t("settings_title")}</h2>
 
       <div className="rounded-2xl border border-gray-200 bg-gray-50 p-5 dark:border-gray-800 dark:bg-gray-900 space-y-4">
-        {/* Status indicator */}
         <div className="flex items-center gap-2 text-sm">
-          <span className={`w-2 h-2 rounded-full flex-shrink-0 ${configured ? "bg-teal-500" : "bg-red-400"}`} />
+          <span
+            className={`w-2 h-2 rounded-full flex-shrink-0 ${configured ? "bg-teal-500" : "bg-red-400"}`}
+          />
           <span className="text-gray-600 dark:text-gray-400">
             {configured ? t("settings_key_active") : t("settings_key_missing")}
           </span>
         </div>
 
-        {/* Key input */}
         <div>
           <label className={labelCls}>{t("settings_maptiler_key")}</label>
           <input
             type="password"
             value={key}
             onChange={(e) => setKey(e.target.value)}
-            placeholder={configured ? t("settings_key_replace_placeholder") : t("settings_maptiler_key_placeholder")}
+            placeholder={
+              configured ? t("settings_key_replace_placeholder") : t("settings_maptiler_key_placeholder")
+            }
             className={inputCls}
             style={{ fontSize: "16px" }}
             onKeyDown={(e) => e.key === "Enter" && save()}
           />
           <p className="mt-1.5 text-xs text-gray-400">
             {t("settings_maptiler_hint")} —{" "}
-            <a href="https://maptiler.com" target="_blank" rel="noopener noreferrer" className="text-teal-600 hover:underline">
+            <a
+              href="https://maptiler.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-teal-600 hover:underline"
+            >
               maptiler.com
             </a>
           </p>
@@ -903,11 +1483,17 @@ function SettingsView({ api, onSaved, t }: {
             disabled={saving || !key.trim()}
             className="flex items-center gap-1.5 rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50"
           >
-            {saved
-              ? <><i className="ti ti-check text-[13px]" /> {t("settings_saved")}</>
-              : saving
-                ? <><i className="ti ti-loader-2 animate-spin text-[13px]" /> {t("saving")}</>
-                : t("btn_save")}
+            {saved ? (
+              <>
+                <i className="ti ti-check text-[13px]" /> {t("settings_saved")}
+              </>
+            ) : saving ? (
+              <>
+                <i className="ti ti-loader-2 animate-spin text-[13px]" /> {t("saving")}
+              </>
+            ) : (
+              t("btn_save")
+            )}
           </button>
         </div>
       </div>

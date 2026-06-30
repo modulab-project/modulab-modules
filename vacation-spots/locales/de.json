@@ -1,5 +1,6 @@
 {
   "nav_map": "Karte",
+  "nav_spots": "Spots",
   "nav_trips": "Reisen",
   "nav_categories": "Kategorien",
   "nav_settings": "Einstellungen",
@@ -22,6 +23,12 @@
   "all_trips": "Alle Reisen",
   "all_categories": "Alle Kategorien",
   "no_spots": "Noch keine Spots — füge deinen ersten hinzu!",
+  "no_spots_filter": "Keine Spots passen zum aktuellen Filter",
+  "spots_search_placeholder": "Spots suchen…",
+  "sort_date": "Neueste zuerst",
+  "sort_name": "Name A–Z",
+  "sort_rating": "Beste Bewertung",
+  "back": "Zurück",
   "no_trips": "Noch keine Reisen",
   "no_categories": "Noch keine Kategorien",
 

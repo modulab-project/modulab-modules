@@ -1,5 +1,6 @@
 {
   "nav_map": "Map",
+  "nav_spots": "Spots",
   "nav_trips": "Trips",
   "nav_categories": "Categories",
   "nav_settings": "Settings",
@@ -22,6 +23,12 @@
   "all_trips": "All trips",
   "all_categories": "All categories",
   "no_spots": "No spots yet — add your first one!",
+  "no_spots_filter": "No spots match the current filter",
+  "spots_search_placeholder": "Search spots…",
+  "sort_date": "Newest first",
+  "sort_name": "Name A–Z",
+  "sort_rating": "Highest rating",
+  "back": "Back",
   "no_trips": "No trips yet",
   "no_categories": "No categories yet",
 
