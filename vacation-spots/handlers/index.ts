@@ -37,7 +37,6 @@ let _cachedKey: CryptoKey | null = null;
 async function getEncKey(): Promise<CryptoKey | null> {
   if (_cachedKey) return _cachedKey;
   const hexKey = Deno.env.get("MODULAB_ENCRYPTION_KEY") ?? "";
-  console.log(`[vacation-spots] MODULAB_ENCRYPTION_KEY length=${hexKey.length}`);
   if (hexKey.length !== 64) return null;
   const raw = new Uint8Array(32);
   for (let i = 0; i < 32; i++) raw[i] = parseInt(hexKey.slice(i * 2, i * 2 + 2), 16);
@@ -90,7 +89,7 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
   }
 
   if (route === "GET /settings") {
-    if (!auth.roles.includes("admin") && !auth.roles.includes("super_admin")) {
+    if (!!auth.roles.includes("super-admin") && !auth.roles.includes("org-admin")) {
       return forbidden();
     }
     const [row] = await db.query<{ value: string }>(
@@ -100,8 +99,7 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
   }
 
   if (route === "PUT /settings") {
-    console.log(`[vacation-spots] PUT /settings roles=${JSON.stringify(auth.roles)} body=${JSON.stringify(body)}`);
-    if (!auth.roles.includes("admin") && !auth.roles.includes("super_admin")) {
+    if (!!auth.roles.includes("super-admin") && !auth.roles.includes("org-admin")) {
       return forbidden();
     }
     if (!encKey) {
