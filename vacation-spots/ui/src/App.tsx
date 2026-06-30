@@ -1,17 +1,14 @@
 /**
- * Vacation Spots module — React frontend v0.1.0
+ * Vacation Spots module — React frontend v0.2.0
  *
- * Views:
+ * Views (page-based, no modals/overlays):
  *   map        — full-screen MapLibre GL map with spot markers
+ *   spot-new   — full-page spot editor (new)
+ *   spot-edit  — full-page spot editor (edit existing)
+ *   spot-detail — spot detail page
  *   trips      — list + create/edit/delete trips
  *   categories — list + create/edit/delete categories
- *   settings   — Maptiler API key entry
- *
- * Spot interaction:
- *   - Hover marker  → popup (name, category, rating, note snippet)
- *   - Click marker  → detail panel (slide-in right)
- *   - Click map     → open "new spot" modal with pre-filled coordinates
- *   - [+] button    → open "new spot" modal (coordinates via GPS or map click)
+ *   settings   — Maptiler API key (admin/org-admin only)
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -20,7 +17,6 @@ import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { ModuleComponentProps } from "./types";
 
-// i18next namespace registered by ModulePage host before bundle mount
 const NS = "mod_vacation-spots";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -39,15 +35,8 @@ interface Spot {
   category_color: string | null;
   category_icon: string | null;
   photo_paths: string[];
-  photos?: SpotPhoto[];
   created_by: string;
   created_at: string;
-}
-
-interface SpotPhoto {
-  id: string;
-  file_path: string;
-  position: number;
 }
 
 interface Trip {
@@ -67,7 +56,14 @@ interface Category {
   created_by: string;
 }
 
-type View = "map" | "trips" | "categories" | "settings";
+type View =
+  | { type: "map" }
+  | { type: "spot-new"; lat?: number; lng?: number }
+  | { type: "spot-edit"; id: string }
+  | { type: "spot-detail"; id: string }
+  | { type: "trips" }
+  | { type: "categories" }
+  | { type: "settings" };
 
 // ── API helper ─────────────────────────────────────────────────────────────────
 
@@ -76,7 +72,7 @@ function useApi(apiBase: string, token: string) {
 
   const get = useCallback(async <T,>(path: string): Promise<T> => {
     const r = await fetch(base + path, { headers: { Authorization: `Bearer ${token}` } });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    if (!r.ok) { const txt = await r.text(); throw new Error(txt || `HTTP ${r.status}`); }
     return r.json();
   }, [base, token]);
 
@@ -86,7 +82,7 @@ function useApi(apiBase: string, token: string) {
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    if (!r.ok) { const txt = await r.text(); throw new Error(txt || `HTTP ${r.status}`); }
     if (r.status === 204) return undefined as T;
     return r.json();
   }, [base, token]);
@@ -94,78 +90,181 @@ function useApi(apiBase: string, token: string) {
   return { get, mutate };
 }
 
-// ── Star rating display ────────────────────────────────────────────────────────
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
+function navCls(active: boolean) {
+  return `flex flex-none items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors whitespace-nowrap ${
+    active
+      ? "bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-gray-100"
+      : "text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
+  }`;
+}
+
+const inputCls = "w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 dark:border-gray-700 dark:bg-gray-900";
+const labelCls = "mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300";
 
 function Stars({ value, onChange }: { value: number | null; onChange?: (v: number) => void }) {
   return (
-    <span style={{ display: "inline-flex", gap: 2 }}>
+    <span className="inline-flex gap-1">
       {[1, 2, 3, 4, 5].map((n) => (
-        <span
-          key={n}
-          onClick={() => onChange?.(n)}
-          style={{
-            fontSize: 20,
-            cursor: onChange ? "pointer" : "default",
-            color: value && n <= value ? "#EF9F27" : "#ccc",
-            lineHeight: 1,
-          }}
-        >★</span>
+        <span key={n} onClick={() => onChange?.(n)}
+          className={`text-xl leading-none ${onChange ? "cursor-pointer" : ""} ${value && n <= value ? "text-amber-400" : "text-gray-300"}`}>
+          ★
+        </span>
       ))}
     </span>
   );
 }
 
-// ── Main App ───────────────────────────────────────────────────────────────────
+// ── Root App ───────────────────────────────────────────────────────────────────
 
 export default function App({ apiBase, token }: ModuleComponentProps) {
   const { t } = useTranslation(NS);
   const api = useApi(apiBase, token);
 
-  const [view, setView] = useState<View>("map");
+  const [view, setView] = useState<View>({ type: "map" });
   const [spots, setSpots] = useState<Spot[]>([]);
   const [trips, setTrips] = useState<Trip[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [mapStyleUrl, setMapStyleUrl] = useState<string | null>(null);
   const [mapConfigured, setMapConfigured] = useState<boolean | null>(null);
 
-  const [filterTrip, setFilterTrip] = useState<string>("");
-  const [filterCategory, setFilterCategory] = useState<string>("");
-
-  const [selectedSpot, setSelectedSpot] = useState<Spot | null>(null);
-  const [showSpotModal, setShowSpotModal] = useState(false);
-  const [newSpotCoords, setNewSpotCoords] = useState<{ lat: number; lng: number } | null>(null);
-  const [editingSpot, setEditingSpot] = useState<Spot | null>(null);
-
-  const mapRef = useRef<maplibregl.Map | null>(null);
-  const mapContainerRef = useRef<HTMLDivElement>(null);
-  const markersRef = useRef<maplibregl.Marker[]>([]);
-
-  // Load config (map style URL from backend — key never touches the browser persistently)
+  // Load config on mount
   useEffect(() => {
     api.get<{ map_configured: boolean; map_style_url: string | null }>("/config")
       .then((cfg) => { setMapConfigured(cfg.map_configured); setMapStyleUrl(cfg.map_style_url); })
       .catch(() => setMapConfigured(false));
   }, [api]);
 
-  // Load data
   const loadAll = useCallback(async () => {
     const [s, tr, cat] = await Promise.all([
-      api.get<Spot[]>(`/spots${filterTrip ? `?trip=${filterTrip}` : filterCategory ? `?category=${filterCategory}` : ""}`),
+      api.get<Spot[]>("/spots"),
       api.get<Trip[]>("/trips"),
       api.get<Category[]>("/categories"),
     ]);
     setSpots(s);
     setTrips(tr);
     setCategories(cat);
-  }, [api, filterTrip, filterCategory]);
+  }, [api]);
 
   useEffect(() => { loadAll(); }, [loadAll]);
 
-  // ── Map setup ────────────────────────────────────────────────────────────────
+  const vt = view.type;
 
+  return (
+    <div className="vacation-spots-module flex flex-col" style={{ height: "100vh" }}>
+      {/* Nav */}
+      <div className="flex items-center gap-1 overflow-x-auto border-b border-gray-200 px-3 py-1 dark:border-gray-800 flex-shrink-0">
+        <i className="ti ti-map-pin text-teal-600 text-base mr-1 flex-shrink-0" />
+        <button type="button" onClick={() => setView({ type: "map" })} className={navCls(vt === "map")} title={t("nav_map")}>
+          <i className="ti ti-map text-[15px]" />
+          <span className="hidden sm:inline">{t("nav_map")}</span>
+        </button>
+        <button type="button" onClick={() => setView({ type: "trips" })} className={navCls(vt === "trips")} title={t("nav_trips")}>
+          <i className="ti ti-route text-[15px]" />
+          <span className="hidden sm:inline">{t("nav_trips")}</span>
+        </button>
+        <button type="button" onClick={() => setView({ type: "categories" })} className={navCls(vt === "categories")} title={t("nav_categories")}>
+          <i className="ti ti-tag text-[15px]" />
+          <span className="hidden sm:inline">{t("nav_categories")}</span>
+        </button>
+        <button type="button" onClick={() => setView({ type: "settings" })} className={navCls(vt === "settings")} title={t("nav_settings")}>
+          <i className="ti ti-settings text-[15px]" />
+          <span className="hidden sm:inline">{t("nav_settings")}</span>
+        </button>
+        <div className="flex-1 min-w-[4px]" />
+        <button
+          type="button"
+          onClick={() => setView({ type: "spot-new" })}
+          className="flex flex-none items-center gap-1.5 rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700"
+        >
+          <i className="ti ti-plus text-[14px]" />
+          <span className="hidden sm:inline">{t("btn_new_spot")}</span>
+        </button>
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-hidden">
+        {vt === "map" && (
+          <MapView
+            spots={spots}
+            mapStyleUrl={mapStyleUrl}
+            mapConfigured={mapConfigured}
+            trips={trips}
+            categories={categories}
+            onSpotClick={(id) => setView({ type: "spot-detail", id })}
+            onMapClick={(lat, lng) => setView({ type: "spot-new", lat, lng })}
+            t={t}
+          />
+        )}
+        {(vt === "spot-new" || vt === "spot-edit") && (
+          <SpotEditor
+            api={api}
+            id={vt === "spot-edit" ? view.id : undefined}
+            initialCoords={vt === "spot-new" ? { lat: view.lat, lng: view.lng } : undefined}
+            trips={trips}
+            categories={categories}
+            onDone={(id) => { loadAll(); setView({ type: "spot-detail", id }); }}
+            onCancel={() => setView({ type: "map" })}
+            t={t}
+          />
+        )}
+        {vt === "spot-detail" && (
+          <SpotDetail
+            api={api}
+            id={view.id}
+            onBack={() => setView({ type: "map" })}
+            onEdit={(id) => setView({ type: "spot-edit", id })}
+            onDeleted={() => { loadAll(); setView({ type: "map" }); }}
+            t={t}
+          />
+        )}
+        {vt === "trips" && (
+          <TripsView trips={trips} api={api} onReload={loadAll} t={t} />
+        )}
+        {vt === "categories" && (
+          <CategoriesView categories={categories} api={api} onReload={loadAll} t={t} />
+        )}
+        {vt === "settings" && (
+          <SettingsView
+            api={api}
+            onSaved={(styleUrl) => { setMapStyleUrl(styleUrl); setMapConfigured(!!styleUrl); }}
+            t={t}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── MapView ────────────────────────────────────────────────────────────────────
+
+function MapView({ spots, mapStyleUrl, mapConfigured, trips, categories, onSpotClick, onMapClick, t }: {
+  spots: Spot[];
+  mapStyleUrl: string | null;
+  mapConfigured: boolean | null;
+  trips: Trip[];
+  categories: Category[];
+  onSpotClick: (id: string) => void;
+  onMapClick: (lat: number, lng: number) => void;
+  t: (k: string, opts?: Record<string, unknown>) => string;
+}) {
+  const mapRef = useRef<maplibregl.Map | null>(null);
+  const mapContainerRef = useRef<HTMLDivElement>(null);
+  const markersRef = useRef<maplibregl.Marker[]>([]);
+  const [filterTrip, setFilterTrip] = useState("");
+  const [filterCategory, setFilterCategory] = useState("");
+
+  const filtered = spots.filter((s) => {
+    if (filterTrip && s.trip_id !== filterTrip) return false;
+    if (filterCategory && s.category_id !== filterCategory) return false;
+    return true;
+  });
+
+  // Init map
   useEffect(() => {
-    if (view !== "map" || !mapContainerRef.current || !mapStyleUrl) return;
-    if (mapRef.current) return; // already initialized
+    if (!mapContainerRef.current || !mapStyleUrl) return;
+    if (mapRef.current) return;
 
     const map = new maplibregl.Map({
       container: mapContainerRef.current,
@@ -173,372 +272,197 @@ export default function App({ apiBase, token }: ModuleComponentProps) {
       center: [13, 48],
       zoom: 4,
     });
-
     map.addControl(new maplibregl.NavigationControl(), "bottom-right");
-
-    map.on("click", (e) => {
-      setNewSpotCoords({ lat: e.lngLat.lat, lng: e.lngLat.lng });
-      setEditingSpot(null);
-      setShowSpotModal(true);
-    });
-
+    map.on("click", (e) => onMapClick(e.lngLat.lat, e.lngLat.lng));
     mapRef.current = map;
-    return () => {
-      map.remove();
-      mapRef.current = null;
-    };
-  }, [view, mapStyleUrl]);
 
-  // ── Markers ──────────────────────────────────────────────────────────────────
+    return () => { map.remove(); mapRef.current = null; };
+  }, [mapStyleUrl]);
 
+  // Markers
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || view !== "map") return;
-
-    // Remove old markers
+    if (!map) return;
     markersRef.current.forEach((m) => m.remove());
     markersRef.current = [];
 
-    spots.forEach((spot) => {
+    filtered.forEach((spot) => {
       const color = spot.category_color ?? "#888780";
-
-      // Custom marker element
       const el = document.createElement("div");
-      el.style.cssText = `
-        width: 28px; height: 28px; border-radius: 50%;
-        background: ${color}; border: 2px solid white;
-        cursor: pointer; display: flex; align-items: center; justify-content: center;
-        box-shadow: 0 1px 4px rgba(0,0,0,0.3);
-      `;
-      el.innerHTML = `<i class="ti ${spot.category_icon ?? "ti-map-pin"}" style="font-size:14px;color:white;"></i>`;
+      el.style.cssText = `width:28px;height:28px;border-radius:50%;background:${color};border:2px solid white;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 4px rgba(0,0,0,.3)`;
+      el.innerHTML = `<i class="ti ${spot.category_icon ?? "ti-map-pin"}" style="font-size:13px;color:white;pointer-events:none"></i>`;
 
-      // Popup on hover
-      const popup = new maplibregl.Popup({
-        closeButton: false,
-        closeOnClick: false,
-        offset: 16,
-        maxWidth: "220px",
-      }).setHTML(`
-        <div style="font-family:sans-serif;padding:4px;">
-          <div style="font-weight:500;font-size:13px;margin-bottom:4px;">${spot.name}</div>
-          ${spot.category_name ? `<span style="font-size:11px;background:${color}22;color:${color};padding:2px 6px;border-radius:4px;">${spot.category_name}</span>` : ""}
-          ${spot.rating ? `<div style="color:#EF9F27;font-size:13px;margin-top:4px;">${"★".repeat(spot.rating)}${"☆".repeat(5 - spot.rating)}</div>` : ""}
-          ${spot.note ? `<div style="font-size:12px;color:#666;margin-top:4px;">${spot.note.slice(0, 80)}${spot.note.length > 80 ? "…" : ""}</div>` : ""}
-        </div>
-      `);
+      const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 16, maxWidth: "220px" })
+        .setHTML(`<div style="font-family:sans-serif;padding:4px"><div style="font-weight:500;font-size:13px;margin-bottom:4px">${spot.name}</div>${spot.category_name ? `<span style="font-size:11px;background:${color}22;color:${color};padding:2px 6px;border-radius:4px">${spot.category_name}</span>` : ""}${spot.rating ? `<div style="color:#EF9F27;margin-top:4px">${"★".repeat(spot.rating)}${"☆".repeat(5 - spot.rating)}</div>` : ""}${spot.note ? `<div style="font-size:12px;color:#666;margin-top:4px">${spot.note.slice(0, 80)}${spot.note.length > 80 ? "…" : ""}</div>` : ""}</div>`);
 
       el.addEventListener("mouseenter", () => popup.addTo(map));
       el.addEventListener("mouseleave", () => popup.remove());
-      el.addEventListener("click", (e) => {
-        e.stopPropagation();
-        setSelectedSpot(spot);
-      });
+      el.addEventListener("click", (e) => { e.stopPropagation(); onSpotClick(spot.id); });
 
-      const marker = new maplibregl.Marker({ element: el })
-        .setLngLat([spot.lng, spot.lat])
-        .addTo(map);
-
-      markersRef.current.push(marker);
+      markersRef.current.push(
+        new maplibregl.Marker({ element: el }).setLngLat([spot.lng, spot.lat]).addTo(map)
+      );
     });
-  }, [spots, view]);
-
-  // ── Spot save ────────────────────────────────────────────────────────────────
-
-  const handleSaveSpot = useCallback(async (input: SpotFormData) => {
-    if (editingSpot) {
-      await api.mutate("PATCH", `/spots/${editingSpot.id}`, input);
-    } else {
-      await api.mutate("POST", "/spots", input);
-    }
-    setShowSpotModal(false);
-    setEditingSpot(null);
-    setNewSpotCoords(null);
-    await loadAll();
-  }, [api, editingSpot, loadAll]);
-
-  const handleDeleteSpot = useCallback(async (id: string) => {
-    if (!confirm(t("spot_delete_confirm"))) return;
-    await api.mutate("DELETE", `/spots/${id}`);
-    setSelectedSpot(null);
-    await loadAll();
-  }, [api, t, loadAll]);
-
-  // ── Render ───────────────────────────────────────────────────────────────────
+  }, [filtered, mapStyleUrl]);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100vh", fontFamily: "var(--font-sans, sans-serif)" }}>
-      {/* Top nav */}
-      <nav style={{
-        display: "flex", alignItems: "center", gap: 4,
-        padding: "0 16px", height: 48, borderBottom: "0.5px solid var(--border)",
-        background: "var(--surface-2)", flexShrink: 0,
-      }}>
-        <i className="ti ti-map-pin" style={{ fontSize: 18, color: "var(--text-accent)", marginRight: 6 }} />
-        <span style={{ fontWeight: 500, fontSize: 15, marginRight: 16 }}>Vacation Spots</span>
-        {(["map", "trips", "categories", "settings"] as View[]).map((v) => (
-          <button
-            key={v}
-            onClick={() => setView(v)}
-            style={{
-              padding: "4px 12px", fontSize: 13, border: "none", background: "none",
-              borderRadius: "var(--radius)", cursor: "pointer",
-              color: view === v ? "var(--text-accent)" : "var(--text-secondary)",
-              fontWeight: view === v ? 500 : 400,
-              borderBottom: view === v ? "2px solid var(--border-accent)" : "2px solid transparent",
-            }}
-          >
-            {t(`nav_${v}`)}
-          </button>
-        ))}
-        {view === "map" && (
-          <button
-            onClick={() => { setEditingSpot(null); setNewSpotCoords(null); setShowSpotModal(true); }}
-            style={{
-              marginLeft: "auto", padding: "4px 12px", fontSize: 13,
-              border: "0.5px solid var(--border-strong)", borderRadius: "var(--radius)",
-              background: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 4,
-            }}
-          >
-            <i className="ti ti-plus" style={{ fontSize: 14 }} /> {t("btn_new_spot")}
-          </button>
-        )}
-      </nav>
-
-      {/* Content */}
-      <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
-
-        {/* MAP VIEW */}
-        {view === "map" && (
-          <div style={{ display: "flex", height: "100%" }}>
-            {/* Filter sidebar */}
-            <div style={{
-              width: 200, borderRight: "0.5px solid var(--border)", padding: 12,
-              display: "flex", flexDirection: "column", gap: 12, overflowY: "auto",
-              background: "var(--surface-2)", flexShrink: 0,
-            }}>
-              <div>
-                <label style={{ fontSize: 11, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>
-                  {t("nav_trips")}
-                </label>
-                <select
-                  value={filterTrip}
-                  onChange={(e) => { setFilterTrip(e.target.value); setFilterCategory(""); }}
-                  style={{ width: "100%", fontSize: 13 }}
-                >
-                  <option value="">{t("all_trips")}</option>
-                  {trips.map((tr) => <option key={tr.id} value={tr.id}>{tr.name}</option>)}
-                </select>
-              </div>
-              <div>
-                <label style={{ fontSize: 11, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>
-                  {t("nav_categories")}
-                </label>
-                <select
-                  value={filterCategory}
-                  onChange={(e) => { setFilterCategory(e.target.value); setFilterTrip(""); }}
-                  style={{ width: "100%", fontSize: 13 }}
-                >
-                  <option value="">{t("all_categories")}</option>
-                  {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
-              </div>
-              <div style={{ marginTop: "auto", fontSize: 12, color: "var(--text-muted)" }}>
-                {spots.length} spot{spots.length !== 1 ? "s" : ""}
-              </div>
-            </div>
-
-            {/* Map container */}
-            <div style={{ flex: 1, position: "relative" }}>
-              {mapConfigured === false ? (
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "var(--text-secondary)", fontSize: 14, textAlign: "center", padding: 32 }}>
-                  <div>
-                    <i className="ti ti-key" style={{ fontSize: 32, display: "block", marginBottom: 12 }} />
-                    {t("error_no_key")}
-                  </div>
-                </div>
-              ) : (
-                <div ref={mapContainerRef} style={{ width: "100%", height: "100%" }} />
-              )}
-            </div>
-
-            {/* Spot form panel (new / edit) */}
-            {showSpotModal && (
-              <div style={{
-                width: 320, borderLeft: "0.5px solid var(--border)", background: "var(--surface-2)",
-                display: "flex", flexDirection: "column", overflowY: "auto", flexShrink: 0,
-              }}>
-                <SpotForm
-                  spot={editingSpot}
-                  initialCoords={newSpotCoords}
-                  trips={trips}
-                  categories={categories}
-                  onSave={handleSaveSpot}
-                  onClose={() => { setShowSpotModal(false); setEditingSpot(null); setNewSpotCoords(null); }}
-                  t={t}
-                />
-              </div>
-            )}
-
-            {/* Detail panel */}
-            {selectedSpot && !showSpotModal && (
-              <div style={{
-                width: 280, borderLeft: "0.5px solid var(--border)", background: "var(--surface-2)",
-                display: "flex", flexDirection: "column", overflowY: "auto",
-              }}>
-                <SpotDetail
-                  spot={selectedSpot}
-                  onClose={() => setSelectedSpot(null)}
-                  onEdit={() => { setEditingSpot(selectedSpot); setShowSpotModal(true); }}
-                  onDelete={() => handleDeleteSpot(selectedSpot.id)}
-                  apiBase={apiBase}
-                  token={token}
-                  t={t}
-                />
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* TRIPS VIEW */}
-        {view === "trips" && (
-          <TripsView trips={trips} api={api} onReload={loadAll} t={t} />
-        )}
-
-        {/* CATEGORIES VIEW */}
-        {view === "categories" && (
-          <CategoriesView categories={categories} api={api} onReload={loadAll} t={t} />
-        )}
-
-        {/* SETTINGS VIEW */}
-        {view === "settings" && (
-          <SettingsView api={api} onMapConfigured={(url) => setMapStyleUrl(url)} t={t} />
-        )}
-
+    <div className="flex h-full">
+      {/* Sidebar */}
+      <div className="w-44 flex-shrink-0 border-r border-gray-200 bg-gray-50 p-3 flex flex-col gap-3 overflow-y-auto dark:border-gray-800 dark:bg-gray-900">
+        <div>
+          <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-gray-400">{t("nav_trips")}</label>
+          <select value={filterTrip} onChange={(e) => { setFilterTrip(e.target.value); setFilterCategory(""); }}
+            className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-xs dark:border-gray-700 dark:bg-gray-800" style={{ fontSize: "14px" }}>
+            <option value="">{t("all_trips")}</option>
+            {trips.map((tr) => <option key={tr.id} value={tr.id}>{tr.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-gray-400">{t("nav_categories")}</label>
+          <select value={filterCategory} onChange={(e) => { setFilterCategory(e.target.value); setFilterTrip(""); }}
+            className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-xs dark:border-gray-700 dark:bg-gray-800" style={{ fontSize: "14px" }}>
+            <option value="">{t("all_categories")}</option>
+            {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+        <div className="mt-auto text-xs text-gray-400">{filtered.length} spot{filtered.length !== 1 ? "s" : ""}</div>
       </div>
 
+      {/* Map */}
+      <div className="flex-1">
+        {mapConfigured === false ? (
+          <div className="flex h-full items-center justify-center text-center text-sm text-gray-500 px-8">
+            <div>
+              <i className="ti ti-key block text-4xl mb-3 text-gray-300" />
+              {t("error_no_key")}
+            </div>
+          </div>
+        ) : (
+          <div ref={mapContainerRef} className="w-full h-full" />
+        )}
+      </div>
     </div>
   );
 }
 
-// ── Spot detail panel ──────────────────────────────────────────────────────────
+// ── SpotDetail ─────────────────────────────────────────────────────────────────
 
-function SpotDetail({ spot, onClose, onEdit, onDelete, apiBase, token, t }: {
-  spot: Spot;
-  onClose: () => void;
-  onEdit: () => void;
-  onDelete: () => void;
-  apiBase: string;
-  token: string;
+function SpotDetail({ api, id, onBack, onEdit, onDeleted, t }: {
+  api: ReturnType<typeof useApi>;
+  id: string;
+  onBack: () => void;
+  onEdit: (id: string) => void;
+  onDeleted: () => void;
   t: (k: string, opts?: Record<string, unknown>) => string;
 }) {
-  const base = apiBase.endsWith("/") ? apiBase.slice(0, -1) : apiBase;
+  const [spot, setSpot] = useState<Spot | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.get<Spot>(`/spots/${id}`).then(setSpot).finally(() => setLoading(false));
+  }, [api, id]);
+
+  async function handleDelete() {
+    if (!window.confirm(t("spot_delete_confirm"))) return;
+    await api.mutate("DELETE", `/spots/${id}`);
+    onDeleted();
+  }
+
+  if (loading) return <div className="p-6 text-sm text-gray-400">{t("loading")}</div>;
+  if (!spot) return <div className="p-6 text-sm text-red-500">{t("error_load")}</div>;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      {/* Header */}
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", padding: "14px 16px 10px", borderBottom: "0.5px solid var(--border)" }}>
+    <div className="mx-auto max-w-xl overflow-y-auto h-full px-4 py-6">
+      <button type="button" onClick={onBack}
+        className="mb-4 flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200">
+        <i className="ti ti-arrow-left text-[14px]" /> {t("back")}
+      </button>
+
+      <div className="mb-4 flex items-start justify-between gap-3">
         <div>
-          <p style={{ fontWeight: 500, fontSize: 15, margin: "0 0 4px" }}>{spot.name}</p>
+          <h1 className="text-xl font-semibold">{spot.name}</h1>
           {spot.category_name && (
-            <span style={{
-              fontSize: 11, padding: "2px 6px", borderRadius: 4,
-              background: (spot.category_color ?? "#888") + "22",
-              color: spot.category_color ?? "#888",
-            }}>{spot.category_name}</span>
+            <span className="mt-1 inline-block rounded-full px-2 py-0.5 text-xs"
+              style={{ background: (spot.category_color ?? "#888") + "22", color: spot.category_color ?? "#888" }}>
+              {spot.category_name}
+            </span>
           )}
         </div>
-        <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", fontSize: 18, padding: 2 }}>
-          <i className="ti ti-x" />
-        </button>
-      </div>
-
-      {/* Body */}
-      <div style={{ flex: 1, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 14 }}>
-        {spot.rating && <Stars value={spot.rating} />}
-
-        {/* Photos */}
-        {spot.photo_paths?.length > 0 && (
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            {spot.photo_paths.map((p, i) => (
-              <img
-                key={i}
-                src={`${base}/storage/${p}`}
-                alt=""
-                style={{ width: 72, height: 60, objectFit: "cover", borderRadius: 4 }}
-              />
-            ))}
-          </div>
-        )}
-
-        {spot.note && (
-          <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: 0, lineHeight: 1.6 }}>{spot.note}</p>
-        )}
-
-        <div style={{ fontSize: 12, color: "var(--text-muted)", display: "flex", flexDirection: "column", gap: 4 }}>
-          {spot.trip_name && (
-            <span><i className="ti ti-route" style={{ fontSize: 13, marginRight: 5 }} />{spot.trip_name}</span>
-          )}
-          <span><i className="ti ti-map-pin" style={{ fontSize: 13, marginRight: 5 }} />{spot.lat.toFixed(5)}, {spot.lng.toFixed(5)}</span>
-          <span><i className="ti ti-calendar" style={{ fontSize: 13, marginRight: 5 }} />{new Date(spot.created_at).toLocaleDateString()}</span>
+        <div className="flex gap-2">
+          <button type="button" onClick={() => onEdit(id)}
+            className="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900">
+            <i className="ti ti-pencil text-[14px]" /> {t("btn_edit")}
+          </button>
+          <button type="button" onClick={handleDelete}
+            className="flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400">
+            <i className="ti ti-trash text-[14px]" />
+          </button>
         </div>
       </div>
 
-      {/* Actions */}
-      <div style={{ padding: "10px 16px", borderTop: "0.5px solid var(--border)", display: "flex", gap: 8 }}>
-        <button onClick={onEdit} style={{ flex: 1, padding: "6px 0", fontSize: 13, border: "0.5px solid var(--border-strong)", borderRadius: "var(--radius)", background: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
-          <i className="ti ti-edit" style={{ fontSize: 13 }} /> {t("btn_edit")}
-        </button>
-        <button onClick={onDelete} style={{ padding: "6px 10px", fontSize: 13, border: "0.5px solid var(--border-danger)", borderRadius: "var(--radius)", background: "none", cursor: "pointer", color: "var(--text-danger)" }}>
-          <i className="ti ti-trash" style={{ fontSize: 13 }} />
-        </button>
+      {spot.rating && <div className="mb-4"><Stars value={spot.rating} /></div>}
+
+      {spot.note && <p className="mb-4 text-sm text-gray-600 dark:text-gray-300 leading-relaxed">{spot.note}</p>}
+
+      <div className="flex flex-wrap gap-3 text-sm text-gray-500 dark:text-gray-400 mb-4">
+        {spot.trip_name && <span><i className="ti ti-route mr-1" />{spot.trip_name}</span>}
+        <span><i className="ti ti-map-pin mr-1" />{spot.lat.toFixed(5)}, {spot.lng.toFixed(5)}</span>
+        <span><i className="ti ti-calendar mr-1" />{new Date(spot.created_at).toLocaleDateString()}</span>
       </div>
     </div>
   );
 }
 
-// ── Spot modal (new / edit) ────────────────────────────────────────────────────
+// ── SpotEditor (new + edit, full page) ────────────────────────────────────────
 
-interface SpotFormData {
-  name: string;
-  note: string | null;
-  lat: number;
-  lng: number;
-  rating: number | null;
-  trip_id: string | null;
-  category_id: string | null;
-}
-
-function SpotForm({ spot, initialCoords, trips, categories, onSave, onClose, t }: {
-  spot: Spot | null;
-  initialCoords: { lat: number; lng: number } | null;
+function SpotEditor({ api, id, initialCoords, trips, categories, onDone, onCancel, t }: {
+  api: ReturnType<typeof useApi>;
+  id?: string;
+  initialCoords?: { lat?: number; lng?: number };
   trips: Trip[];
   categories: Category[];
-  onSave: (data: SpotFormData) => Promise<void>;
-  onClose: () => void;
+  onDone: (id: string) => void;
+  onCancel: () => void;
   t: (k: string, opts?: Record<string, unknown>) => string;
 }) {
-  const [name, setName] = useState(spot?.name ?? "");
-  const [note, setNote] = useState(spot?.note ?? "");
-  const [lat, setLat] = useState<string>(String(spot?.lat ?? initialCoords?.lat ?? ""));
-  const [lng, setLng] = useState<string>(String(spot?.lng ?? initialCoords?.lng ?? ""));
-  const [rating, setRating] = useState<number | null>(spot?.rating ?? null);
-  const [tripId, setTripId] = useState<string>(spot?.trip_id ?? "");
-  const [categoryId, setCategoryId] = useState<string>(spot?.category_id ?? "");
+  const isEdit = !!id;
+  const [name, setName] = useState("");
+  const [note, setNote] = useState("");
+  const [lat, setLat] = useState(initialCoords?.lat?.toFixed(6) ?? "");
+  const [lng, setLng] = useState(initialCoords?.lng?.toFixed(6) ?? "");
+  const [rating, setRating] = useState<number | null>(null);
+  const [tripId, setTripId] = useState("");
+  const [categoryId, setCategoryId] = useState("");
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [nameErr, setNameErr] = useState(false);
+
+  useEffect(() => {
+    if (!id) return;
+    api.get<Spot>(`/spots/${id}`).then((s) => {
+      setName(s.name);
+      setNote(s.note ?? "");
+      setLat(s.lat.toFixed(6));
+      setLng(s.lng.toFixed(6));
+      setRating(s.rating);
+      setTripId(s.trip_id ?? "");
+      setCategoryId(s.category_id ?? "");
+    }).catch(() => setError(t("error_load")));
+  }, [api, id]);
 
   const handleGps = () => {
     navigator.geolocation.getCurrentPosition(
-      (pos) => { setLat(String(pos.coords.latitude)); setLng(String(pos.coords.longitude)); },
-      () => alert(t("error_location")),
+      (pos) => { setLat(pos.coords.latitude.toFixed(6)); setLng(pos.coords.longitude.toFixed(6)); },
+      () => setError(t("error_location")),
     );
   };
 
-  const handleSubmit = async () => {
+  const handleSave = async () => {
     if (!name.trim()) { setNameErr(true); return; }
     setSaving(true);
+    setError(null);
     try {
-      await onSave({
+      const body = {
         name: name.trim(),
         note: note.trim() || null,
         lat: parseFloat(lat),
@@ -546,48 +470,68 @@ function SpotForm({ spot, initialCoords, trips, categories, onSave, onClose, t }
         rating,
         trip_id: tripId || null,
         category_id: categoryId || null,
-      });
+      };
+      let resultId: string;
+      if (isEdit) {
+        await api.mutate("PATCH", `/spots/${id}`, body);
+        resultId = id!;
+      } else {
+        const created = await api.mutate<{ id: string }>("POST", "/spots", body);
+        resultId = created.id;
+      }
+      onDone(resultId);
+    } catch (e) {
+      setError(String(e));
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px 10px", borderBottom: "0.5px solid var(--border)", flexShrink: 0 }}>
-        <span style={{ fontWeight: 500, fontSize: 15 }}>{spot ? t("btn_edit") : t("btn_new_spot")}</span>
-        <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 18, color: "var(--text-muted)", padding: 2 }}>
-          <i className="ti ti-x" />
-        </button>
-      </div>
+    <div className="mx-auto max-w-xl overflow-y-auto h-full px-4 py-6">
+      <button type="button" onClick={onCancel}
+        className="mb-4 flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 dark:text-gray-400">
+        <i className="ti ti-arrow-left text-[14px]" /> {t("btn_cancel")}
+      </button>
 
-      {/* Form body */}
-      <div style={{ flex: 1, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+      <h1 className="mb-5 text-xl font-semibold">
+        {isEdit ? t("btn_edit") : t("btn_new_spot")}
+      </h1>
+
+      {error && (
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+          {error}
+        </div>
+      )}
+
+      <div className="space-y-4">
         {/* Name */}
         <div>
-          <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>{t("spot_name")} *</label>
+          <label className={labelCls}>{t("spot_name")} *</label>
           <input
+            type="text"
             value={name}
             onChange={(e) => { setName(e.target.value); setNameErr(false); }}
             placeholder={t("spot_name_placeholder")}
-            style={{ width: "100%", fontSize: 16, boxSizing: "border-box", borderColor: nameErr ? "var(--border-danger)" : undefined }}
+            className={`${inputCls} ${nameErr ? "border-red-400 ring-red-300" : ""}`}
+            style={{ fontSize: "16px" }}
+            autoFocus
           />
-          {nameErr && <span style={{ fontSize: 12, color: "var(--text-danger)" }}>{t("spot_name_required")}</span>}
+          {nameErr && <p className="mt-1 text-xs text-red-500">{t("spot_name_required")}</p>}
         </div>
 
         {/* Trip + Category */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <div className="grid grid-cols-2 gap-3">
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>{t("spot_trip")}</label>
-            <select value={tripId} onChange={(e) => setTripId(e.target.value)} style={{ width: "100%", fontSize: 14 }}>
+            <label className={labelCls}>{t("spot_trip")}</label>
+            <select value={tripId} onChange={(e) => setTripId(e.target.value)} className={inputCls} style={{ fontSize: "16px" }}>
               <option value="">—</option>
               {trips.map((tr) => <option key={tr.id} value={tr.id}>{tr.name}</option>)}
             </select>
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>{t("spot_category")}</label>
-            <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} style={{ width: "100%", fontSize: 14 }}>
+            <label className={labelCls}>{t("spot_category")}</label>
+            <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className={inputCls} style={{ fontSize: "16px" }}>
               <option value="">—</option>
               {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
@@ -596,50 +540,62 @@ function SpotForm({ spot, initialCoords, trips, categories, onSave, onClose, t }
 
         {/* Rating */}
         <div>
-          <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>{t("spot_rating")}</label>
+          <label className={labelCls}>{t("spot_rating")}</label>
           <Stars value={rating} onChange={setRating} />
+          {rating && (
+            <button type="button" onClick={() => setRating(null)}
+              className="ml-3 text-xs text-gray-400 hover:text-gray-600">×</button>
+          )}
         </div>
 
         {/* Note */}
         <div>
-          <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>{t("spot_note")}</label>
+          <label className={labelCls}>{t("spot_note")}</label>
           <textarea
             value={note}
             onChange={(e) => setNote(e.target.value)}
             placeholder={t("spot_note_placeholder")}
-            style={{ width: "100%", height: 72, fontSize: 16, resize: "none", boxSizing: "border-box" }}
+            className={inputCls}
+            rows={4}
+            style={{ fontSize: "16px" }}
           />
         </div>
 
         {/* Coordinates */}
         <div>
-          <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>{t("spot_location")}</label>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 6 }}>
-            <input value={lat} onChange={(e) => setLat(e.target.value)} placeholder="Lat" style={{ fontSize: 14 }} />
-            <input value={lng} onChange={(e) => setLng(e.target.value)} placeholder="Lng" style={{ fontSize: 14 }} />
+          <label className={labelCls}>{t("spot_location")}</label>
+          <div className="grid grid-cols-2 gap-2 mb-2">
+            <input value={lat} onChange={(e) => setLat(e.target.value)} placeholder="Lat"
+              className={inputCls} style={{ fontSize: "16px" }} />
+            <input value={lng} onChange={(e) => setLng(e.target.value)} placeholder="Lng"
+              className={inputCls} style={{ fontSize: "16px" }} />
           </div>
-          <button onClick={handleGps} style={{ fontSize: 12, padding: "4px 10px", border: "0.5px solid var(--border-strong)", borderRadius: "var(--radius)", background: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
-            <i className="ti ti-current-location" style={{ fontSize: 13 }} /> {t("btn_use_gps")}
+          <button type="button" onClick={handleGps}
+            className="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900">
+            <i className="ti ti-current-location text-[13px]" /> {t("btn_use_gps")}
           </button>
-          <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "6px 0 0" }}>{t("spot_location_hint")}</p>
+          <p className="mt-1.5 text-xs text-gray-400">{t("spot_location_hint")}</p>
         </div>
-      </div>
 
-      {/* Footer */}
-      <div style={{ padding: "10px 16px", borderTop: "0.5px solid var(--border)", flexShrink: 0 }}>
-        <button
-          onClick={handleSubmit}
-          disabled={saving}
-          style={{ width: "100%", padding: 10, borderRadius: "var(--radius)", border: "none", background: "var(--text-primary)", color: "var(--surface-2)", fontSize: 14, fontWeight: 500, cursor: saving ? "default" : "pointer" }}
-        >
-          {saving ? t("saving") : t("btn_save")}
-        </button>
+        {/* Actions */}
+        <div className="flex justify-end gap-2 pt-2">
+          <button type="button" onClick={onCancel}
+            className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900">
+            {t("btn_cancel")}
+          </button>
+          <button type="button" onClick={handleSave} disabled={saving}
+            className="flex items-center gap-1.5 rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50">
+            {saving
+              ? <><i className="ti ti-loader-2 animate-spin text-[13px]" /> {t("saving")}</>
+              : t("btn_save")}
+          </button>
+        </div>
       </div>
     </div>
   );
 }
 
-// ── Trips view ─────────────────────────────────────────────────────────────────
+// ── TripsView ──────────────────────────────────────────────────────────────────
 
 function TripsView({ trips, api, onReload, t }: {
   trips: Trip[];
@@ -647,74 +603,109 @@ function TripsView({ trips, api, onReload, t }: {
   onReload: () => void;
   t: (k: string) => string;
 }) {
+  const [editingId, setEditingId] = useState<string | "new" | null>(null);
   const [name, setName] = useState("");
   const [year, setYear] = useState("");
   const [desc, setDesc] = useState("");
   const [saving, setSaving] = useState(false);
-  const [editId, setEditId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const reset = () => { setName(""); setYear(""); setDesc(""); setEditId(null); };
-
-  const startEdit = (tr: Trip) => { setEditId(tr.id); setName(tr.name); setYear(String(tr.year ?? "")); setDesc(tr.description); };
+  function startNew() { setEditingId("new"); setName(""); setYear(""); setDesc(""); setError(null); }
+  function startEdit(tr: Trip) { setEditingId(tr.id); setName(tr.name); setYear(String(tr.year ?? "")); setDesc(tr.description ?? ""); setError(null); }
+  function cancelEdit() { setEditingId(null); setError(null); }
 
   const save = async () => {
-    if (!name.trim()) return;
+    if (!name.trim()) { setError(t("trip_name_required")); return; }
     setSaving(true);
     try {
       const body = { name: name.trim(), year: year ? parseInt(year) : null, description: desc };
-      if (editId) await api.mutate("PATCH", `/trips/${editId}`, body);
-      else await api.mutate("POST", "/trips", body);
-      reset(); onReload();
+      if (editingId === "new") await api.mutate("POST", "/trips", body);
+      else await api.mutate("PATCH", `/trips/${editingId}`, body);
+      cancelEdit();
+      onReload();
+    } catch (e) {
+      setError(String(e));
     } finally { setSaving(false); }
   };
 
   const del = async (id: string) => {
-    if (!confirm(t("trip_delete_confirm"))) return;
+    if (!window.confirm(t("trip_delete_confirm"))) return;
     await api.mutate("DELETE", `/trips/${id}`);
     onReload();
   };
 
   return (
-    <div style={{ padding: 24, maxWidth: 560 }}>
-      <h2 style={{ fontSize: 18, fontWeight: 500, margin: "0 0 16px" }}>{t("nav_trips")}</h2>
-
-      {/* Form */}
-      <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 12, padding: 16, marginBottom: 20, display: "flex", flexDirection: "column", gap: 10 }}>
-        <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t("trip_name_placeholder")} style={{ fontSize: 16 }} />
-        <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 8 }}>
-          <input value={year} onChange={(e) => setYear(e.target.value)} placeholder={t("trip_year")} type="number" style={{ fontSize: 14 }} />
-          <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder={t("trip_description_placeholder")} style={{ fontSize: 14 }} />
-        </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={save} disabled={saving} style={{ padding: "6px 14px", fontSize: 13, border: "0.5px solid var(--border-strong)", borderRadius: "var(--radius)", background: "none", cursor: "pointer" }}>
-            {saving ? t("saving") : editId ? t("btn_save") : t("btn_new_trip")}
+    <div className="mx-auto max-w-lg overflow-y-auto h-full px-4 py-6">
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-lg font-semibold">{t("nav_trips")}</h2>
+        {editingId === null && (
+          <button type="button" onClick={startNew}
+            className="flex items-center gap-1.5 rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700">
+            <i className="ti ti-plus text-[13px]" /> {t("btn_new_trip")}
           </button>
-          {editId && <button onClick={reset} style={{ padding: "6px 14px", fontSize: 13, border: "0.5px solid var(--border)", borderRadius: "var(--radius)", background: "none", cursor: "pointer" }}>{t("btn_cancel")}</button>}
-        </div>
+        )}
       </div>
 
-      {/* List */}
-      {trips.length === 0
-        ? <p style={{ color: "var(--text-muted)", fontSize: 14 }}>{t("no_trips")}</p>
-        : trips.map((tr) => (
-          <div key={tr.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", borderBottom: "0.5px solid var(--border)" }}>
-            <div>
-              <span style={{ fontWeight: 500, fontSize: 14 }}>{tr.name}</span>
-              {tr.year && <span style={{ fontSize: 12, color: "var(--text-muted)", marginLeft: 8 }}>{tr.year}</span>}
-              {tr.description && <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "2px 0 0" }}>{tr.description}</p>}
-            </div>
-            <div style={{ display: "flex", gap: 6 }}>
-              <button onClick={() => startEdit(tr)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-secondary)", fontSize: 16 }}><i className="ti ti-edit" /></button>
-              <button onClick={() => del(tr.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-danger)", fontSize: 16 }}><i className="ti ti-trash" /></button>
-            </div>
+      {error && (
+        <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+          {error}
+        </div>
+      )}
+
+      {editingId !== null && (
+        <div className="mb-4 rounded-2xl border border-teal-200 bg-teal-50 p-4 dark:border-teal-800 dark:bg-teal-950 space-y-2">
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t("trip_name_placeholder")}
+            className={inputCls} style={{ fontSize: "16px" }} autoFocus
+            onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") cancelEdit(); }} />
+          <div className="grid grid-cols-3 gap-2">
+            <input value={year} onChange={(e) => setYear(e.target.value)} placeholder={t("trip_year")}
+              type="number" className={inputCls} style={{ fontSize: "16px" }} />
+            <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder={t("trip_description_placeholder")}
+              className={`${inputCls} col-span-2`} style={{ fontSize: "16px" }} />
           </div>
-        ))
-      }
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={cancelEdit}
+              className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900">{t("btn_cancel")}</button>
+            <button type="button" onClick={save} disabled={saving}
+              className="flex items-center gap-1.5 rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50">
+              {saving ? <i className="ti ti-loader-2 animate-spin text-[13px]" /> : <i className="ti ti-check text-[13px]" />}
+              {t("btn_save")}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {trips.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-gray-200 px-6 py-10 text-center dark:border-gray-800">
+          <i className="ti ti-route text-[32px] text-gray-300 dark:text-gray-700 block" />
+          <p className="mt-2 text-sm text-gray-400">{t("no_trips")}</p>
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          {trips.map((tr) => (
+            <div key={tr.id} className="flex items-center gap-3 rounded-xl border border-gray-200 px-4 py-3 dark:border-gray-800">
+              <div className="flex-1 min-w-0">
+                <span className="font-medium text-sm">{tr.name}</span>
+                {tr.year && <span className="ml-2 text-xs text-gray-400">{tr.year}</span>}
+                {tr.description && <p className="text-xs text-gray-500 truncate mt-0.5">{tr.description}</p>}
+              </div>
+              <button type="button" onClick={() => startEdit(tr)}
+                className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800">
+                <i className="ti ti-pencil text-[14px]" />
+              </button>
+              <button type="button" onClick={() => del(tr.id)}
+                className="rounded-lg p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950">
+                <i className="ti ti-trash text-[14px]" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
-// ── Categories view ────────────────────────────────────────────────────────────
+// ── CategoriesView ─────────────────────────────────────────────────────────────
 
 function CategoriesView({ categories, api, onReload, t }: {
   categories: Category[];
@@ -722,156 +713,195 @@ function CategoriesView({ categories, api, onReload, t }: {
   onReload: () => void;
   t: (k: string) => string;
 }) {
+  const [editingId, setEditingId] = useState<string | "new" | null>(null);
   const [name, setName] = useState("");
   const [color, setColor] = useState("#888780");
   const [saving, setSaving] = useState(false);
-  const [editId, setEditId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const reset = () => { setName(""); setColor("#888780"); setEditId(null); };
-
-  const startEdit = (c: Category) => { setEditId(c.id); setName(c.name); setColor(c.color); };
+  function startNew() { setEditingId("new"); setName(""); setColor("#888780"); setError(null); }
+  function startEdit(c: Category) { setEditingId(c.id); setName(c.name); setColor(c.color); setError(null); }
+  function cancelEdit() { setEditingId(null); setError(null); }
 
   const save = async () => {
-    if (!name.trim()) return;
+    if (!name.trim()) { setError(t("category_name_required")); return; }
     setSaving(true);
     try {
       const body = { name: name.trim(), color };
-      if (editId) await api.mutate("PATCH", `/categories/${editId}`, body);
-      else await api.mutate("POST", "/categories", body);
-      reset(); onReload();
+      if (editingId === "new") await api.mutate("POST", "/categories", body);
+      else await api.mutate("PATCH", `/categories/${editingId}`, body);
+      cancelEdit();
+      onReload();
+    } catch (e) {
+      setError(String(e));
     } finally { setSaving(false); }
   };
 
   const del = async (id: string) => {
-    if (!confirm(t("category_delete_confirm"))) return;
+    if (!window.confirm(t("category_delete_confirm"))) return;
     await api.mutate("DELETE", `/categories/${id}`);
     onReload();
   };
 
   return (
-    <div style={{ padding: 24, maxWidth: 480 }}>
-      <h2 style={{ fontSize: 18, fontWeight: 500, margin: "0 0 16px" }}>{t("nav_categories")}</h2>
-
-      <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 12, padding: 16, marginBottom: 20, display: "flex", flexDirection: "column", gap: 10 }}>
-        <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t("category_name_placeholder")} style={{ fontSize: 16 }} />
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <label style={{ fontSize: 12, color: "var(--text-muted)" }}>{t("category_color")}</label>
-          <input type="color" value={color} onChange={(e) => setColor(e.target.value)} style={{ width: 40, height: 32, padding: 2, border: "0.5px solid var(--border)", borderRadius: "var(--radius)", cursor: "pointer" }} />
-          <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>{color}</span>
-        </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={save} disabled={saving} style={{ padding: "6px 14px", fontSize: 13, border: "0.5px solid var(--border-strong)", borderRadius: "var(--radius)", background: "none", cursor: "pointer" }}>
-            {saving ? t("saving") : editId ? t("btn_save") : t("btn_new_category")}
+    <div className="mx-auto max-w-lg overflow-y-auto h-full px-4 py-6">
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-lg font-semibold">{t("nav_categories")}</h2>
+        {editingId === null && (
+          <button type="button" onClick={startNew}
+            className="flex items-center gap-1.5 rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700">
+            <i className="ti ti-plus text-[13px]" /> {t("btn_new_category")}
           </button>
-          {editId && <button onClick={reset} style={{ padding: "6px 14px", fontSize: 13, border: "0.5px solid var(--border)", borderRadius: "var(--radius)", background: "none", cursor: "pointer" }}>{t("btn_cancel")}</button>}
-        </div>
+        )}
       </div>
 
-      {categories.length === 0
-        ? <p style={{ color: "var(--text-muted)", fontSize: 14 }}>{t("no_categories")}</p>
-        : categories.map((c) => (
-          <div key={c.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", borderBottom: "0.5px solid var(--border)" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ width: 14, height: 14, borderRadius: "50%", background: c.color, display: "inline-block", flexShrink: 0 }} />
-              <span style={{ fontSize: 14, fontWeight: 500 }}>{c.name}</span>
-            </div>
-            {c.created_by !== "system" && (
-              <div style={{ display: "flex", gap: 6 }}>
-                <button onClick={() => startEdit(c)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-secondary)", fontSize: 16 }}><i className="ti ti-edit" /></button>
-                <button onClick={() => del(c.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-danger)", fontSize: 16 }}><i className="ti ti-trash" /></button>
-              </div>
-            )}
+      {error && (
+        <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+          {error}
+        </div>
+      )}
+
+      {editingId !== null && (
+        <div className="mb-4 rounded-2xl border border-teal-200 bg-teal-50 p-4 dark:border-teal-800 dark:bg-teal-950 space-y-3">
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t("category_name_placeholder")}
+            className={inputCls} style={{ fontSize: "16px" }} autoFocus
+            onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") cancelEdit(); }} />
+          <div className="flex items-center gap-3">
+            <label className="text-sm text-gray-600 dark:text-gray-400">{t("category_color")}</label>
+            <input type="color" value={color} onChange={(e) => setColor(e.target.value)}
+              className="h-9 w-14 cursor-pointer rounded border border-gray-300 p-1 dark:border-gray-700" />
+            <span className="text-sm text-gray-500 font-mono">{color}</span>
           </div>
-        ))
-      }
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={cancelEdit}
+              className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900">{t("btn_cancel")}</button>
+            <button type="button" onClick={save} disabled={saving}
+              className="flex items-center gap-1.5 rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50">
+              {saving ? <i className="ti ti-loader-2 animate-spin text-[13px]" /> : <i className="ti ti-check text-[13px]" />}
+              {t("btn_save")}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {categories.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-gray-200 px-6 py-10 text-center dark:border-gray-800">
+          <i className="ti ti-tag text-[32px] text-gray-300 dark:text-gray-700 block" />
+          <p className="mt-2 text-sm text-gray-400">{t("no_categories")}</p>
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          {categories.map((c) => (
+            <div key={c.id} className="flex items-center gap-3 rounded-xl border border-gray-200 px-4 py-3 dark:border-gray-800">
+              <span className="w-4 h-4 rounded-full flex-shrink-0" style={{ background: c.color }} />
+              <span className="flex-1 text-sm font-medium">{c.name}</span>
+              {c.created_by !== "system" && (
+                <>
+                  <button type="button" onClick={() => startEdit(c)}
+                    className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800">
+                    <i className="ti ti-pencil text-[14px]" />
+                  </button>
+                  <button type="button" onClick={() => del(c.id)}
+                    className="rounded-lg p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950">
+                    <i className="ti ti-trash text-[14px]" />
+                  </button>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
-// ── Settings view ──────────────────────────────────────────────────────────────
+// ── SettingsView ───────────────────────────────────────────────────────────────
 
-function SettingsView({ api, onMapConfigured, t }: {
+function SettingsView({ api, onSaved, t }: {
   api: ReturnType<typeof useApi>;
-  onMapConfigured: (styleUrl: string | null) => void;
+  onSaved: (styleUrl: string | null) => void;
   t: (k: string) => string;
 }) {
   const [key, setKey] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [configured, setConfigured] = useState<boolean | null>(null);
 
   useEffect(() => {
     api.get<{ map_configured: boolean; map_style_url: string | null }>("/config")
-      .then((cfg) => {
-        setConfigured(cfg.map_configured);
-        onMapConfigured(cfg.map_style_url);
-      })
+      .then((cfg) => setConfigured(cfg.map_configured))
       .catch(() => setConfigured(false));
-  }, [api, onMapConfigured]);
+  }, [api]);
 
   const save = async () => {
     if (!key.trim()) return;
     setSaving(true);
-    setSaveError(null);
+    setError(null);
     try {
       await api.mutate("PUT", "/settings", { maptiler_api_key: key.trim() });
-      // Reload config so map picks up new key
       const cfg = await api.get<{ map_configured: boolean; map_style_url: string | null }>("/config");
       setConfigured(cfg.map_configured);
-      onMapConfigured(cfg.map_style_url);
+      onSaved(cfg.map_style_url);
       setKey("");
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
     } catch (e) {
-      setSaveError(t("error_save"));
+      setError(t("error_save"));
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <div style={{ padding: 24, maxWidth: 480 }}>
-      <h2 style={{ fontSize: 18, fontWeight: 500, margin: "0 0 20px" }}>{t("settings_title")}</h2>
-      <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 12, padding: 20, display: "flex", flexDirection: "column", gap: 14 }}>
+    <div className="mx-auto max-w-md overflow-y-auto h-full px-4 py-6">
+      <h2 className="mb-5 text-lg font-semibold">{t("settings_title")}</h2>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
-          <span style={{
-            width: 8, height: 8, borderRadius: "50%", flexShrink: 0,
-            background: configured ? "#1D9E75" : "#E24B4A",
-            display: "inline-block",
-          }} />
-          <span style={{ color: "var(--text-secondary)" }}>
+      <div className="rounded-2xl border border-gray-200 bg-gray-50 p-5 dark:border-gray-800 dark:bg-gray-900 space-y-4">
+        {/* Status indicator */}
+        <div className="flex items-center gap-2 text-sm">
+          <span className={`w-2 h-2 rounded-full flex-shrink-0 ${configured ? "bg-teal-500" : "bg-red-400"}`} />
+          <span className="text-gray-600 dark:text-gray-400">
             {configured ? t("settings_key_active") : t("settings_key_missing")}
           </span>
         </div>
 
+        {/* Key input */}
         <div>
-          <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block", marginBottom: 6 }}>
-            {t("settings_maptiler_key")}
-          </label>
+          <label className={labelCls}>{t("settings_maptiler_key")}</label>
           <input
             type="password"
             value={key}
             onChange={(e) => setKey(e.target.value)}
             placeholder={configured ? t("settings_key_replace_placeholder") : t("settings_maptiler_key_placeholder")}
-            style={{ width: "100%", fontSize: 16, fontFamily: "var(--font-mono, monospace)", boxSizing: "border-box" }}
+            className={inputCls}
+            style={{ fontSize: "16px" }}
+            onKeyDown={(e) => e.key === "Enter" && save()}
           />
-          <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "6px 0 0" }}>
-            {t("settings_maptiler_hint")} — <a href="https://maptiler.com" target="_blank" rel="noopener noreferrer" style={{ color: "var(--text-accent)" }}>maptiler.com</a>
+          <p className="mt-1.5 text-xs text-gray-400">
+            {t("settings_maptiler_hint")} —{" "}
+            <a href="https://maptiler.com" target="_blank" rel="noopener noreferrer" className="text-teal-600 hover:underline">
+              maptiler.com
+            </a>
           </p>
         </div>
 
-        <button
-          onClick={save}
-          disabled={saving || !key.trim()}
-          style={{ padding: "8px 16px", fontSize: 14, border: "0.5px solid var(--border-strong)", borderRadius: "var(--radius)", background: "none", cursor: (saving || !key.trim()) ? "default" : "pointer", alignSelf: "flex-start", opacity: !key.trim() ? 0.5 : 1 }}
-        >
-          {saved ? t("settings_saved") : saving ? t("saving") : t("btn_save")}
-        </button>
-        {saveError && (
-          <p style={{ fontSize: 13, color: "var(--text-danger)", margin: 0 }}>{saveError}</p>
-        )}
+        {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={save}
+            disabled={saving || !key.trim()}
+            className="flex items-center gap-1.5 rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50"
+          >
+            {saved
+              ? <><i className="ti ti-check text-[13px]" /> {t("settings_saved")}</>
+              : saving
+                ? <><i className="ti ti-loader-2 animate-spin text-[13px]" /> {t("saving")}</>
+                : t("btn_save")}
+          </button>
+        </div>
       </div>
     </div>
   );
