@@ -1,0 +1,34 @@
+name: "vacation-spots"
+version: "0.1.0"
+display_name:
+  en: "Vacation Spots"
+  de: "Urlaubspunkte"
+description: "Save and explore your favourite travel spots on an interactive world map"
+icon: "ti-map-pin"
+author: "modulab-project"
+license: "AGPL-3.0"
+category: "lifestyle"
+min_core_api: "v1"
+min_core_ui: "v1"
+tier: 2
+scope: "per-location"
+startup: "eager"
+
+handler: "handlers/index.ts"
+
+resources:
+  memory: "256m"
+  timeout: "30s"
+
+storage:
+  quota: "5g"
+
+credentials:
+  - key: "maptiler_api_key"
+    label:
+      en: "Maptiler API Key"
+      de: "Maptiler API-Key"
+    description:
+      en: "Get a free key at maptiler.com — required to display the map."
+      de: "Kostenlosen Key auf maptiler.com erstellen — wird für die Karte benötigt."
+    required: true
