@@ -67,7 +67,7 @@ interface Category {
   created_by: string;
 }
 
-type View = "map" | "trips" | "categories";
+type View = "map" | "trips" | "categories" | "settings";
 
 // ── API helper ─────────────────────────────────────────────────────────────────
 
@@ -275,7 +275,7 @@ export default function App({ apiBase, token }: ModuleComponentProps) {
       }}>
         <i className="ti ti-map-pin" style={{ fontSize: 18, color: "var(--text-accent)", marginRight: 6 }} />
         <span style={{ fontWeight: 500, fontSize: 15, marginRight: 16 }}>Vacation Spots</span>
-        {(["map", "trips", "categories"] as View[]).map((v) => (
+        {(["map", "trips", "categories", "settings"] as View[]).map((v) => (
           <button
             key={v}
             onClick={() => setView(v)}
@@ -407,6 +407,11 @@ export default function App({ apiBase, token }: ModuleComponentProps) {
         {/* CATEGORIES VIEW */}
         {view === "categories" && (
           <CategoriesView categories={categories} api={api} onReload={loadAll} t={t} />
+        )}
+
+        {/* SETTINGS VIEW */}
+        {view === "settings" && (
+          <SettingsView api={api} onMapConfigured={(url) => setMapStyleUrl(url)} t={t} />
         )}
 
       </div>
@@ -779,6 +784,88 @@ function CategoriesView({ categories, api, onReload, t }: {
           </div>
         ))
       }
+    </div>
+  );
+}
+
+// ── Settings view ──────────────────────────────────────────────────────────────
+
+function SettingsView({ api, onMapConfigured, t }: {
+  api: ReturnType<typeof useApi>;
+  onMapConfigured: (styleUrl: string | null) => void;
+  t: (k: string) => string;
+}) {
+  const [key, setKey] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [configured, setConfigured] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    api.get<{ map_configured: boolean; map_style_url: string | null }>("/config")
+      .then((cfg) => {
+        setConfigured(cfg.map_configured);
+        onMapConfigured(cfg.map_style_url);
+      })
+      .catch(() => setConfigured(false));
+  }, [api, onMapConfigured]);
+
+  const save = async () => {
+    if (!key.trim()) return;
+    setSaving(true);
+    try {
+      await api.mutate("PUT", "/settings", { maptiler_api_key: key.trim() });
+      // Reload config so map picks up new key
+      const cfg = await api.get<{ map_configured: boolean; map_style_url: string | null }>("/config");
+      setConfigured(cfg.map_configured);
+      onMapConfigured(cfg.map_style_url);
+      setKey("");
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={{ padding: 24, maxWidth: 480 }}>
+      <h2 style={{ fontSize: 18, fontWeight: 500, margin: "0 0 20px" }}>{t("settings_title")}</h2>
+      <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 12, padding: 20, display: "flex", flexDirection: "column", gap: 14 }}>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+          <span style={{
+            width: 8, height: 8, borderRadius: "50%", flexShrink: 0,
+            background: configured ? "#1D9E75" : "#E24B4A",
+            display: "inline-block",
+          }} />
+          <span style={{ color: "var(--text-secondary)" }}>
+            {configured ? t("settings_key_active") : t("settings_key_missing")}
+          </span>
+        </div>
+
+        <div>
+          <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block", marginBottom: 6 }}>
+            {t("settings_maptiler_key")}
+          </label>
+          <input
+            type="password"
+            value={key}
+            onChange={(e) => setKey(e.target.value)}
+            placeholder={configured ? t("settings_key_replace_placeholder") : t("settings_maptiler_key_placeholder")}
+            style={{ width: "100%", fontSize: 16, fontFamily: "var(--font-mono, monospace)", boxSizing: "border-box" }}
+          />
+          <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "6px 0 0" }}>
+            {t("settings_maptiler_hint")} — <a href="https://maptiler.com" target="_blank" rel="noopener noreferrer" style={{ color: "var(--text-accent)" }}>maptiler.com</a>
+          </p>
+        </div>
+
+        <button
+          onClick={save}
+          disabled={saving || !key.trim()}
+          style={{ padding: "8px 16px", fontSize: 14, border: "0.5px solid var(--border-strong)", borderRadius: "var(--radius)", background: "none", cursor: (saving || !key.trim()) ? "default" : "pointer", alignSelf: "flex-start", opacity: !key.trim() ? 0.5 : 1 }}
+        >
+          {saved ? t("settings_saved") : saving ? t("saving") : t("btn_save")}
+        </button>
+      </div>
     </div>
   );
 }

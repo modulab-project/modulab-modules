@@ -30,18 +30,18 @@
 import type { HandlerRequest, HandlerResponse, ModuleDbClient } from "./types.ts";
 
 // ── Encryption helpers (AES-256-GCM) ─────────────────────────────────────────
+// Key source: MODULAB_ENCRYPTION_KEY env var (64 hex chars = 32 bytes), set by Core.
 
-async function getKey(secret: string): Promise<CryptoKey> {
-  const enc = new TextEncoder();
-  const raw = enc.encode(secret.padEnd(32, "0").slice(0, 32));
-  const keyMaterial = await crypto.subtle.importKey("raw", raw, "PBKDF2", false, ["deriveKey"]);
-  return crypto.subtle.deriveKey(
-    { name: "PBKDF2", salt: enc.encode("vacation-spots-v1"), iterations: 100_000, hash: "SHA-256" },
-    keyMaterial,
-    { name: "AES-GCM", length: 256 },
-    false,
-    ["encrypt", "decrypt"],
-  );
+let _cachedKey: CryptoKey | null = null;
+
+async function getEncKey(): Promise<CryptoKey | null> {
+  if (_cachedKey) return _cachedKey;
+  const hexKey = Deno.env.get("MODULAB_ENCRYPTION_KEY") ?? "";
+  if (hexKey.length !== 64) return null;
+  const raw = new Uint8Array(32);
+  for (let i = 0; i < 32; i++) raw[i] = parseInt(hexKey.slice(i * 2, i * 2 + 2), 16);
+  _cachedKey = await crypto.subtle.importKey("raw", raw, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
+  return _cachedKey;
 }
 
 async function encrypt(key: CryptoKey, plaintext: string): Promise<string> {
@@ -62,26 +62,57 @@ async function decrypt(key: CryptoKey, ciphertext: string): Promise<string> {
 // ── Main handler ──────────────────────────────────────────────────────────────
 
 export default async function handler(req: HandlerRequest): Promise<HandlerResponse> {
-  const { method, path, body, auth, credentials, db } = req;
+  const { method, path, body, auth, db } = req;
 
-  const encKey = credentials?.["maptiler_api_key"]
-    ? await getKey(credentials["maptiler_api_key"])
-    : null;
+  const encKey = await getEncKey();
 
   const qIdx = path.indexOf("?");
   const pathname = qIdx === -1 ? path : path.slice(0, qIdx);
   const route = `${method} ${pathname}`;
 
-  // ── Config (map style URL — key stays server-side) ────────────────────────
+  // ── Settings (admin: GET + PUT, all users: GET /config) ──────────────────
 
   if (route === "GET /config") {
-    const key = credentials?.["maptiler_api_key"] ?? "";
+    const [row] = await db.query<{ value: string }>(
+      `SELECT value FROM settings WHERE key = 'maptiler_api_key'`,
+    );
+    let maptilerKey = "";
+    if (row?.value && encKey) {
+      maptilerKey = await decrypt(encKey, row.value).catch(() => "");
+    }
     return ok({
-      map_configured: key.length > 0,
-      map_style_url: key
-        ? `https://api.maptiler.com/maps/streets-v2/style.json?key=${key}`
+      map_configured: maptilerKey.length > 0,
+      map_style_url: maptilerKey
+        ? `https://api.maptiler.com/maps/streets-v2/style.json?key=${maptilerKey}`
         : null,
     });
+  }
+
+  if (route === "GET /settings") {
+    if (!auth.roles.includes("admin") && !auth.roles.includes("super_admin")) {
+      return forbidden();
+    }
+    const [row] = await db.query<{ value: string }>(
+      `SELECT value FROM settings WHERE key = 'maptiler_api_key'`,
+    );
+    return ok({ maptiler_api_key: row?.value ? "••••••••" : "" });
+  }
+
+  if (route === "PUT /settings") {
+    if (!auth.roles.includes("admin") && !auth.roles.includes("super_admin")) {
+      return forbidden();
+    }
+    const { maptiler_api_key } = body as { maptiler_api_key?: string };
+    if (maptiler_api_key !== undefined && encKey) {
+      const encrypted = await encrypt(encKey, maptiler_api_key);
+      await db.query(
+        `INSERT INTO settings (key, value, updated_at)
+         VALUES ('maptiler_api_key', $1, now())
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+        [encrypted],
+      );
+    }
+    return ok({ ok: true });
   }
 
   // ── Spots ──────────────────────────────────────────────────────────────────

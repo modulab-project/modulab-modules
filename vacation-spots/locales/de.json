@@ -58,8 +58,11 @@
   "settings_title": "Einstellungen",
   "settings_maptiler_key": "Maptiler API-Key",
   "settings_maptiler_key_placeholder": "Maptiler API-Key hier einfügen",
+  "settings_key_replace_placeholder": "Neuen Key einfügen um bestehenden zu ersetzen",
   "settings_maptiler_hint": "Kostenlosen Key auf maptiler.com erstellen",
   "settings_saved": "Gespeichert",
+  "settings_key_active": "Map-Key konfiguriert — Karte ist aktiv",
+  "settings_key_missing": "Kein API-Key gesetzt — Karte wird nicht geladen",
 
   "error_load": "Daten konnten nicht geladen werden",
   "error_save": "Speichern fehlgeschlagen",
