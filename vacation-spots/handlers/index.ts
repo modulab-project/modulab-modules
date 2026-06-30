@@ -100,6 +100,7 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
   }
 
   if (route === "PUT /settings") {
+    console.log(`[vacation-spots] PUT /settings roles=${JSON.stringify(auth.roles)} body=${JSON.stringify(body)}`);
     if (!auth.roles.includes("admin") && !auth.roles.includes("super_admin")) {
       return forbidden();
     }
