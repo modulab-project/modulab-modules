@@ -72,6 +72,18 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
   const pathname = qIdx === -1 ? path : path.slice(0, qIdx);
   const route = `${method} ${pathname}`;
 
+  // ── Config (map style URL — key stays server-side) ────────────────────────
+
+  if (route === "GET /config") {
+    const key = credentials?.["maptiler_api_key"] ?? "";
+    return ok({
+      map_configured: key.length > 0,
+      map_style_url: key
+        ? `https://api.maptiler.com/maps/streets-v2/style.json?key=${key}`
+        : null,
+    });
+  }
+
   // ── Spots ──────────────────────────────────────────────────────────────────
 
   if (route === "GET /spots")

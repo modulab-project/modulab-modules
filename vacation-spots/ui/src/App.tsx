@@ -67,7 +67,7 @@ interface Category {
   created_by: string;
 }
 
-type View = "map" | "trips" | "categories" | "settings";
+type View = "map" | "trips" | "categories";
 
 // ── API helper ─────────────────────────────────────────────────────────────────
 
@@ -125,7 +125,8 @@ export default function App({ apiBase, token }: ModuleComponentProps) {
   const [spots, setSpots] = useState<Spot[]>([]);
   const [trips, setTrips] = useState<Trip[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [maptilerKey, setMaptilerKey] = useState<string>(() => localStorage.getItem("vs_maptiler_key") ?? "");
+  const [mapStyleUrl, setMapStyleUrl] = useState<string | null>(null);
+  const [mapConfigured, setMapConfigured] = useState<boolean | null>(null);
 
   const [filterTrip, setFilterTrip] = useState<string>("");
   const [filterCategory, setFilterCategory] = useState<string>("");
@@ -138,6 +139,13 @@ export default function App({ apiBase, token }: ModuleComponentProps) {
   const mapRef = useRef<maplibregl.Map | null>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const markersRef = useRef<maplibregl.Marker[]>([]);
+
+  // Load config (map style URL from backend — key never touches the browser persistently)
+  useEffect(() => {
+    api.get<{ map_configured: boolean; map_style_url: string | null }>("/config")
+      .then((cfg) => { setMapConfigured(cfg.map_configured); setMapStyleUrl(cfg.map_style_url); })
+      .catch(() => setMapConfigured(false));
+  }, [api]);
 
   // Load data
   const loadAll = useCallback(async () => {
@@ -156,12 +164,12 @@ export default function App({ apiBase, token }: ModuleComponentProps) {
   // ── Map setup ────────────────────────────────────────────────────────────────
 
   useEffect(() => {
-    if (view !== "map" || !mapContainerRef.current || !maptilerKey) return;
+    if (view !== "map" || !mapContainerRef.current || !mapStyleUrl) return;
     if (mapRef.current) return; // already initialized
 
     const map = new maplibregl.Map({
       container: mapContainerRef.current,
-      style: `https://api.maptiler.com/maps/streets-v2/style.json?key=${maptilerKey}`,
+      style: mapStyleUrl,
       center: [13, 48],
       zoom: 4,
     });
@@ -267,7 +275,7 @@ export default function App({ apiBase, token }: ModuleComponentProps) {
       }}>
         <i className="ti ti-map-pin" style={{ fontSize: 18, color: "var(--text-accent)", marginRight: 6 }} />
         <span style={{ fontWeight: 500, fontSize: 15, marginRight: 16 }}>Vacation Spots</span>
-        {(["map", "trips", "categories", "settings"] as View[]).map((v) => (
+        {(["map", "trips", "categories"] as View[]).map((v) => (
           <button
             key={v}
             onClick={() => setView(v)}
@@ -341,15 +349,11 @@ export default function App({ apiBase, token }: ModuleComponentProps) {
 
             {/* Map container */}
             <div style={{ flex: 1, position: "relative" }}>
-              {!maptilerKey ? (
+              {mapConfigured === false ? (
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "var(--text-secondary)", fontSize: 14, textAlign: "center", padding: 32 }}>
                   <div>
                     <i className="ti ti-key" style={{ fontSize: 32, display: "block", marginBottom: 12 }} />
                     {t("error_no_key")}
-                    <br />
-                    <button onClick={() => setView("settings")} style={{ marginTop: 12, padding: "6px 14px", fontSize: 13, border: "0.5px solid var(--border-strong)", borderRadius: "var(--radius)", background: "none", cursor: "pointer" }}>
-                      {t("nav_settings")}
-                    </button>
                   </div>
                 </div>
               ) : (
@@ -405,17 +409,6 @@ export default function App({ apiBase, token }: ModuleComponentProps) {
           <CategoriesView categories={categories} api={api} onReload={loadAll} t={t} />
         )}
 
-        {/* SETTINGS VIEW */}
-        {view === "settings" && (
-          <SettingsView
-            maptilerKey={maptilerKey}
-            onSave={(key) => {
-              setMaptilerKey(key);
-              localStorage.setItem("vs_maptiler_key", key);
-            }}
-            t={t}
-          />
-        )}
       </div>
 
     </div>
@@ -786,46 +779,6 @@ function CategoriesView({ categories, api, onReload, t }: {
           </div>
         ))
       }
-    </div>
-  );
-}
-
-// ── Settings view ──────────────────────────────────────────────────────────────
-
-function SettingsView({ maptilerKey, onSave, t }: {
-  maptilerKey: string;
-  onSave: (key: string) => void;
-  t: (k: string) => string;
-}) {
-  const [key, setKey] = useState(maptilerKey);
-  const [saved, setSaved] = useState(false);
-
-  const save = () => {
-    onSave(key.trim());
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  };
-
-  return (
-    <div style={{ padding: 24, maxWidth: 480 }}>
-      <h2 style={{ fontSize: 18, fontWeight: 500, margin: "0 0 20px" }}>{t("settings_title")}</h2>
-      <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 12, padding: 20, display: "flex", flexDirection: "column", gap: 12 }}>
-        <label style={{ fontSize: 13, fontWeight: 500 }}>{t("settings_maptiler_key")}</label>
-        <input
-          type="password"
-          value={key}
-          onChange={(e) => setKey(e.target.value)}
-          placeholder={t("settings_maptiler_key_placeholder")}
-          style={{ fontSize: 16, fontFamily: "var(--font-mono, monospace)" }}
-        />
-        <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>
-          {t("settings_maptiler_hint")} —{" "}
-          <a href="https://maptiler.com" target="_blank" rel="noopener noreferrer" style={{ color: "var(--text-accent)" }}>maptiler.com</a>
-        </p>
-        <button onClick={save} style={{ padding: "8px 16px", fontSize: 14, border: "0.5px solid var(--border-strong)", borderRadius: "var(--radius)", background: "none", cursor: "pointer", alignSelf: "flex-start" }}>
-          {saved ? t("settings_saved") : t("btn_save")}
-        </button>
-      </div>
     </div>
   );
 }
