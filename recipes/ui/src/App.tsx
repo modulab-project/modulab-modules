@@ -1432,8 +1432,11 @@ function setStorageBase(apiBase: string, token: string) {
 }
 
 function imageUrl(path: string): string {
-  const idx = path.indexOf("/storage/");
-  if (idx === -1) return path;
-  const rel = path.slice(idx + 9);
+  if (!path) return "";
+  // New format: relative path stored in DB, e.g. "uploads/foo.jpg"
+  // Old format: absolute server path, e.g. "/Users/.../storage/uploads/foo.jpg"
+  // Detect old format by presence of "/storage/" and extract the relative part.
+  const storageIdx = path.indexOf("/storage/");
+  const rel = storageIdx !== -1 ? path.slice(storageIdx + 9) : path;
   return `${_storageBase}/${rel}?t=${encodeURIComponent(_token)}`;
 }
