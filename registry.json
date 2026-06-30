@@ -6,13 +6,5 @@
     "sha256": "5a95e868c609d03b26876002ce2f493f7a6db67e77d268f668301653f025fc04",
     "cosign_sig_url": "",
     "category": "productivity"
-  },
-  {
-    "name": "vacation-spots",
-    "version": "0.2.8",
-    "release_url": "https://github.com/modulab-project/modulab-modules/releases/download/vacation-spots-v0.2.8/vacation-spots-v0.2.8.zip",
-    "sha256": "d16880fa3cfe368480fbaabc25dba8409093c672197be815fcecb271f7462c73",
-    "cosign_sig_url": "",
-    "category": "lifestyle"
   }
 ]
