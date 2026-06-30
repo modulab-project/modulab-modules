@@ -153,7 +153,10 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
     const parts = pathname.split("/");
     const spotId = parts[2];
     const photoId = parts[4];
-    if (!(await ownerCheck(db, "spots", spotId, auth.userId))) return forbidden();
+    // Allow deletion if user owns the spot OR the photo itself
+    const spotOwner = await ownerCheck(db, "spots", spotId, auth.userId);
+    const photoOwner = await ownerCheck(db, "spot_photos", photoId, auth.userId);
+    if (!spotOwner && !photoOwner) return forbidden();
     await db.query(`DELETE FROM spot_photos WHERE id = $1 AND spot_id = $2`, [photoId, spotId]);
     return noContent();
   }

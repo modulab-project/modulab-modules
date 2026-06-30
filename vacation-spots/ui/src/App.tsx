@@ -550,12 +550,11 @@ function SpotDetail({ api, id, onBack, onEdit, onDeleted, t }: {
     setUploading(true);
     setUploadErr(null);
     try {
-      // Step 1: Core saves the file, returns { file_path: "uploads/..." }
+      // Core intercepts multipart/form-data, saves the file, then forwards
+      // body = { file_path } to the Deno handler — one call does everything.
       const fd = new FormData();
       fd.append("file", file);
-      const { file_path } = await api.upload(`/spots/${id}/photos`, fd);
-      // Step 2: register the path in the DB via the Deno handler
-      await api.mutate("POST", `/spots/${id}/photos`, { file_path });
+      await api.upload(`/spots/${id}/photos`, fd);
       reload();
     } catch (err) {
       setUploadErr(String(err));
@@ -566,8 +565,12 @@ function SpotDetail({ api, id, onBack, onEdit, onDeleted, t }: {
   }
 
   async function handleDeletePhoto(photoId: string) {
-    await api.mutate("DELETE", `/spots/${id}/photos/${photoId}`);
-    reload();
+    try {
+      await api.mutate("DELETE", `/spots/${id}/photos/${photoId}`);
+      reload();
+    } catch (err) {
+      setUploadErr(String(err));
+    }
   }
 
   if (loading) return <div className="p-6 text-sm text-gray-400">{t("loading")}</div>;
