@@ -99,23 +99,33 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
   }
 
   if (route === "PUT /settings") {
-    if (!auth.roles.includes("super-admin") && !auth.roles.includes("org-admin")) {
-      return forbidden();
+    console.log(`[vs] PUT /settings roles=${JSON.stringify(auth.roles)} encKey=${!!encKey} body=${JSON.stringify(body)}`);
+    try {
+      if (!auth.roles.includes("super-admin") && !auth.roles.includes("org-admin")) {
+        console.log("[vs] PUT /settings → 403 forbidden");
+        return forbidden();
+      }
+      if (!encKey) {
+        console.log("[vs] PUT /settings → 500 no encKey");
+        return { status: 500, body: { error: "MODULAB_ENCRYPTION_KEY not configured on server" } };
+      }
+      const { maptiler_api_key } = body as { maptiler_api_key?: string };
+      console.log(`[vs] PUT /settings maptiler_api_key=${maptiler_api_key !== undefined ? "set" : "undefined"}`);
+      if (maptiler_api_key !== undefined) {
+        const encrypted = await encrypt(encKey, maptiler_api_key);
+        await db.query(
+          `INSERT INTO settings (key, value, updated_at)
+           VALUES ('maptiler_api_key', $1, now())
+           ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+          [encrypted],
+        );
+        console.log("[vs] PUT /settings → saved ok");
+      }
+      return ok({ ok: true });
+    } catch (err) {
+      console.error("[vs] PUT /settings error:", err);
+      return { status: 500, body: { error: String(err) } };
     }
-    if (!encKey) {
-      return { status: 500, body: { error: "MODULAB_ENCRYPTION_KEY not configured on server" } };
-    }
-    const { maptiler_api_key } = body as { maptiler_api_key?: string };
-    if (maptiler_api_key !== undefined) {
-      const encrypted = await encrypt(encKey, maptiler_api_key);
-      await db.query(
-        `INSERT INTO settings (key, value, updated_at)
-         VALUES ('maptiler_api_key', $1, now())
-         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
-        [encrypted],
-      );
-    }
-    return ok({ ok: true });
   }
 
   // ── Spots ──────────────────────────────────────────────────────────────────
