@@ -45,6 +45,14 @@
   "delete_image": "Bild löschen",
   "uploading": "Hochladen…",
   "title_required_for_image": "Bitte zuerst einen Titel eingeben",
+  "draft_recipe_title": "Neues Rezept (Entwurf)",
+
+  "tags": "Tags",
+  "tag_placeholder": "Tag eingeben oder auswählen…",
+  "add_tag": "Hinzufügen",
+  "all_tags": "Alle Tags",
+
+  "nutrition_unavailable": "Nährwerte noch nicht verfügbar — Zutaten mit Open Food Facts verknüpfen.",
 
   "steps": "Zubereitung",
   "step_placeholder": "Schritt {{n}}",

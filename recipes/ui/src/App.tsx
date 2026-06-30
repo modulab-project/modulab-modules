@@ -1,16 +1,13 @@
 /**
- * Recipes module — React frontend
+ * Recipes module — React frontend  v0.3.0
  *
- * This component is built to ui/bundle.js and loaded dynamically by
- * ModulePage.tsx in modulab-core. It receives moduleName, apiBase, and token
- * as props, and handles all communication with the Deno backend itself.
- *
- * Views:
- *   - RecipeList   (default)
- *   - RecipeDetail
- *   - RecipeEditor (create / edit)
- *   - MealPlan
- *   - CategoriesView
+ * Changes vs 0.2.4:
+ *  - Tag filter added to RecipeList (alongside category filter)
+ *  - Ingredient unit field replaced by datalist with common units
+ *  - Image upload no longer requires title first (uses temp title)
+ *  - Nutrition panel always visible in RecipeDetail (shows "not available" if missing)
+ *  - Meal plan picker: event bubbling fixed so recipe selection works
+ *  - Search now covers title + description (already was, just documented)
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -84,6 +81,9 @@ type View =
   | { type: "import" }
   | { type: "categories" };
 
+// Common ingredient units shown in datalist
+const UNITS = ["g", "kg", "ml", "l", "EL", "TL", "Stk", "Prise", "Bund", "Dose", "Pck", "Scheibe", "Zehe"];
+
 // ── API helper ────────────────────────────────────────────────────────────────
 
 function useApi(apiBase: string, token: string) {
@@ -114,7 +114,7 @@ function useApi(apiBase: string, token: string) {
       if (r.status === 204) return undefined as unknown as T;
       return r.json();
     },
-    [apiBase, token],
+    [base, token],
   );
 
   const upload = useCallback(
@@ -145,7 +145,6 @@ export default function RecipesApp({ apiBase, token }: ModuleComponentProps) {
   const { t } = useTranslation(NS);
   const [view, setView] = useState<View>({ type: "list" });
   const api = useApi(apiBase, token);
-  // Initialise storage base URL (used by imageUrl() helper)
   setStorageBase(apiBase, token);
 
   return (
@@ -186,7 +185,9 @@ export default function RecipesApp({ apiBase, token }: ModuleComponentProps) {
           onClick={() => setView({ type: "editor" })}
           className="flex flex-none items-center gap-1.5 rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700"
         >
-          <i className="ti ti-plus text-[14px]" /> <span className="hidden sm:inline">{t("btn_new_recipe")}</span><span className="sm:hidden">{t("btn_new")}</span>
+          <i className="ti ti-plus text-[14px]" />
+          <span className="hidden sm:inline">{t("btn_new_recipe")}</span>
+          <span className="sm:hidden">{t("btn_new")}</span>
         </button>
       </div>
 
@@ -240,27 +241,29 @@ function RecipeList({
   const [total, setTotal] = useState(0);
   const [search, setSearch] = useState("");
   const [categoryId, setCategoryId] = useState("");
+  const [tagFilter, setTagFilter] = useState("");
   const [categories, setCategories] = useState<Category[]>([]);
+  const [tags, setTags] = useState<Tag[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    api.get<Category[]>("/categories").then(setCategories).catch(() => {});
+    api.get<Category[]>("/categories").then((rows) => setCategories(Array.isArray(rows) ? rows : [])).catch(() => {});
+    api.get<Tag[]>("/tags").then((rows) => setTags(Array.isArray(rows) ? rows : [])).catch(() => {});
   }, [api]);
 
-  // Separate load function that explicitly takes the current filter values
-  // to avoid stale-closure issues with useCallback deps
   const load = useCallback(
-    async (searchVal: string, catVal: string) => {
+    async (searchVal: string, catVal: string, tagVal: string) => {
       setLoading(true);
       try {
         const params = new URLSearchParams();
         if (searchVal) params.set("search", searchVal);
         if (catVal) params.set("category", catVal);
+        if (tagVal) params.set("tag", tagVal);
         const qs = params.toString();
         const res = await api.get<{ recipes: Recipe[]; total: number }>(
           `/recipes${qs ? "?" + qs : ""}`,
         );
-        setRecipes(res.recipes ?? []);
+        setRecipes(Array.isArray(res.recipes) ? res.recipes : []);
         setTotal(res.total ?? 0);
       } finally {
         setLoading(false);
@@ -270,12 +273,12 @@ function RecipeList({
   );
 
   useEffect(() => {
-    load(search, categoryId);
-  }, [load, search, categoryId]);
+    load(search, categoryId, tagFilter);
+  }, [load, search, categoryId, tagFilter]);
 
   return (
     <div>
-      {/* Filters — stacked on mobile, row on larger screens */}
+      {/* Filters */}
       <div className="mb-4 flex flex-col gap-2 sm:flex-row">
         <input
           type="search"
@@ -296,6 +299,19 @@ function RecipeList({
             <option key={c.id} value={c.id}>{c.name}</option>
           ))}
         </select>
+        {tags.length > 0 && (
+          <select
+            value={tagFilter}
+            onChange={(e) => setTagFilter(e.target.value)}
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900 sm:w-auto sm:min-w-[140px]"
+            style={{ fontSize: "16px" }}
+          >
+            <option value="">{t("all_tags")}</option>
+            {tags.map((tg) => (
+              <option key={tg.id} value={tg.name}>{tg.name}</option>
+            ))}
+          </select>
+        )}
       </div>
 
       {loading && <p className="text-sm text-gray-400">{t("loading")}</p>}
@@ -325,11 +341,18 @@ function RecipeList({
             )}
             <div>
               <h3 className="font-semibold text-sm leading-snug">{r.title}</h3>
-              {r.category_name && (
-                <span className="mt-1 inline-block rounded-full bg-gray-100 px-2 py-0.5 text-[10px] text-gray-500 dark:bg-gray-800 dark:text-gray-400">
-                  {r.category_name}
-                </span>
-              )}
+              <div className="mt-1 flex flex-wrap gap-1">
+                {r.category_name && (
+                  <span className="inline-block rounded-full bg-gray-100 px-2 py-0.5 text-[10px] text-gray-500 dark:bg-gray-800 dark:text-gray-400">
+                    {r.category_name}
+                  </span>
+                )}
+                {r.tag_names?.slice(0, 3).map((tg) => (
+                  <span key={tg} className="inline-block rounded-full bg-teal-50 px-2 py-0.5 text-[10px] text-teal-700 dark:bg-teal-950 dark:text-teal-300">
+                    #{tg}
+                  </span>
+                ))}
+              </div>
             </div>
             <div className="mt-auto flex items-center gap-3 text-xs text-gray-400">
               {r.prep_time_min != null && (
@@ -365,7 +388,7 @@ function RecipeDetail({
 }) {
   const { t } = useTranslation(NS);
   const [recipe, setRecipe] = useState<Recipe & { ingredients: Ingredient[]; steps: Step[]; tags: Tag[] } | null>(null);
-  const [nutrition, setNutrition] = useState<{ kcal: number; protein: number; fat: number; carbs: number } | null>(null);
+  const [nutrition, setNutrition] = useState<{ available: boolean; kcal?: number; protein?: number; fat?: number; carbs?: number } | null>(null);
   const [servings, setServings] = useState(4);
   const [loading, setLoading] = useState(true);
 
@@ -384,11 +407,8 @@ function RecipeDetail({
       .get<{ available: boolean; kcal?: number; protein?: number; fat?: number; carbs?: number }>(
         `/recipes/${id}/nutrition?servings=${servings}`,
       )
-      .then((n) => {
-        if (n.available) setNutrition({ kcal: n.kcal!, protein: n.protein!, fat: n.fat!, carbs: n.carbs! });
-        else setNutrition(null);
-      })
-      .catch(() => {});
+      .then((n) => setNutrition(n))
+      .catch(() => setNutrition({ available: false }));
   }, [api, id, recipe, servings]);
 
   if (loading) return <p className="text-sm text-gray-400">{t("loading")}</p>;
@@ -417,11 +437,18 @@ function RecipeDetail({
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold">{recipe.title}</h1>
-          {recipe.category_name && (
-            <span className="mt-1 inline-block rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500 dark:bg-gray-800">
-              {recipe.category_name}
-            </span>
-          )}
+          <div className="mt-1 flex flex-wrap gap-1">
+            {recipe.category_name && (
+              <span className="inline-block rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500 dark:bg-gray-800">
+                {recipe.category_name}
+              </span>
+            )}
+            {recipe.tags?.map((tag) => (
+              <span key={tag.id} className="inline-block rounded-full bg-teal-50 px-2.5 py-0.5 text-xs text-teal-700 dark:bg-teal-950 dark:text-teal-300">
+                #{tag.name}
+              </span>
+            ))}
+          </div>
         </div>
         <button
           type="button"
@@ -443,7 +470,7 @@ function RecipeDetail({
         )}
       </div>
 
-      {/* Portion adjuster + nutrition */}
+      {/* Portion adjuster + nutrition — always shown */}
       <div className="mb-5 rounded-2xl border border-gray-200 p-4 dark:border-gray-800">
         <div className="mb-3 flex items-center gap-3">
           <span className="text-sm font-medium">{t("servings")}:</span>
@@ -453,13 +480,13 @@ function RecipeDetail({
           <button type="button" onClick={() => setServings(servings + 1)}
             className="flex h-8 w-8 items-center justify-center rounded-full border border-gray-300 text-sm hover:bg-gray-50 dark:border-gray-700">+</button>
         </div>
-        {nutrition && (
+        {nutrition?.available ? (
           <div className="grid grid-cols-4 gap-2 text-center text-xs">
             {[
-              { label: t("kcal"), val: Math.round(nutrition.kcal) },
-              { label: t("protein"), val: `${nutrition.protein.toFixed(1)}g` },
-              { label: t("fat"), val: `${nutrition.fat.toFixed(1)}g` },
-              { label: t("carbs"), val: `${nutrition.carbs.toFixed(1)}g` },
+              { label: t("kcal"), val: Math.round(nutrition.kcal!) },
+              { label: t("protein"), val: `${nutrition.protein!.toFixed(1)}g` },
+              { label: t("fat"), val: `${nutrition.fat!.toFixed(1)}g` },
+              { label: t("carbs"), val: `${nutrition.carbs!.toFixed(1)}g` },
             ].map(({ label, val }) => (
               <div key={label} className="rounded-xl bg-gray-50 py-2 dark:bg-gray-900">
                 <div className="font-semibold text-gray-800 dark:text-gray-200">{val}</div>
@@ -467,6 +494,8 @@ function RecipeDetail({
               </div>
             ))}
           </div>
+        ) : (
+          <p className="text-xs text-gray-400">{t("nutrition_unavailable")}</p>
         )}
       </div>
 
@@ -522,16 +551,6 @@ function RecipeDetail({
           </ol>
         </div>
       )}
-
-      {recipe.tags.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {recipe.tags.map((tag) => (
-            <span key={tag.id} className="rounded-full bg-teal-50 px-2.5 py-0.5 text-xs text-teal-700 dark:bg-teal-950 dark:text-teal-300">
-              #{tag.name}
-            </span>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
@@ -558,6 +577,9 @@ function RecipeEditor({
   const [prepTime, setPrepTime] = useState("");
   const [cookTime, setCookTime] = useState("");
   const [notes, setNotes] = useState("");
+  const [tags, setTags] = useState<Tag[]>([]);
+  const [allTags, setAllTags] = useState<Tag[]>([]);
+  const [newTagName, setNewTagName] = useState("");
   const [categories, setCategories] = useState<Category[]>([]);
   const [ingredients, setIngredients] = useState<Array<{ name: string; amount: string; unit: string }>>([
     { name: "", amount: "", unit: "" },
@@ -566,23 +588,23 @@ function RecipeEditor({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Image upload / delete
+  // Image upload
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [imageUploading, setImageUploading] = useState(false);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
-  // recipeIdRef tracks the ID of an already-created recipe so we can attach
-  // an image even before the user hits Save (avoids needlessly blocking upload
-  // behind the save flow and prevents double-creation bugs).
+  // recipeIdRef tracks the already-created recipe ID so image upload
+  // doesn't require saving first and doesn't cause double-creation.
   const recipeIdRef = useRef<string | null>(id ?? null);
 
   useEffect(() => {
-    api.get<Category[]>("/categories").then(setCategories).catch(() => {});
+    api.get<Category[]>("/categories").then((rows) => setCategories(Array.isArray(rows) ? rows : [])).catch(() => {});
+    api.get<Tag[]>("/tags").then((rows) => setAllTags(Array.isArray(rows) ? rows : [])).catch(() => {});
   }, [api]);
 
   useEffect(() => {
     if (!id) return;
     api
-      .get<Recipe & { ingredients: Ingredient[]; steps: Step[] }>(`/recipes/${id}`)
+      .get<Recipe & { ingredients: Ingredient[]; steps: Step[]; tags: Tag[] }>(`/recipes/${id}`)
       .then((r) => {
         setTitle(r.title);
         setDescription(r.description ?? "");
@@ -592,6 +614,7 @@ function RecipeEditor({
         setCookTime(r.cook_time_min?.toString() ?? "");
         setNotes(r.notes ?? "");
         if (r.image_path) setImagePreview(imageUrl(r.image_path));
+        setTags(Array.isArray(r.tags) ? r.tags : []);
         setIngredients(
           r.ingredients.length
             ? r.ingredients.map((i) => ({
@@ -626,7 +649,6 @@ function RecipeEditor({
         await api.mutate("PATCH", `/recipes/${id}`, body);
         recipeId = id!;
       } else if (recipeIdRef.current) {
-        // Already created (e.g. for image upload) — just update
         await api.mutate("PATCH", `/recipes/${recipeIdRef.current}`, body);
         recipeId = recipeIdRef.current;
       } else {
@@ -651,6 +673,9 @@ function RecipeEditor({
         .map((s) => ({ instruction: s.trim() }));
       await api.mutate("PUT", `/recipes/${recipeId}/steps`, stepsPayload);
 
+      // Save tags
+      await api.mutate("PUT", `/recipes/${recipeId}/tags`, { tag_ids: tags.map((tg) => tg.id) });
+
       onDone(recipeId);
     } catch (e) {
       setError(String(e));
@@ -660,16 +685,18 @@ function RecipeEditor({
   }
 
   async function handleImageUpload(file: File) {
-    // Must have a recipe ID to attach image — create a draft if needed.
+    // Create a draft recipe if we don't have an ID yet —
+    // use a temp title or the current title if available.
     if (!recipeIdRef.current) {
-      if (!title.trim()) { setError(t("title_required_for_image")); return; }
       setError(null);
       try {
         const created = await api.mutate<{ id: string }>("POST", "/recipes", {
-          title: title.trim(),
+          title: title.trim() || t("draft_recipe_title"),
           servings,
         });
         recipeIdRef.current = created.id;
+        // If we used a placeholder, prefill title so user can see + edit it
+        if (!title.trim()) setTitle(t("draft_recipe_title"));
       } catch (e) {
         setError(String(e));
         return;
@@ -680,7 +707,7 @@ function RecipeEditor({
     setError(null);
     try {
       const fd = new FormData();
-      fd.append("file", file); // Go router expects "file" field name
+      fd.append("file", file);
       const res = await api.upload<{ image_path: string }>(`/recipes/${recipeIdRef.current}/image`, fd);
       setImagePreview(imageUrl(res.image_path));
     } catch (e) {
@@ -694,12 +721,26 @@ function RecipeEditor({
     setError(null);
     try {
       const recipeId = recipeIdRef.current ?? id;
-      if (recipeId) {
-        await api.mutate("DELETE", `/recipes/${recipeId}/image`);
-      }
+      if (recipeId) await api.mutate("DELETE", `/recipes/${recipeId}/image`);
       setImagePreview(null);
-      // Reset file input so the same file can be re-selected
       if (fileInputRef.current) fileInputRef.current.value = "";
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function addTag(tag: Tag) {
+    if (!tags.find((t) => t.id === tag.id)) {
+      setTags([...tags, tag]);
+    }
+    setNewTagName("");
+  }
+
+  async function createAndAddTag(name: string) {
+    try {
+      const created = await api.mutate<Tag>("POST", "/tags", { name: name.trim() });
+      setAllTags((prev) => [...prev.filter((t) => t.id !== created.id), created]);
+      addTag(created);
     } catch (e) {
       setError(String(e));
     }
@@ -723,7 +764,7 @@ function RecipeEditor({
       )}
 
       <div className="space-y-4">
-        {/* Image upload */}
+        {/* Image upload — no title required */}
         <div>
           <label className={labelCls}>{t("image")}</label>
           <input
@@ -787,7 +828,8 @@ function RecipeEditor({
           <textarea value={description} onChange={(e) => setDescription(e.target.value)}
             className={inputCls} rows={2} style={{ fontSize: "16px" }} />
         </div>
-        {/* Category + Servings — 2 cols on all screens (fields short enough) */}
+
+        {/* Category + Servings */}
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className={labelCls}>{t("category")}</label>
@@ -803,6 +845,7 @@ function RecipeEditor({
               className={inputCls} style={{ fontSize: "16px" }} />
           </div>
         </div>
+
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className={labelCls}>{t("prep_time")}</label>
@@ -816,18 +859,79 @@ function RecipeEditor({
           </div>
         </div>
 
+        {/* Tags */}
+        <div>
+          <label className={labelCls}>{t("tags")}</label>
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {tags.map((tg) => (
+              <span key={tg.id} className="flex items-center gap-1 rounded-full bg-teal-50 px-2.5 py-0.5 text-xs text-teal-700 dark:bg-teal-950 dark:text-teal-300">
+                #{tg.name}
+                <button type="button" onClick={() => setTags(tags.filter((t) => t.id !== tg.id))}
+                  className="ml-0.5 text-teal-400 hover:text-red-500">×</button>
+              </span>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={newTagName}
+              onChange={(e) => setNewTagName(e.target.value)}
+              placeholder={t("tag_placeholder")}
+              list="tag-suggestions"
+              className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 dark:border-gray-700 dark:bg-gray-900"
+              style={{ fontSize: "16px" }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && newTagName.trim()) {
+                  e.preventDefault();
+                  const existing = allTags.find((t) => t.name.toLowerCase() === newTagName.trim().toLowerCase());
+                  if (existing) addTag(existing);
+                  else createAndAddTag(newTagName.trim());
+                }
+              }}
+            />
+            <datalist id="tag-suggestions">
+              {allTags.filter((t) => !tags.find((sel) => sel.id === t.id)).map((t) => (
+                <option key={t.id} value={t.name} />
+              ))}
+            </datalist>
+            <button
+              type="button"
+              disabled={!newTagName.trim()}
+              onClick={() => {
+                if (!newTagName.trim()) return;
+                const existing = allTags.find((t) => t.name.toLowerCase() === newTagName.trim().toLowerCase());
+                if (existing) addTag(existing);
+                else createAndAddTag(newTagName.trim());
+              }}
+              className="flex items-center gap-1 rounded-lg border border-gray-300 px-3 py-2 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800 disabled:opacity-40"
+            >
+              <i className="ti ti-plus text-[13px]" /> {t("add_tag")}
+            </button>
+          </div>
+        </div>
+
         {/* Ingredients */}
         <div>
           <label className={labelCls}>{t("ingredients")}</label>
+          {/* datalist for units */}
+          <datalist id="unit-list">
+            {UNITS.map((u) => <option key={u} value={u} />)}
+          </datalist>
           <div className="space-y-2">
             {ingredients.map((ing, i) => (
               <div key={i} className="flex gap-2">
                 <input type="number" step="0.1" min={0} placeholder={t("amount_placeholder")}
                   value={ing.amount} onChange={(e) => { const n = [...ingredients]; n[i].amount = e.target.value; setIngredients(n); }}
                   className="w-16 rounded-lg border border-gray-300 px-2 py-2 text-sm dark:border-gray-700 dark:bg-gray-900" style={{ fontSize: "16px" }} />
-                <input type="text" placeholder={t("unit_placeholder")}
-                  value={ing.unit} onChange={(e) => { const n = [...ingredients]; n[i].unit = e.target.value; setIngredients(n); }}
-                  className="w-16 rounded-lg border border-gray-300 px-2 py-2 text-sm dark:border-gray-700 dark:bg-gray-900" style={{ fontSize: "16px" }} />
+                <input
+                  type="text"
+                  placeholder={t("unit_placeholder")}
+                  value={ing.unit}
+                  list="unit-list"
+                  onChange={(e) => { const n = [...ingredients]; n[i].unit = e.target.value; setIngredients(n); }}
+                  className="w-20 rounded-lg border border-gray-300 px-2 py-2 text-sm dark:border-gray-700 dark:bg-gray-900"
+                  style={{ fontSize: "16px" }}
+                />
                 <input type="text" placeholder={t("ingredient_placeholder")}
                   value={ing.name} onChange={(e) => { const n = [...ingredients]; n[i].name = e.target.value; setIngredients(n); }}
                   className="flex-1 rounded-lg border border-gray-300 px-2 py-2 text-sm dark:border-gray-700 dark:bg-gray-900" style={{ fontSize: "16px" }} />
@@ -917,6 +1021,7 @@ function MealPlanView({ api }: { api: ReturnType<typeof useApi> }) {
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [loading, setLoading] = useState(true);
   const [pickerCell, setPickerCell] = useState<{ day: number; slot: string } | null>(null);
+  const [pickerSearch, setPickerSearch] = useState("");
 
   const DAY_KEYS = ["day_mon", "day_tue", "day_wed", "day_thu", "day_fri", "day_sat", "day_sun"] as const;
 
@@ -933,27 +1038,52 @@ function MealPlanView({ api }: { api: ReturnType<typeof useApi> }) {
       .finally(() => setLoading(false));
   }, [api, weekStart]);
 
+  // Close picker when clicking outside
+  useEffect(() => {
+    if (!pickerCell) return;
+    function handleClick(e: MouseEvent) {
+      const target = e.target as HTMLElement;
+      if (!target.closest("[data-picker]")) {
+        setPickerCell(null);
+        setPickerSearch("");
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [pickerCell]);
+
   function entryFor(day: number, slot: string) {
     return entries.find((e) => e.day_of_week === day && e.meal_slot === slot);
   }
 
   async function setEntry(day: number, slot: string, recipeId: string | null) {
-    const updated = await api.mutate<MealPlanEntry>(
-      "PUT",
-      `/meal-plan/${weekStart}/${day}/${slot}`,
-      { recipe_id: recipeId },
-    );
-    setEntries((prev) => {
-      const without = prev.filter((e) => !(e.day_of_week === day && e.meal_slot === slot));
-      return [...without, updated];
-    });
+    try {
+      const updated = await api.mutate<MealPlanEntry>(
+        "PUT",
+        `/meal-plan/${weekStart}/${day}/${slot}`,
+        { recipe_id: recipeId },
+      );
+      setEntries((prev) => {
+        const without = prev.filter((e) => !(e.day_of_week === day && e.meal_slot === slot));
+        return [...without, updated];
+      });
+    } catch (e) {
+      console.error("setEntry failed", e);
+    }
     setPickerCell(null);
+    setPickerSearch("");
   }
 
   async function clearEntry(day: number, slot: string) {
     await api.mutate("DELETE", `/meal-plan/${weekStart}/${day}/${slot}`);
     setEntries((prev) => prev.filter((e) => !(e.day_of_week === day && e.meal_slot === slot)));
+    setPickerCell(null);
+    setPickerSearch("");
   }
+
+  const filteredRecipes = recipes.filter((r) =>
+    !pickerSearch || r.title.toLowerCase().includes(pickerSearch.toLowerCase()),
+  );
 
   return (
     <div>
@@ -992,30 +1122,65 @@ function MealPlanView({ api }: { api: ReturnType<typeof useApi> }) {
                   const isOpen = pickerCell?.day === day && pickerCell?.slot === slot;
                   return (
                     <td key={day} className="relative p-1">
+                      {/* Cell: click opens picker */}
                       <div
+                        data-picker
                         className={`min-h-[48px] cursor-pointer rounded-xl border p-1.5 text-center text-xs transition ${
                           entry
                             ? "border-teal-200 bg-teal-50 text-teal-800 dark:border-teal-800 dark:bg-teal-950 dark:text-teal-200"
                             : "border-gray-200 hover:border-gray-300 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-900"
                         }`}
-                        onClick={() => setPickerCell(isOpen ? null : { day, slot })}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setPickerCell(isOpen ? null : { day, slot });
+                          setPickerSearch("");
+                        }}
                       >
                         {entry?.recipe_title ?? <span className="text-gray-300 dark:text-gray-700">+</span>}
                       </div>
+
+                      {/* Picker dropdown */}
                       {isOpen && (
-                        <div className="absolute left-0 top-full z-10 mt-1 min-w-[180px] rounded-xl border border-gray-200 bg-white p-2 shadow-lg dark:border-gray-700 dark:bg-gray-900">
-                          {entry && (
-                            <button type="button" onClick={() => clearEntry(day, slot)}
-                              className="mb-1 flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs text-red-600 hover:bg-red-50 dark:hover:bg-red-950">
-                              <i className="ti ti-trash text-[12px]" /> {t("clear")}
-                            </button>
-                          )}
-                          {recipes.slice(0, 20).map((r) => (
-                            <button key={r.id} type="button" onClick={() => setEntry(day, slot, r.id)}
-                              className="flex w-full items-center rounded-lg px-2 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-800">
-                              {r.title}
-                            </button>
-                          ))}
+                        <div
+                          data-picker
+                          className="absolute left-0 top-full z-20 mt-1 w-56 rounded-xl border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-900"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <div className="p-2 border-b border-gray-100 dark:border-gray-800">
+                            <input
+                              type="search"
+                              autoFocus
+                              placeholder={t("search_placeholder")}
+                              value={pickerSearch}
+                              onChange={(e) => setPickerSearch(e.target.value)}
+                              className="w-full rounded-lg border border-gray-200 px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-teal-500 dark:border-gray-700 dark:bg-gray-800"
+                              style={{ fontSize: "16px" }}
+                            />
+                          </div>
+                          <div className="max-h-52 overflow-y-auto p-1">
+                            {entry && (
+                              <button
+                                type="button"
+                                onClick={() => clearEntry(day, slot)}
+                                className="flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs text-red-600 hover:bg-red-50 dark:hover:bg-red-950"
+                              >
+                                <i className="ti ti-trash text-[12px]" /> {t("clear")}
+                              </button>
+                            )}
+                            {filteredRecipes.length === 0 && (
+                              <p className="px-2 py-3 text-center text-xs text-gray-400">{t("no_recipes")}</p>
+                            )}
+                            {filteredRecipes.map((r) => (
+                              <button
+                                key={r.id}
+                                type="button"
+                                onClick={() => setEntry(day, slot, r.id)}
+                                className="flex w-full items-center rounded-lg px-2 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-800 text-left"
+                              >
+                                {r.title}
+                              </button>
+                            ))}
+                          </div>
                         </div>
                       )}
                     </td>
@@ -1111,7 +1276,7 @@ function CategoriesView({ api }: { api: ReturnType<typeof useApi> }) {
     setLoading(true);
     try {
       const rows = await api.get<Category[]>("/categories");
-      setCategories(rows ?? []);
+      setCategories(Array.isArray(rows) ? rows : []);
     } finally {
       setLoading(false);
     }
@@ -1119,24 +1284,9 @@ function CategoriesView({ api }: { api: ReturnType<typeof useApi> }) {
 
   useEffect(() => { load(); }, [load]);
 
-  function startNew() {
-    setEditingId("new");
-    setName("");
-    setSortOrder("0");
-    setError(null);
-  }
-
-  function startEdit(cat: Category) {
-    setEditingId(cat.id);
-    setName(cat.name);
-    setSortOrder(String(cat.sort_order));
-    setError(null);
-  }
-
-  function cancelEdit() {
-    setEditingId(null);
-    setError(null);
-  }
+  function startNew() { setEditingId("new"); setName(""); setSortOrder("0"); setError(null); }
+  function startEdit(cat: Category) { setEditingId(cat.id); setName(cat.name); setSortOrder(String(cat.sort_order)); setError(null); }
+  function cancelEdit() { setEditingId(null); setError(null); }
 
   async function handleSave() {
     if (!name.trim()) { setError(t("category_name_required")); return; }
@@ -1190,26 +1340,12 @@ function CategoriesView({ api }: { api: ReturnType<typeof useApi> }) {
       {editingId !== null && (
         <div className="mb-4 rounded-2xl border border-teal-200 bg-teal-50 p-4 dark:border-teal-800 dark:bg-teal-950">
           <div className="flex gap-2">
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder={t("category_name_placeholder")}
-              className={`flex-1 ${inputCls}`}
-              style={{ fontSize: "16px" }}
-              // eslint-disable-next-line jsx-a11y/no-autofocus
-              autoFocus
-              onKeyDown={(e) => { if (e.key === "Enter") handleSave(); if (e.key === "Escape") cancelEdit(); }}
-            />
-            <input
-              type="number"
-              value={sortOrder}
-              onChange={(e) => setSortOrder(e.target.value)}
-              title={t("category_sort_order")}
-              placeholder="0"
-              className={`w-20 ${inputCls}`}
-              style={{ fontSize: "16px" }}
-            />
+            <input type="text" value={name} onChange={(e) => setName(e.target.value)}
+              placeholder={t("category_name_placeholder")} className={`flex-1 ${inputCls}`}
+              style={{ fontSize: "16px" }} autoFocus
+              onKeyDown={(e) => { if (e.key === "Enter") handleSave(); if (e.key === "Escape") cancelEdit(); }} />
+            <input type="number" value={sortOrder} onChange={(e) => setSortOrder(e.target.value)}
+              title={t("category_sort_order")} placeholder="0" className={`w-20 ${inputCls}`} style={{ fontSize: "16px" }} />
           </div>
           <div className="mt-3 flex justify-end gap-2">
             <button type="button" onClick={cancelEdit}
@@ -1257,25 +1393,17 @@ function CategoriesView({ api }: { api: ReturnType<typeof useApi> }) {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-// storageBase is set once from the apiBase prop and used by imageUrl().
-// apiBase = "https://host/v1/modules/recipes/api"
-// storageBase = "https://host/v1/modules/recipes/storage"
 let _storageBase = "";
 let _token = "";
 
 function setStorageBase(apiBase: string, token: string) {
-  // Strip trailing /api (with or without trailing slash)
   _storageBase = apiBase.replace(/\/api\/?$/, "") + "/storage";
   _token = token;
 }
 
 function imageUrl(path: string): string {
-  // path from DB: absolute path on disk, e.g.
-  //   /Users/.../modulab-data/modules/recipes/storage/uploads/foo.jpg
-  // Extract the part after /storage/
   const idx = path.indexOf("/storage/");
   if (idx === -1) return path;
-  const rel = path.slice(idx + 9); // e.g. "uploads/foo.jpg"
-  // Append token as query param since <img> can't send Authorization header
+  const rel = path.slice(idx + 9);
   return `${_storageBase}/${rel}?t=${encodeURIComponent(_token)}`;
 }
