@@ -357,8 +357,26 @@ export default function App({ apiBase, token }: ModuleComponentProps) {
               )}
             </div>
 
+            {/* Spot form panel (new / edit) */}
+            {showSpotModal && (
+              <div style={{
+                width: 320, borderLeft: "0.5px solid var(--border)", background: "var(--surface-2)",
+                display: "flex", flexDirection: "column", overflowY: "auto", flexShrink: 0,
+              }}>
+                <SpotForm
+                  spot={editingSpot}
+                  initialCoords={newSpotCoords}
+                  trips={trips}
+                  categories={categories}
+                  onSave={handleSaveSpot}
+                  onClose={() => { setShowSpotModal(false); setEditingSpot(null); setNewSpotCoords(null); }}
+                  t={t}
+                />
+              </div>
+            )}
+
             {/* Detail panel */}
-            {selectedSpot && (
+            {selectedSpot && !showSpotModal && (
               <div style={{
                 width: 280, borderLeft: "0.5px solid var(--border)", background: "var(--surface-2)",
                 display: "flex", flexDirection: "column", overflowY: "auto",
@@ -400,18 +418,6 @@ export default function App({ apiBase, token }: ModuleComponentProps) {
         )}
       </div>
 
-      {/* New / Edit spot modal */}
-      {showSpotModal && (
-        <SpotModal
-          spot={editingSpot}
-          initialCoords={newSpotCoords}
-          trips={trips}
-          categories={categories}
-          onSave={handleSaveSpot}
-          onClose={() => { setShowSpotModal(false); setEditingSpot(null); setNewSpotCoords(null); }}
-          t={t}
-        />
-      )}
     </div>
   );
 }
@@ -504,7 +510,7 @@ interface SpotFormData {
   category_id: string | null;
 }
 
-function SpotModal({ spot, initialCoords, trips, categories, onSave, onClose, t }: {
+function SpotForm({ spot, initialCoords, trips, categories, onSave, onClose, t }: {
   spot: Spot | null;
   initialCoords: { lat: number; lng: number } | null;
   trips: Trip[];
@@ -549,84 +555,87 @@ function SpotModal({ spot, initialCoords, trips, categories, onSave, onClose, t 
   };
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
-      <div style={{ background: "var(--surface-2)", borderRadius: 12, border: "0.5px solid var(--border)", padding: 20, width: 360, maxHeight: "90vh", overflowY: "auto" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-          <span style={{ fontWeight: 500, fontSize: 16 }}>{spot ? t("btn_edit") : t("btn_new_spot")}</span>
-          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 18, color: "var(--text-muted)" }}>
-            <i className="ti ti-x" />
-          </button>
+    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px 10px", borderBottom: "0.5px solid var(--border)", flexShrink: 0 }}>
+        <span style={{ fontWeight: 500, fontSize: 15 }}>{spot ? t("btn_edit") : t("btn_new_spot")}</span>
+        <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 18, color: "var(--text-muted)", padding: 2 }}>
+          <i className="ti ti-x" />
+        </button>
+      </div>
+
+      {/* Form body */}
+      <div style={{ flex: 1, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+        {/* Name */}
+        <div>
+          <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>{t("spot_name")} *</label>
+          <input
+            value={name}
+            onChange={(e) => { setName(e.target.value); setNameErr(false); }}
+            placeholder={t("spot_name_placeholder")}
+            style={{ width: "100%", fontSize: 16, boxSizing: "border-box", borderColor: nameErr ? "var(--border-danger)" : undefined }}
+          />
+          {nameErr && <span style={{ fontSize: 12, color: "var(--text-danger)" }}>{t("spot_name_required")}</span>}
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {/* Name */}
+        {/* Trip + Category */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>{t("spot_name")} *</label>
-            <input
-              value={name}
-              onChange={(e) => { setName(e.target.value); setNameErr(false); }}
-              placeholder={t("spot_name_placeholder")}
-              style={{ width: "100%", fontSize: 16, boxSizing: "border-box", borderColor: nameErr ? "var(--border-danger)" : undefined }}
-            />
-            {nameErr && <span style={{ fontSize: 12, color: "var(--text-danger)" }}>{t("spot_name_required")}</span>}
+            <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>{t("spot_trip")}</label>
+            <select value={tripId} onChange={(e) => setTripId(e.target.value)} style={{ width: "100%", fontSize: 14 }}>
+              <option value="">—</option>
+              {trips.map((tr) => <option key={tr.id} value={tr.id}>{tr.name}</option>)}
+            </select>
           </div>
-
-          {/* Trip + Category */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            <div>
-              <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>{t("spot_trip")}</label>
-              <select value={tripId} onChange={(e) => setTripId(e.target.value)} style={{ width: "100%", fontSize: 14 }}>
-                <option value="">—</option>
-                {trips.map((tr) => <option key={tr.id} value={tr.id}>{tr.name}</option>)}
-              </select>
-            </div>
-            <div>
-              <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>{t("spot_category")}</label>
-              <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} style={{ width: "100%", fontSize: 14 }}>
-                <option value="">—</option>
-                {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-            </div>
-          </div>
-
-          {/* Rating */}
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>{t("spot_rating")}</label>
-            <Stars value={rating} onChange={setRating} />
+            <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>{t("spot_category")}</label>
+            <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} style={{ width: "100%", fontSize: 14 }}>
+              <option value="">—</option>
+              {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
           </div>
-
-          {/* Note */}
-          <div>
-            <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>{t("spot_note")}</label>
-            <textarea
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder={t("spot_note_placeholder")}
-              style={{ width: "100%", height: 72, fontSize: 16, resize: "none", boxSizing: "border-box" }}
-            />
-          </div>
-
-          {/* Coordinates */}
-          <div>
-            <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>{t("spot_location")}</label>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 6 }}>
-              <input value={lat} onChange={(e) => setLat(e.target.value)} placeholder="Lat" style={{ fontSize: 14 }} />
-              <input value={lng} onChange={(e) => setLng(e.target.value)} placeholder="Lng" style={{ fontSize: 14 }} />
-            </div>
-            <button onClick={handleGps} style={{ fontSize: 12, padding: "4px 10px", border: "0.5px solid var(--border-strong)", borderRadius: "var(--radius)", background: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
-              <i className="ti ti-current-location" style={{ fontSize: 13 }} /> {t("btn_use_gps")}
-            </button>
-            <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "6px 0 0" }}>{t("spot_location_hint")}</p>
-          </div>
-
-          <button
-            onClick={handleSubmit}
-            disabled={saving}
-            style={{ width: "100%", padding: 10, borderRadius: "var(--radius)", border: "none", background: "var(--text-primary)", color: "var(--surface-2)", fontSize: 14, fontWeight: 500, cursor: saving ? "default" : "pointer" }}
-          >
-            {saving ? t("saving") : t("btn_save")}
-          </button>
         </div>
+
+        {/* Rating */}
+        <div>
+          <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>{t("spot_rating")}</label>
+          <Stars value={rating} onChange={setRating} />
+        </div>
+
+        {/* Note */}
+        <div>
+          <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>{t("spot_note")}</label>
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder={t("spot_note_placeholder")}
+            style={{ width: "100%", height: 72, fontSize: 16, resize: "none", boxSizing: "border-box" }}
+          />
+        </div>
+
+        {/* Coordinates */}
+        <div>
+          <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>{t("spot_location")}</label>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 6 }}>
+            <input value={lat} onChange={(e) => setLat(e.target.value)} placeholder="Lat" style={{ fontSize: 14 }} />
+            <input value={lng} onChange={(e) => setLng(e.target.value)} placeholder="Lng" style={{ fontSize: 14 }} />
+          </div>
+          <button onClick={handleGps} style={{ fontSize: 12, padding: "4px 10px", border: "0.5px solid var(--border-strong)", borderRadius: "var(--radius)", background: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
+            <i className="ti ti-current-location" style={{ fontSize: 13 }} /> {t("btn_use_gps")}
+          </button>
+          <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "6px 0 0" }}>{t("spot_location_hint")}</p>
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div style={{ padding: "10px 16px", borderTop: "0.5px solid var(--border)", flexShrink: 0 }}>
+        <button
+          onClick={handleSubmit}
+          disabled={saving}
+          style={{ width: "100%", padding: 10, borderRadius: "var(--radius)", border: "none", background: "var(--text-primary)", color: "var(--surface-2)", fontSize: 14, fontWeight: 500, cursor: saving ? "default" : "pointer" }}
+        >
+          {saving ? t("saving") : t("btn_save")}
+        </button>
       </div>
     </div>
   );
