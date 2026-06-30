@@ -1086,9 +1086,16 @@ function MealPlanView({ api }: { api: ReturnType<typeof useApi> }) {
         `/meal-plan/${weekStart}/${day}/${slot}`,
         { recipe_id: recipeId },
       );
+      // RETURNING * from the DB doesn't include recipe_title — enrich from local list
+      const recipe = recipes.find((r) => r.id === recipeId);
+      const enriched: MealPlanEntry = {
+        ...updated,
+        recipe_title: recipe?.title ?? updated.recipe_title ?? null,
+        recipe_image: recipe?.image_path ?? updated.recipe_image ?? null,
+      };
       setEntries((prev) => {
         const without = prev.filter((e) => !(e.day_of_week === day && e.meal_slot === slot));
-        return [...without, updated];
+        return [...without, enriched];
       });
     } catch (e) {
       console.error("setEntry failed", e);
