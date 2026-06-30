@@ -99,18 +99,14 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
   }
 
   if (route === "PUT /settings") {
-    console.log(`[vs] PUT /settings roles=${JSON.stringify(auth.roles)} encKey=${!!encKey} body=${JSON.stringify(body)}`);
     try {
       if (!auth.roles.includes("super-admin") && !auth.roles.includes("org-admin")) {
-        console.log("[vs] PUT /settings → 403 forbidden");
         return forbidden();
       }
       if (!encKey) {
-        console.log("[vs] PUT /settings → 500 no encKey");
         return { status: 500, body: { error: "MODULAB_ENCRYPTION_KEY not configured on server" } };
       }
       const { maptiler_api_key } = body as { maptiler_api_key?: string };
-      console.log(`[vs] PUT /settings maptiler_api_key=${maptiler_api_key !== undefined ? "set" : "undefined"}`);
       if (maptiler_api_key !== undefined) {
         const encrypted = await encrypt(encKey, maptiler_api_key);
         await db.query(
@@ -119,34 +115,25 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
           [encrypted],
         );
-        console.log("[vs] PUT /settings → saved ok");
       }
       return ok({ ok: true });
     } catch (err) {
-      console.error("[vs] PUT /settings error:", err);
       return { status: 500, body: { error: String(err) } };
     }
   }
 
   // ── Spots ──────────────────────────────────────────────────────────────────
 
-  if (route === "GET /spots") {
-    const result = await listSpots(db, path, encKey);
-    console.log(`[vs] GET /spots → ${JSON.stringify(result).slice(0, 200)}`);
-    return result;
-  }
+  if (route === "GET /spots")
+    return listSpots(db, path, encKey);
   if (method === "GET" && pathname.match(/^\/spots\/[^/]+$/) && !pathname.endsWith("/photos"))
     return getSpot(db, segId(pathname), encKey);
   if (route === "POST /spots")
     return createSpot(db, body as SpotInput, auth.userId, encKey);
   if (method === "PATCH" && pathname.match(/^\/spots\/[^/]+$/))
     return updateSpot(db, segId(pathname), body as Partial<SpotInput>, auth.userId, encKey);
-  if (method === "DELETE" && pathname.match(/^\/spots\/[^/]+$/)) {
-    const id = segId(pathname);
-    const [row] = await db.query<{ created_by: string }>(`SELECT created_by FROM spots WHERE id = $1`, [id]);
-    console.log(`[vs] DELETE /spots/${id} auth.userId=${auth.userId} created_by=${row?.created_by}`);
-    return deleteSpot(db, id, auth.userId);
-  }
+  if (method === "DELETE" && pathname.match(/^\/spots\/[^/]+$/))
+    return deleteSpot(db, segId(pathname), auth.userId);
 
   // ── Spot photos ────────────────────────────────────────────────────────────
 

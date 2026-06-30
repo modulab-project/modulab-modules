@@ -11,7 +11,7 @@
  *   settings   — Maptiler API key (admin/org-admin only)
  */
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -70,24 +70,30 @@ type View =
 function useApi(apiBase: string, token: string) {
   const base = apiBase.endsWith("/") ? apiBase.slice(0, -1) : apiBase;
 
+  // Stable refs so downstream useCallbacks/useEffects don't re-fire on every render
+  const baseRef = useRef(base);
+  const tokenRef = useRef(token);
+  useEffect(() => { baseRef.current = base; }, [base]);
+  useEffect(() => { tokenRef.current = token; }, [token]);
+
   const get = useCallback(async <T,>(path: string): Promise<T> => {
-    const r = await fetch(base + path, { headers: { Authorization: `Bearer ${token}` } });
+    const r = await fetch(baseRef.current + path, { headers: { Authorization: `Bearer ${tokenRef.current}` } });
     if (!r.ok) { const txt = await r.text(); throw new Error(txt || `HTTP ${r.status}`); }
     return r.json();
-  }, [base, token]);
+  }, []); // stable — reads from refs
 
   const mutate = useCallback(async <T,>(method: string, path: string, body?: unknown): Promise<T> => {
-    const r = await fetch(base + path, {
+    const r = await fetch(baseRef.current + path, {
       method,
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      headers: { Authorization: `Bearer ${tokenRef.current}`, "Content-Type": "application/json" },
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
     if (!r.ok) { const txt = await r.text(); throw new Error(txt || `HTTP ${r.status}`); }
     if (r.status === 204) return undefined as T;
     return r.json();
-  }, [base, token]);
+  }, []); // stable — reads from refs
 
-  return { get, mutate };
+  return useMemo(() => ({ get, mutate }), [get, mutate]);
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -256,11 +262,11 @@ function MapView({ spots, mapStyleUrl, mapConfigured, trips, categories, onSpotC
   const [filterTrip, setFilterTrip] = useState("");
   const [filterCategory, setFilterCategory] = useState("");
 
-  const filtered = spots.filter((s) => {
+  const filtered = useMemo(() => spots.filter((s) => {
     if (filterTrip && s.trip_id !== filterTrip) return false;
     if (filterCategory && s.category_id !== filterCategory) return false;
     return true;
-  });
+  }), [spots, filterTrip, filterCategory]);
 
   // Init map
   useEffect(() => {
