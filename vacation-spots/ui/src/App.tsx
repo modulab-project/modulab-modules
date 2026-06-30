@@ -1,15 +1,7 @@
 /**
- * Vacation Spots module — React frontend v0.2.3
+ * Vacation Spots module — React frontend v0.2.5
  *
- * Views (page-based, no modals/overlays):
- *   map        — full-screen MapLibre GL map with spot markers
- *   spots      — spot list / overview
- *   spot-new   — full-page spot editor (new)
- *   spot-edit  — full-page spot editor (edit existing)
- *   spot-detail — spot detail page
- *   trips      — list + create/edit/delete trips
- *   categories — list + create/edit/delete categories
- *   settings   — Maptiler API key (admin/org-admin only)
+ * Views: map | spots | spot-new | spot-edit | spot-detail | trips | categories | settings
  */
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
@@ -22,6 +14,12 @@ import type { ModuleComponentProps } from "./types";
 const NS = "mod_vacation-spots";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
+
+interface SpotPhoto {
+  id: string;
+  file_path: string;
+  position: number;
+}
 
 interface Spot {
   id: string;
@@ -36,7 +34,9 @@ interface Spot {
   category_name: string | null;
   category_color: string | null;
   category_icon: string | null;
-  photo_paths: string[];
+  // listSpots returns photo_paths (string[]); getSpot returns photos (SpotPhoto[])
+  photo_paths?: string[];
+  photos?: SpotPhoto[];
   created_by: string;
   created_at: string;
 }
@@ -61,15 +61,26 @@ interface Category {
 type View =
   | { type: "map" }
   | { type: "spots" }
-  | { type: "spot-new"; lat?: number; lng?: number }
+  | { type: "spot-new" }
   | { type: "spot-edit"; id: string }
   | { type: "spot-detail"; id: string }
   | { type: "trips" }
   | { type: "categories" }
   | { type: "settings" };
 
+// ── Shared styles ──────────────────────────────────────────────────────────────
+
+const inputCls =
+  "w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-base text-gray-900 placeholder:text-gray-400 focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500";
+const labelCls = "mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300";
+const btnPrimary =
+  "flex items-center justify-center gap-1.5 rounded-lg bg-teal-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-50";
+const btnSecondary =
+  "flex items-center justify-center gap-1.5 rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800";
+const btnDanger =
+  "flex items-center justify-center gap-1.5 rounded-lg border border-red-300 px-4 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950";
+
 // ── API helper ─────────────────────────────────────────────────────────────────
-// Uses refs so the returned object is always the same identity (no render loop).
 
 function useApi(apiBase: string, token: string) {
   const base = apiBase.endsWith("/") ? apiBase.slice(0, -1) : apiBase;
@@ -97,7 +108,28 @@ function useApi(apiBase: string, token: string) {
     return r.json();
   }, []);
 
-  return useMemo(() => ({ get, mutate }), [get, mutate]);
+  // Upload a file via multipart/form-data — Core intercepts and saves the file
+  const upload = useCallback(async <T = { file_path: string },>(path: string, formData: FormData): Promise<T> => {
+    const r = await fetch(baseRef.current + path, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${tokenRef.current}` },
+      body: formData,
+    });
+    if (!r.ok) { const txt = await r.text(); throw new Error(txt || `HTTP ${r.status}`); }
+    return r.json();
+  }, []);
+
+  // Build a URL for a stored file (goes through Core's storage handler).
+  // Auth is required, so the token is passed as a query param (same pattern as Recipes).
+  const storageUrl = useCallback((filePath: string): string => {
+    const moduleBase = baseRef.current.replace(/\/api\/?$/, "");
+    // Handle old absolute paths that still contain /storage/
+    const storageIdx = filePath.indexOf("/storage/");
+    const rel = storageIdx !== -1 ? filePath.slice(storageIdx + 9) : filePath;
+    return `${moduleBase}/storage/${rel}?t=${encodeURIComponent(tokenRef.current)}`;
+  }, []);
+
+  return useMemo(() => ({ get, mutate, upload, storageUrl }), [get, mutate, upload, storageUrl]);
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -110,21 +142,12 @@ function navCls(active: boolean) {
   }`;
 }
 
-const inputCls =
-  "w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 dark:border-gray-700 dark:bg-gray-900";
-const labelCls = "mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300";
-
 function Stars({ value, onChange }: { value: number | null; onChange?: (v: number) => void }) {
   return (
     <span className="inline-flex gap-1">
       {[1, 2, 3, 4, 5].map((n) => (
-        <span
-          key={n}
-          onClick={() => onChange?.(n)}
-          className={`text-xl leading-none ${onChange ? "cursor-pointer" : ""} ${
-            value && n <= value ? "text-amber-400" : "text-gray-300"
-          }`}
-        >
+        <span key={n} onClick={() => onChange?.(n)}
+          className={`text-2xl leading-none ${onChange ? "cursor-pointer" : ""} ${value && n <= value ? "text-amber-400" : "text-gray-300 dark:text-gray-600"}`}>
           ★
         </span>
       ))}
@@ -146,12 +169,8 @@ export default function App({ apiBase, token }: ModuleComponentProps) {
   const [mapConfigured, setMapConfigured] = useState<boolean | null>(null);
 
   useEffect(() => {
-    api
-      .get<{ map_configured: boolean; map_style_url: string | null }>("/config")
-      .then((cfg) => {
-        setMapConfigured(cfg.map_configured);
-        setMapStyleUrl(cfg.map_style_url);
-      })
+    api.get<{ map_configured: boolean; map_style_url: string | null }>("/config")
+      .then((cfg) => { setMapConfigured(cfg.map_configured); setMapStyleUrl(cfg.map_style_url); })
       .catch(() => setMapConfigured(false));
   }, [api]);
 
@@ -161,14 +180,10 @@ export default function App({ apiBase, token }: ModuleComponentProps) {
       api.get<Trip[]>("/trips"),
       api.get<Category[]>("/categories"),
     ]);
-    setSpots(s);
-    setTrips(tr);
-    setCategories(cat);
+    setSpots(s); setTrips(tr); setCategories(cat);
   }, [api]);
 
-  useEffect(() => {
-    loadAll();
-  }, [loadAll]);
+  useEffect(() => { loadAll(); }, [loadAll]);
 
   const vt = view.type;
 
@@ -177,32 +192,29 @@ export default function App({ apiBase, token }: ModuleComponentProps) {
       {/* Nav */}
       <div className="flex items-center gap-1 overflow-x-auto border-b border-gray-200 px-3 py-1 dark:border-gray-800 flex-shrink-0">
         <i className="ti ti-map-pin text-teal-600 text-base mr-1 flex-shrink-0" />
-        <button type="button" onClick={() => setView({ type: "map" })} className={navCls(vt === "map")} title={t("nav_map")}>
+        <button type="button" onClick={() => setView({ type: "map" })} className={navCls(vt === "map")}>
           <i className="ti ti-map text-[15px]" />
           <span className="hidden sm:inline">{t("nav_map")}</span>
         </button>
-        <button type="button" onClick={() => setView({ type: "spots" })} className={navCls(vt === "spots")} title={t("nav_spots")}>
+        <button type="button" onClick={() => setView({ type: "spots" })} className={navCls(vt === "spots")}>
           <i className="ti ti-list text-[15px]" />
           <span className="hidden sm:inline">{t("nav_spots")}</span>
         </button>
-        <button type="button" onClick={() => setView({ type: "trips" })} className={navCls(vt === "trips")} title={t("nav_trips")}>
+        <button type="button" onClick={() => setView({ type: "trips" })} className={navCls(vt === "trips")}>
           <i className="ti ti-route text-[15px]" />
           <span className="hidden sm:inline">{t("nav_trips")}</span>
         </button>
-        <button type="button" onClick={() => setView({ type: "categories" })} className={navCls(vt === "categories")} title={t("nav_categories")}>
+        <button type="button" onClick={() => setView({ type: "categories" })} className={navCls(vt === "categories")}>
           <i className="ti ti-tag text-[15px]" />
           <span className="hidden sm:inline">{t("nav_categories")}</span>
         </button>
-        <button type="button" onClick={() => setView({ type: "settings" })} className={navCls(vt === "settings")} title={t("nav_settings")}>
+        <button type="button" onClick={() => setView({ type: "settings" })} className={navCls(vt === "settings")}>
           <i className="ti ti-settings text-[15px]" />
           <span className="hidden sm:inline">{t("nav_settings")}</span>
         </button>
         <div className="flex-1 min-w-[4px]" />
-        <button
-          type="button"
-          onClick={() => setView({ type: "spot-new" })}
-          className="flex flex-none items-center gap-1.5 rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700"
-        >
+        <button type="button" onClick={() => setView({ type: "spot-new" })}
+          className="flex flex-none items-center gap-1.5 rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700">
           <i className="ti ti-plus text-[14px]" />
           <span className="hidden sm:inline">{t("btn_new_spot")}</span>
         </button>
@@ -211,67 +223,33 @@ export default function App({ apiBase, token }: ModuleComponentProps) {
       {/* Content */}
       <div className="flex-1 overflow-hidden">
         {vt === "map" && (
-          <MapView
-            spots={spots}
-            mapStyleUrl={mapStyleUrl}
-            mapConfigured={mapConfigured}
-            trips={trips}
-            categories={categories}
-            onSpotClick={(id) => setView({ type: "spot-detail", id })}
-            t={t}
-          />
+          <MapView spots={spots} mapStyleUrl={mapStyleUrl} mapConfigured={mapConfigured}
+            trips={trips} categories={categories}
+            onSpotClick={(id) => setView({ type: "spot-detail", id })} t={t} />
         )}
         {vt === "spots" && (
-          <SpotsListView
-            spots={spots}
-            trips={trips}
-            categories={categories}
+          <SpotsListView spots={spots} trips={trips} categories={categories}
             onSpotClick={(id) => setView({ type: "spot-detail", id })}
-            onNewSpot={() => setView({ type: "spot-new" })}
-            t={t}
-          />
+            onNewSpot={() => setView({ type: "spot-new" })} t={t} />
         )}
         {(vt === "spot-new" || vt === "spot-edit") && (
-          <SpotEditor
-            api={api}
+          <SpotEditor api={api}
             id={vt === "spot-edit" ? view.id : undefined}
-            initialCoords={undefined}
-            trips={trips}
-            categories={categories}
-            onDone={(id) => {
-              loadAll();
-              setView({ type: "spot-detail", id });
-            }}
-            onCancel={() => setView({ type: "map" })}
-            t={t}
-          />
+            trips={trips} categories={categories}
+            onDone={(id) => { loadAll(); setView({ type: "spot-detail", id }); }}
+            onCancel={() => setView({ type: "map" })} t={t} />
         )}
         {vt === "spot-detail" && (
-          <SpotDetail
-            api={api}
-            id={view.id}
-            onBack={() => setView({ type: "map" })}
+          <SpotDetail api={api} id={view.id}
+            onBack={() => setView({ type: "spots" })}
             onEdit={(id) => setView({ type: "spot-edit", id })}
-            onDeleted={() => {
-              loadAll();
-              setView({ type: "map" });
-            }}
-            t={t}
-          />
+            onDeleted={() => { loadAll(); setView({ type: "spots" }); }} t={t} />
         )}
         {vt === "trips" && <TripsView trips={trips} api={api} onReload={loadAll} t={t} />}
-        {vt === "categories" && (
-          <CategoriesView categories={categories} api={api} onReload={loadAll} t={t} />
-        )}
+        {vt === "categories" && <CategoriesView categories={categories} api={api} onReload={loadAll} t={t} />}
         {vt === "settings" && (
-          <SettingsView
-            api={api}
-            onSaved={(styleUrl) => {
-              setMapStyleUrl(styleUrl);
-              setMapConfigured(!!styleUrl);
-            }}
-            t={t}
-          />
+          <SettingsView api={api}
+            onSaved={(styleUrl) => { setMapStyleUrl(styleUrl); setMapConfigured(!!styleUrl); }} t={t} />
         )}
       </div>
     </div>
@@ -279,7 +257,6 @@ export default function App({ apiBase, token }: ModuleComponentProps) {
 }
 
 // ── MapView ────────────────────────────────────────────────────────────────────
-// Uses MapLibre GeoJSON source + circle layer — no DOM markers, no timing issues.
 
 const SOURCE_ID = "spots";
 const LAYER_ID = "spots-circles";
@@ -304,15 +281,7 @@ function spotsToGeoJSON(spots: Spot[]): GeoJSON.FeatureCollection {
   };
 }
 
-function MapView({
-  spots,
-  mapStyleUrl,
-  mapConfigured,
-  trips,
-  categories,
-  onSpotClick,
-  t,
-}: {
+function MapView({ spots, mapStyleUrl, mapConfigured, trips, categories, onSpotClick, t }: {
   spots: Spot[];
   mapStyleUrl: string | null;
   mapConfigured: boolean | null;
@@ -327,20 +296,15 @@ function MapView({
   const [filterTrip, setFilterTrip] = useState("");
   const [filterCategory, setFilterCategory] = useState("");
 
-  const filtered = useMemo(
-    () =>
-      spots.filter((s) => {
-        if (filterTrip && s.trip_id !== filterTrip) return false;
-        if (filterCategory && s.category_id !== filterCategory) return false;
-        return true;
-      }),
-    [spots, filterTrip, filterCategory],
-  );
+  const filtered = useMemo(() => spots.filter((s) => {
+    if (filterTrip && s.trip_id !== filterTrip) return false;
+    if (filterCategory && s.category_id !== filterCategory) return false;
+    return true;
+  }), [spots, filterTrip, filterCategory]);
 
   const onSpotClickRef = useRef(onSpotClick);
   onSpotClickRef.current = onSpotClick;
 
-  // Init map once
   useEffect(() => {
     if (!mapContainerRef.current || !mapStyleUrl) return;
     if (mapRef.current) return;
@@ -352,80 +316,36 @@ function MapView({
       zoom: 4,
     });
     map.addControl(new maplibregl.NavigationControl(), "bottom-right");
-    popupRef.current = new maplibregl.Popup({
-      closeButton: false,
-      closeOnClick: false,
-      maxWidth: "240px",
-    });
+    popupRef.current = new maplibregl.Popup({ closeButton: false, closeOnClick: false, maxWidth: "240px" });
 
     map.on("load", () => {
-      // Add source with empty data first — will be updated via setData
-      map.addSource(SOURCE_ID, {
-        type: "geojson",
-        data: { type: "FeatureCollection", features: [] },
-      });
-
-      // Circle layer
+      map.addSource(SOURCE_ID, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
       map.addLayer({
-        id: LAYER_ID,
-        type: "circle",
-        source: SOURCE_ID,
-        paint: {
-          "circle-radius": 10,
-          "circle-color": ["get", "color"],
-          "circle-stroke-width": 2,
-          "circle-stroke-color": "#ffffff",
-        },
+        id: LAYER_ID, type: "circle", source: SOURCE_ID,
+        paint: { "circle-radius": 10, "circle-color": ["get", "color"], "circle-stroke-width": 2, "circle-stroke-color": "#ffffff" },
       });
-
-      // Label layer
       map.addLayer({
-        id: LAYER_LABEL_ID,
-        type: "symbol",
-        source: SOURCE_ID,
-        layout: {
-          "text-field": ["get", "name"],
-          "text-font": ["Open Sans Regular", "Arial Unicode MS Regular"],
-          "text-size": 12,
-          "text-offset": [0, 1.4],
-          "text-anchor": "top",
-        },
-        paint: {
-          "text-color": "#111827",
-          "text-halo-color": "#ffffff",
-          "text-halo-width": 1.5,
-        },
+        id: LAYER_LABEL_ID, type: "symbol", source: SOURCE_ID,
+        layout: { "text-field": ["get", "name"], "text-font": ["Open Sans Regular", "Arial Unicode MS Regular"], "text-size": 12, "text-offset": [0, 1.4], "text-anchor": "top" },
+        paint: { "text-color": "#111827", "text-halo-color": "#ffffff", "text-halo-width": 1.5 },
       });
-
-      // Hover popup
       map.on("mouseenter", LAYER_ID, (e) => {
         map.getCanvas().style.cursor = "pointer";
         const f = e.features?.[0];
         if (!f || f.geometry.type !== "Point") return;
         const { name, note, rating, category_name, color } = f.properties as Record<string, unknown>;
         const stars = typeof rating === "number" && rating > 0
-          ? `<div style="color:#f59e0b;margin-top:3px">${"★".repeat(rating as number)}${"☆".repeat(5 - (rating as number))}</div>`
-          : "";
+          ? `<div style="color:#f59e0b;margin-top:3px">${"★".repeat(rating as number)}${"☆".repeat(5 - (rating as number))}</div>` : "";
         const cat = category_name
-          ? `<span style="font-size:11px;background:${color}22;color:${color};padding:1px 6px;border-radius:4px">${category_name}</span>`
-          : "";
+          ? `<span style="font-size:11px;background:${color}22;color:${color};padding:1px 6px;border-radius:4px">${category_name}</span>` : "";
         const noteHtml = note
-          ? `<div style="font-size:12px;color:#555;margin-top:4px">${(note as string).slice(0, 80)}${(note as string).length > 80 ? "…" : ""}</div>`
-          : "";
+          ? `<div style="font-size:12px;color:#555;margin-top:4px">${(note as string).slice(0, 80)}${(note as string).length > 80 ? "…" : ""}</div>` : "";
         popupRef.current!
           .setLngLat(f.geometry.coordinates as [number, number])
-          .setHTML(
-            `<div style="font-family:sans-serif;padding:4px"><div style="font-weight:600;font-size:13px;margin-bottom:4px">${name}</div>${cat}${stars}${noteHtml}</div>`,
-          )
+          .setHTML(`<div style="font-family:sans-serif;padding:4px"><div style="font-weight:600;font-size:13px;margin-bottom:4px">${name}</div>${cat}${stars}${noteHtml}</div>`)
           .addTo(map);
       });
-
-      map.on("mouseleave", LAYER_ID, () => {
-        map.getCanvas().style.cursor = "";
-        popupRef.current!.remove();
-      });
-
-      // Click to open spot detail
+      map.on("mouseleave", LAYER_ID, () => { map.getCanvas().style.cursor = ""; popupRef.current!.remove(); });
       map.on("click", LAYER_ID, (e) => {
         const id = e.features?.[0]?.properties?.id as string | undefined;
         if (id) onSpotClickRef.current(id);
@@ -433,26 +353,17 @@ function MapView({
     });
 
     mapRef.current = map;
-    return () => {
-      map.remove();
-      mapRef.current = null;
-    };
+    return () => { map.remove(); mapRef.current = null; };
   }, [mapStyleUrl]);
 
-  // Update GeoJSON data whenever filtered spots change
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-
     const geoJSON = spotsToGeoJSON(filtered);
-
     if (map.isStyleLoaded()) {
       (map.getSource(SOURCE_ID) as maplibregl.GeoJSONSource | undefined)?.setData(geoJSON);
     } else {
-      // Style not yet loaded — wait for the load event then set data
-      const onLoad = () => {
-        (map.getSource(SOURCE_ID) as maplibregl.GeoJSONSource | undefined)?.setData(geoJSON);
-      };
+      const onLoad = () => { (map.getSource(SOURCE_ID) as maplibregl.GeoJSONSource | undefined)?.setData(geoJSON); };
       map.once("load", onLoad);
       return () => { map.off("load", onLoad); };
     }
@@ -460,53 +371,29 @@ function MapView({
 
   return (
     <div className="flex h-full">
-      {/* Sidebar */}
-      <div className="w-44 flex-shrink-0 border-r border-gray-200 bg-gray-50 p-3 flex flex-col gap-3 overflow-y-auto dark:border-gray-800 dark:bg-gray-900">
+      <div className="w-40 flex-shrink-0 border-r border-gray-200 bg-gray-50 p-3 flex flex-col gap-3 overflow-y-auto dark:border-gray-800 dark:bg-gray-900">
         <div>
-          <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-gray-400">
-            {t("nav_trips")}
-          </label>
-          <select
-            value={filterTrip}
-            onChange={(e) => { setFilterTrip(e.target.value); setFilterCategory(""); }}
-            className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
-            style={{ fontSize: "14px" }}
-          >
+          <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-gray-400">{t("nav_trips")}</label>
+          <select value={filterTrip} onChange={(e) => { setFilterTrip(e.target.value); setFilterCategory(""); }}
+            className="w-full rounded-lg border border-gray-300 px-2 py-2 text-sm dark:border-gray-700 dark:bg-gray-800" style={{ fontSize: "16px" }}>
             <option value="">{t("all_trips")}</option>
-            {trips.map((tr) => (
-              <option key={tr.id} value={tr.id}>{tr.name}</option>
-            ))}
+            {trips.map((tr) => <option key={tr.id} value={tr.id}>{tr.name}</option>)}
           </select>
         </div>
         <div>
-          <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-gray-400">
-            {t("nav_categories")}
-          </label>
-          <select
-            value={filterCategory}
-            onChange={(e) => { setFilterCategory(e.target.value); setFilterTrip(""); }}
-            className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
-            style={{ fontSize: "14px" }}
-          >
+          <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-gray-400">{t("nav_categories")}</label>
+          <select value={filterCategory} onChange={(e) => { setFilterCategory(e.target.value); setFilterTrip(""); }}
+            className="w-full rounded-lg border border-gray-300 px-2 py-2 text-sm dark:border-gray-700 dark:bg-gray-800" style={{ fontSize: "16px" }}>
             <option value="">{t("all_categories")}</option>
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
+            {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </div>
-        <div className="mt-auto text-xs text-gray-400">
-          {filtered.length} spot{filtered.length !== 1 ? "s" : ""}
-        </div>
+        <div className="mt-auto text-xs text-gray-400">{filtered.length} spot{filtered.length !== 1 ? "s" : ""}</div>
       </div>
-
-      {/* Map */}
       <div className="flex-1 relative">
         {mapConfigured === false ? (
           <div className="flex h-full items-center justify-center text-center text-sm text-gray-500 px-8">
-            <div>
-              <i className="ti ti-key block text-4xl mb-3 text-gray-300" />
-              {t("error_no_key")}
-            </div>
+            <div><i className="ti ti-key block text-4xl mb-3 text-gray-300" />{t("error_no_key")}</div>
           </div>
         ) : (
           <div ref={mapContainerRef} className="w-full h-full" />
@@ -518,14 +405,7 @@ function MapView({
 
 // ── SpotsListView ──────────────────────────────────────────────────────────────
 
-function SpotsListView({
-  spots,
-  trips,
-  categories,
-  onSpotClick,
-  onNewSpot,
-  t,
-}: {
+function SpotsListView({ spots, trips, categories, onSpotClick, onNewSpot, t }: {
   spots: Spot[];
   trips: Trip[];
   categories: Category[];
@@ -544,12 +424,9 @@ function SpotsListView({
     if (filterCategory) list = list.filter((s) => s.category_id === filterCategory);
     if (search.trim()) {
       const q = search.trim().toLowerCase();
-      list = list.filter(
-        (s) =>
-          s.name.toLowerCase().includes(q) ||
-          (s.note ?? "").toLowerCase().includes(q) ||
-          (s.trip_name ?? "").toLowerCase().includes(q) ||
-          (s.category_name ?? "").toLowerCase().includes(q),
+      list = list.filter((s) =>
+        s.name.toLowerCase().includes(q) || (s.note ?? "").toLowerCase().includes(q) ||
+        (s.trip_name ?? "").toLowerCase().includes(q) || (s.category_name ?? "").toLowerCase().includes(q),
       );
     }
     return [...list].sort((a, b) => {
@@ -561,138 +438,69 @@ function SpotsListView({
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Toolbar */}
       <div className="flex flex-wrap gap-2 border-b border-gray-200 dark:border-gray-800 px-4 py-2.5 bg-gray-50 dark:bg-gray-900 flex-shrink-0">
-        <input
-          type="search"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
+        <input type="search" value={search} onChange={(e) => setSearch(e.target.value)}
           placeholder={t("spots_search_placeholder")}
-          className="flex-1 min-w-[140px] rounded-lg border border-gray-300 px-3 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-teal-500"
-          style={{ fontSize: "16px" }}
-        />
-        <select
-          value={filterTrip}
-          onChange={(e) => setFilterTrip(e.target.value)}
-          className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800"
-          style={{ fontSize: "14px" }}
-        >
+          className="flex-1 min-w-[140px] rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-teal-500"
+          style={{ fontSize: "16px" }} />
+        <select value={filterTrip} onChange={(e) => setFilterTrip(e.target.value)}
+          className="rounded-lg border border-gray-300 px-2 py-2 text-sm dark:border-gray-700 dark:bg-gray-800" style={{ fontSize: "16px" }}>
           <option value="">{t("all_trips")}</option>
-          {trips.map((tr) => (
-            <option key={tr.id} value={tr.id}>
-              {tr.name}
-            </option>
-          ))}
+          {trips.map((tr) => <option key={tr.id} value={tr.id}>{tr.name}</option>)}
         </select>
-        <select
-          value={filterCategory}
-          onChange={(e) => setFilterCategory(e.target.value)}
-          className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800"
-          style={{ fontSize: "14px" }}
-        >
+        <select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)}
+          className="rounded-lg border border-gray-300 px-2 py-2 text-sm dark:border-gray-700 dark:bg-gray-800" style={{ fontSize: "16px" }}>
           <option value="">{t("all_categories")}</option>
-          {categories.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
+          {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
-        <select
-          value={sortBy}
-          onChange={(e) => setSortBy(e.target.value as "date" | "name" | "rating")}
-          className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800"
-          style={{ fontSize: "14px" }}
-        >
+        <select value={sortBy} onChange={(e) => setSortBy(e.target.value as "date" | "name" | "rating")}
+          className="rounded-lg border border-gray-300 px-2 py-2 text-sm dark:border-gray-700 dark:bg-gray-800" style={{ fontSize: "16px" }}>
           <option value="date">{t("sort_date")}</option>
           <option value="name">{t("sort_name")}</option>
           <option value="rating">{t("sort_rating")}</option>
         </select>
       </div>
-
-      {/* List */}
       <div className="flex-1 overflow-y-auto px-4 py-3">
         {filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center">
             <i className="ti ti-map-pin-off text-[40px] text-gray-300 dark:text-gray-700 mb-3" />
-            <p className="text-sm text-gray-400">
-              {spots.length === 0 ? t("no_spots") : t("no_spots_filter")}
-            </p>
+            <p className="text-sm text-gray-400">{spots.length === 0 ? t("no_spots") : t("no_spots_filter")}</p>
             {spots.length === 0 && (
-              <button
-                type="button"
-                onClick={onNewSpot}
-                className="mt-4 flex items-center gap-1.5 rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700"
-              >
+              <button type="button" onClick={onNewSpot} className={`mt-4 ${btnPrimary}`}>
                 <i className="ti ti-plus text-[13px]" /> {t("btn_new_spot")}
               </button>
             )}
           </div>
         ) : (
           <>
-            <p className="mb-3 text-xs text-gray-400">
-              {filtered.length} {filtered.length === 1 ? "Spot" : "Spots"}
-            </p>
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            <p className="mb-3 text-xs text-gray-400">{filtered.length} {filtered.length === 1 ? "Spot" : "Spots"}</p>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {filtered.map((spot) => {
                 const color = spot.category_color ?? "#0d9488";
                 return (
-                  <button
-                    key={spot.id}
-                    type="button"
-                    onClick={() => onSpotClick(spot.id)}
-                    className="text-left rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 hover:border-teal-400 dark:hover:border-teal-600 hover:shadow-sm transition-all"
-                  >
+                  <button key={spot.id} type="button" onClick={() => onSpotClick(spot.id)}
+                    className="text-left rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 hover:border-teal-400 dark:hover:border-teal-600 hover:shadow-sm transition-all">
                     <div className="flex items-start gap-3">
-                      {/* Category dot */}
-                      <span
-                        className="mt-0.5 flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center"
-                        style={{ background: color + "22" }}
-                      >
-                        <i
-                          className={`ti ${spot.category_icon ?? "ti-map-pin"} text-sm`}
-                          style={{ color }}
-                        />
+                      <span className="mt-0.5 flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center" style={{ background: color + "22" }}>
+                        <i className={`ti ${spot.category_icon ?? "ti-map-pin"} text-base`} style={{ color }} />
                       </span>
                       <div className="flex-1 min-w-0">
-                        <div className="font-medium text-sm text-gray-900 dark:text-gray-100 truncate">
-                          {spot.name}
-                        </div>
-                        {/* Meta row */}
-                        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-gray-400">
-                          {spot.trip_name && (
-                            <span className="flex items-center gap-0.5">
-                              <i className="ti ti-route text-[10px]" />
-                              {spot.trip_name}
-                            </span>
-                          )}
+                        <div className="font-semibold text-sm text-gray-900 dark:text-gray-100 truncate">{spot.name}</div>
+                        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                          {spot.trip_name && <span className="text-xs text-gray-400"><i className="ti ti-route text-[10px] mr-0.5" />{spot.trip_name}</span>}
                           {spot.category_name && (
-                            <span
-                              className="rounded-full px-1.5 py-0.5 text-[10px] font-medium"
-                              style={{ background: color + "22", color }}
-                            >
+                            <span className="rounded-full px-1.5 py-0.5 text-[10px] font-medium" style={{ background: color + "22", color }}>
                               {spot.category_name}
                             </span>
                           )}
                         </div>
-                        {/* Rating */}
                         {spot.rating != null && (
-                          <div className="mt-1 text-amber-400 text-xs leading-none">
-                            {"★".repeat(spot.rating)}
-                            <span className="text-gray-200 dark:text-gray-700">
-                              {"★".repeat(5 - spot.rating)}
-                            </span>
+                          <div className="mt-1 text-amber-400 text-xs">
+                            {"★".repeat(spot.rating)}<span className="text-gray-200 dark:text-gray-700">{"★".repeat(5 - spot.rating)}</span>
                           </div>
                         )}
-                        {/* Note preview */}
-                        {spot.note && (
-                          <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400 line-clamp-2 leading-relaxed">
-                            {spot.note}
-                          </p>
-                        )}
-                        {/* Date */}
-                        <div className="mt-2 text-[10px] text-gray-300 dark:text-gray-600">
-                          {new Date(spot.created_at).toLocaleDateString()}
-                        </div>
+                        {spot.note && <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400 line-clamp-2 leading-relaxed">{spot.note}</p>}
+                        <div className="mt-2 text-[10px] text-gray-300 dark:text-gray-600">{new Date(spot.created_at).toLocaleDateString()}</div>
                       </div>
                     </div>
                   </button>
@@ -708,14 +516,7 @@ function SpotsListView({
 
 // ── SpotDetail ─────────────────────────────────────────────────────────────────
 
-function SpotDetail({
-  api,
-  id,
-  onBack,
-  onEdit,
-  onDeleted,
-  t,
-}: {
+function SpotDetail({ api, id, onBack, onEdit, onDeleted, t }: {
   api: ReturnType<typeof useApi>;
   id: string;
   onBack: () => void;
@@ -725,12 +526,16 @@ function SpotDetail({
 }) {
   const [spot, setSpot] = useState<Spot | null>(null);
   const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [uploadErr, setUploadErr] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const reload = useCallback(() => {
+    api.get<Spot>(`/spots/${id}`).then(setSpot).catch(() => null);
+  }, [api, id]);
 
   useEffect(() => {
-    api
-      .get<Spot>(`/spots/${id}`)
-      .then(setSpot)
-      .finally(() => setLoading(false));
+    api.get<Spot>(`/spots/${id}`).then(setSpot).finally(() => setLoading(false));
   }, [api, id]);
 
   async function handleDelete() {
@@ -739,77 +544,111 @@ function SpotDetail({
     onDeleted();
   }
 
+  async function handlePhotoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    setUploadErr(null);
+    try {
+      // Step 1: Core saves the file, returns { file_path: "uploads/..." }
+      const fd = new FormData();
+      fd.append("file", file);
+      const { file_path } = await api.upload(`/spots/${id}/photos`, fd);
+      // Step 2: register the path in the DB via the Deno handler
+      await api.mutate("POST", `/spots/${id}/photos`, { file_path });
+      reload();
+    } catch (err) {
+      setUploadErr(String(err));
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  async function handleDeletePhoto(photoId: string) {
+    await api.mutate("DELETE", `/spots/${id}/photos/${photoId}`);
+    reload();
+  }
+
   if (loading) return <div className="p-6 text-sm text-gray-400">{t("loading")}</div>;
   if (!spot) return <div className="p-6 text-sm text-red-500">{t("error_load")}</div>;
 
   return (
     <div className="mx-auto max-w-xl overflow-y-auto h-full px-4 py-6">
-      <button
-        type="button"
-        onClick={onBack}
-        className="mb-4 flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
-      >
+      <button type="button" onClick={onBack}
+        className="mb-5 flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200">
         <i className="ti ti-arrow-left text-[14px]" /> {t("back")}
       </button>
 
-      <div className="mb-4 flex items-start justify-between gap-3">
+      <div className="mb-5 flex items-start justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold">{spot.name}</h1>
+          <h1 className="text-2xl font-bold">{spot.name}</h1>
           {spot.category_name && (
-            <span
-              className="mt-1 inline-block rounded-full px-2 py-0.5 text-xs"
-              style={{
-                background: (spot.category_color ?? "#888") + "22",
-                color: spot.category_color ?? "#888",
-              }}
-            >
+            <span className="mt-1 inline-block rounded-full px-2.5 py-0.5 text-sm font-medium"
+              style={{ background: (spot.category_color ?? "#888") + "22", color: spot.category_color ?? "#888" }}>
               {spot.category_name}
             </span>
           )}
         </div>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => onEdit(id)}
-            className="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
-          >
-            <i className="ti ti-pencil text-[14px]" /> {t("btn_edit")}
+        <div className="flex gap-2 flex-shrink-0">
+          <button type="button" onClick={() => onEdit(id)} className={btnSecondary}>
+            <i className="ti ti-pencil text-[14px]" />
+            <span className="hidden sm:inline">{t("btn_edit")}</span>
           </button>
-          <button
-            type="button"
-            onClick={handleDelete}
-            className="flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400"
-          >
+          <button type="button" onClick={handleDelete} className={btnDanger}>
             <i className="ti ti-trash text-[14px]" />
           </button>
         </div>
       </div>
 
-      {spot.rating && (
-        <div className="mb-4">
-          <Stars value={spot.rating} />
+      {spot.rating != null && <div className="mb-4"><Stars value={spot.rating} /></div>}
+
+      {spot.note && <p className="mb-5 text-base text-gray-700 dark:text-gray-300 leading-relaxed">{spot.note}</p>}
+
+      <div className="flex flex-wrap gap-4 text-sm text-gray-500 dark:text-gray-400 mb-6 pb-5 border-b border-gray-100 dark:border-gray-800">
+        {spot.trip_name && <span className="flex items-center gap-1.5"><i className="ti ti-route" />{spot.trip_name}</span>}
+        <span className="flex items-center gap-1.5"><i className="ti ti-map-pin" />{spot.lat.toFixed(5)}, {spot.lng.toFixed(5)}</span>
+        <span className="flex items-center gap-1.5"><i className="ti ti-calendar" />{new Date(spot.created_at).toLocaleDateString()}</span>
+      </div>
+
+      {/* Photos */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300">{t("spot_photos")}</h2>
+          <button type="button" onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+            className={`${btnSecondary} text-xs px-3 py-1.5`}>
+            {uploading
+              ? <><i className="ti ti-loader-2 animate-spin text-[13px]" /> {t("uploading")}</>
+              : <><i className="ti ti-camera text-[13px]" /> {t("btn_add_photo")}</>}
+          </button>
+          <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} />
         </div>
-      )}
-
-      {spot.note && (
-        <p className="mb-4 text-sm text-gray-600 dark:text-gray-300 leading-relaxed">{spot.note}</p>
-      )}
-
-      <div className="flex flex-wrap gap-3 text-sm text-gray-500 dark:text-gray-400 mb-4">
-        {spot.trip_name && (
-          <span>
-            <i className="ti ti-route mr-1" />
-            {spot.trip_name}
-          </span>
+        {uploadErr && <p className="mb-2 text-xs text-red-500">{uploadErr}</p>}
+        {(spot.photos ?? []).length === 0 ? (
+          <button type="button" onClick={() => fileInputRef.current?.click()}
+            className="w-full rounded-xl border-2 border-dashed border-gray-200 dark:border-gray-700 py-8 text-center text-sm text-gray-400 hover:border-teal-400 hover:text-teal-500 transition-colors">
+            <i className="ti ti-photo block text-2xl mb-1" />
+            {t("btn_add_photo")}
+          </button>
+        ) : (
+          <div className="grid grid-cols-3 gap-2">
+            {(spot.photos ?? []).map((p) => (
+              <div key={p.id} className="relative group aspect-square rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800">
+                <img src={api.storageUrl(p.file_path)} alt="" className="w-full h-full object-cover" loading="lazy" />
+                <button type="button"
+                  onClick={() => handleDeletePhoto(p.id)}
+                  className="absolute top-1 right-1 w-7 h-7 rounded-full bg-black/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                  <i className="ti ti-x text-[12px]" />
+                </button>
+              </div>
+            ))}
+            <button type="button" onClick={() => fileInputRef.current?.click()}
+              className="aspect-square rounded-lg border-2 border-dashed border-gray-200 dark:border-gray-700 flex items-center justify-center text-gray-400 hover:border-teal-400 hover:text-teal-500 transition-colors">
+              <i className="ti ti-plus text-xl" />
+            </button>
+          </div>
         )}
-        <span>
-          <i className="ti ti-map-pin mr-1" />
-          {spot.lat.toFixed(5)}, {spot.lng.toFixed(5)}
-        </span>
-        <span>
-          <i className="ti ti-calendar mr-1" />
-          {new Date(spot.created_at).toLocaleDateString()}
-        </span>
       </div>
     </div>
   );
@@ -817,19 +656,9 @@ function SpotDetail({
 
 // ── SpotEditor ─────────────────────────────────────────────────────────────────
 
-function SpotEditor({
-  api,
-  id,
-  initialCoords,
-  trips,
-  categories,
-  onDone,
-  onCancel,
-  t,
-}: {
+function SpotEditor({ api, id, trips, categories, onDone, onCancel, t }: {
   api: ReturnType<typeof useApi>;
   id?: string;
-  initialCoords?: { lat?: number; lng?: number };
   trips: Trip[];
   categories: Category[];
   onDone: (id: string) => void;
@@ -839,8 +668,8 @@ function SpotEditor({
   const isEdit = !!id;
   const [name, setName] = useState("");
   const [note, setNote] = useState("");
-  const [lat, setLat] = useState(initialCoords?.lat?.toFixed(6) ?? "");
-  const [lng, setLng] = useState(initialCoords?.lng?.toFixed(6) ?? "");
+  const [lat, setLat] = useState("");
+  const [lng, setLng] = useState("");
   const [rating, setRating] = useState<number | null>(null);
   const [tripId, setTripId] = useState("");
   const [categoryId, setCategoryId] = useState("");
@@ -850,209 +679,91 @@ function SpotEditor({
 
   useEffect(() => {
     if (!id) return;
-    api
-      .get<Spot>(`/spots/${id}`)
-      .then((s) => {
-        setName(s.name);
-        setNote(s.note ?? "");
-        setLat(s.lat.toFixed(6));
-        setLng(s.lng.toFixed(6));
-        setRating(s.rating);
-        setTripId(s.trip_id ?? "");
-        setCategoryId(s.category_id ?? "");
-      })
-      .catch(() => setError(t("error_load")));
+    api.get<Spot>(`/spots/${id}`).then((s) => {
+      setName(s.name); setNote(s.note ?? ""); setLat(s.lat.toFixed(6)); setLng(s.lng.toFixed(6));
+      setRating(s.rating); setTripId(s.trip_id ?? ""); setCategoryId(s.category_id ?? "");
+    }).catch(() => setError(t("error_load")));
   }, [api, id]);
 
   const handleGps = () => {
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setLat(pos.coords.latitude.toFixed(6));
-        setLng(pos.coords.longitude.toFixed(6));
-      },
+      (pos) => { setLat(pos.coords.latitude.toFixed(6)); setLng(pos.coords.longitude.toFixed(6)); },
       () => setError(t("error_location")),
     );
   };
 
   const handleSave = async () => {
-    if (!name.trim()) {
-      setNameErr(true);
-      return;
-    }
-    setSaving(true);
-    setError(null);
+    if (!name.trim()) { setNameErr(true); return; }
+    setSaving(true); setError(null);
     try {
-      const body = {
-        name: name.trim(),
-        note: note.trim() || null,
-        lat: parseFloat(lat),
-        lng: parseFloat(lng),
-        rating,
-        trip_id: tripId || null,
-        category_id: categoryId || null,
-      };
-      let resultId: string;
-      if (isEdit) {
-        await api.mutate("PATCH", `/spots/${id}`, body);
-        resultId = id!;
-      } else {
-        const created = await api.mutate<{ id: string }>("POST", "/spots", body);
-        resultId = created.id;
-      }
-      onDone(resultId);
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setSaving(false);
-    }
+      const body = { name: name.trim(), note: note.trim() || null, lat: parseFloat(lat), lng: parseFloat(lng), rating, trip_id: tripId || null, category_id: categoryId || null };
+      if (isEdit) { await api.mutate("PATCH", `/spots/${id}`, body); onDone(id!); }
+      else { const c = await api.mutate<{ id: string }>("POST", "/spots", body); onDone(c.id); }
+    } catch (e) { setError(String(e)); }
+    finally { setSaving(false); }
   };
 
   return (
     <div className="mx-auto max-w-xl overflow-y-auto h-full px-4 py-6">
-      <button
-        type="button"
-        onClick={onCancel}
-        className="mb-4 flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 dark:text-gray-400"
-      >
+      <button type="button" onClick={onCancel}
+        className="mb-5 flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 dark:text-gray-400">
         <i className="ti ti-arrow-left text-[14px]" /> {t("btn_cancel")}
       </button>
+      <h1 className="mb-6 text-2xl font-bold">{isEdit ? t("btn_edit") : t("btn_new_spot")}</h1>
 
-      <h1 className="mb-5 text-xl font-semibold">{isEdit ? t("btn_edit") : t("btn_new_spot")}</h1>
+      {error && <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">{error}</div>}
 
-      {error && (
-        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
-          {error}
-        </div>
-      )}
-
-      <div className="space-y-4">
+      <div className="space-y-5">
         <div>
           <label className={labelCls}>{t("spot_name")} *</label>
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => {
-              setName(e.target.value);
-              setNameErr(false);
-            }}
-            placeholder={t("spot_name_placeholder")}
-            className={`${inputCls} ${nameErr ? "border-red-400 ring-red-300" : ""}`}
-            style={{ fontSize: "16px" }}
-            autoFocus
-          />
-          {nameErr && <p className="mt-1 text-xs text-red-500">{t("spot_name_required")}</p>}
+          <input type="text" value={name} onChange={(e) => { setName(e.target.value); setNameErr(false); }}
+            placeholder={t("spot_name_placeholder")} className={`${inputCls} ${nameErr ? "border-red-400" : ""}`}
+            style={{ fontSize: "16px" }} autoFocus />
+          {nameErr && <p className="mt-1 text-sm text-red-500">{t("spot_name_required")}</p>}
         </div>
-
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className={labelCls}>{t("spot_trip")}</label>
-            <select
-              value={tripId}
-              onChange={(e) => setTripId(e.target.value)}
-              className={inputCls}
-              style={{ fontSize: "16px" }}
-            >
+            <select value={tripId} onChange={(e) => setTripId(e.target.value)} className={inputCls} style={{ fontSize: "16px" }}>
               <option value="">—</option>
-              {trips.map((tr) => (
-                <option key={tr.id} value={tr.id}>
-                  {tr.name}
-                </option>
-              ))}
+              {trips.map((tr) => <option key={tr.id} value={tr.id}>{tr.name}</option>)}
             </select>
           </div>
           <div>
             <label className={labelCls}>{t("spot_category")}</label>
-            <select
-              value={categoryId}
-              onChange={(e) => setCategoryId(e.target.value)}
-              className={inputCls}
-              style={{ fontSize: "16px" }}
-            >
+            <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className={inputCls} style={{ fontSize: "16px" }}>
               <option value="">—</option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
+              {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
         </div>
-
         <div>
           <label className={labelCls}>{t("spot_rating")}</label>
-          <Stars value={rating} onChange={setRating} />
-          {rating && (
-            <button
-              type="button"
-              onClick={() => setRating(null)}
-              className="ml-3 text-xs text-gray-400 hover:text-gray-600"
-            >
-              ×
-            </button>
-          )}
+          <div className="flex items-center gap-3">
+            <Stars value={rating} onChange={setRating} />
+            {rating && <button type="button" onClick={() => setRating(null)} className="text-sm text-gray-400 hover:text-gray-600">×</button>}
+          </div>
         </div>
-
         <div>
           <label className={labelCls}>{t("spot_note")}</label>
-          <textarea
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder={t("spot_note_placeholder")}
-            className={inputCls}
-            rows={4}
-            style={{ fontSize: "16px" }}
-          />
+          <textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder={t("spot_note_placeholder")}
+            className={inputCls} rows={4} style={{ fontSize: "16px" }} />
         </div>
-
         <div>
           <label className={labelCls}>{t("spot_location")}</label>
           <div className="grid grid-cols-2 gap-2 mb-2">
-            <input
-              value={lat}
-              onChange={(e) => setLat(e.target.value)}
-              placeholder="Lat"
-              className={inputCls}
-              style={{ fontSize: "16px" }}
-            />
-            <input
-              value={lng}
-              onChange={(e) => setLng(e.target.value)}
-              placeholder="Lng"
-              className={inputCls}
-              style={{ fontSize: "16px" }}
-            />
+            <input value={lat} onChange={(e) => setLat(e.target.value)} placeholder="Lat" className={inputCls} style={{ fontSize: "16px" }} />
+            <input value={lng} onChange={(e) => setLng(e.target.value)} placeholder="Lng" className={inputCls} style={{ fontSize: "16px" }} />
           </div>
-          <button
-            type="button"
-            onClick={handleGps}
-            className="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
-          >
+          <button type="button" onClick={handleGps} className={btnSecondary}>
             <i className="ti ti-current-location text-[13px]" /> {t("btn_use_gps")}
           </button>
-          <p className="mt-1.5 text-xs text-gray-400">{t("spot_location_hint")}</p>
+          <p className="mt-1.5 text-sm text-gray-400">{t("spot_location_hint")}</p>
         </div>
-
-        <div className="flex justify-end gap-2 pt-2">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
-          >
-            {t("btn_cancel")}
-          </button>
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={saving}
-            className="flex items-center gap-1.5 rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50"
-          >
-            {saving ? (
-              <>
-                <i className="ti ti-loader-2 animate-spin text-[13px]" /> {t("saving")}
-              </>
-            ) : (
-              t("btn_save")
-            )}
+        <div className="flex justify-end gap-3 pt-2">
+          <button type="button" onClick={onCancel} className={btnSecondary}>{t("btn_cancel")}</button>
+          <button type="button" onClick={handleSave} disabled={saving} className={btnPrimary}>
+            {saving ? <><i className="ti ti-loader-2 animate-spin text-[13px]" /> {t("saving")}</> : t("btn_save")}
           </button>
         </div>
       </div>
@@ -1062,12 +773,7 @@ function SpotEditor({
 
 // ── TripsView ──────────────────────────────────────────────────────────────────
 
-function TripsView({
-  trips,
-  api,
-  onReload,
-  t,
-}: {
+function TripsView({ trips, api, onReload, t }: {
   trips: Trip[];
   api: ReturnType<typeof useApi>;
   onReload: () => void;
@@ -1080,159 +786,70 @@ function TripsView({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  function startNew() {
-    setEditingId("new");
-    setName("");
-    setYear("");
-    setDesc("");
-    setError(null);
-  }
-  function startEdit(tr: Trip) {
-    setEditingId(tr.id);
-    setName(tr.name);
-    setYear(String(tr.year ?? ""));
-    setDesc(tr.description ?? "");
-    setError(null);
-  }
-  function cancelEdit() {
-    setEditingId(null);
-    setError(null);
-  }
+  function startNew() { setEditingId("new"); setName(""); setYear(""); setDesc(""); setError(null); }
+  function startEdit(tr: Trip) { setEditingId(tr.id); setName(tr.name); setYear(String(tr.year ?? "")); setDesc(tr.description ?? ""); setError(null); }
+  function cancelEdit() { setEditingId(null); setError(null); }
 
   const save = async () => {
-    if (!name.trim()) {
-      setError(t("trip_name_required"));
-      return;
-    }
+    if (!name.trim()) { setError(t("trip_name_required")); return; }
     setSaving(true);
     try {
       const body = { name: name.trim(), year: year ? parseInt(year) : null, description: desc };
       if (editingId === "new") await api.mutate("POST", "/trips", body);
       else await api.mutate("PATCH", `/trips/${editingId}`, body);
-      cancelEdit();
-      onReload();
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const del = async (id: string) => {
-    if (!window.confirm(t("trip_delete_confirm"))) return;
-    await api.mutate("DELETE", `/trips/${id}`);
-    onReload();
+      cancelEdit(); onReload();
+    } catch (e) { setError(String(e)); }
+    finally { setSaving(false); }
   };
 
   return (
     <div className="mx-auto max-w-lg overflow-y-auto h-full px-4 py-6">
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-lg font-semibold">{t("nav_trips")}</h2>
+      <div className="mb-5 flex items-center justify-between">
+        <h2 className="text-xl font-bold">{t("nav_trips")}</h2>
         {editingId === null && (
-          <button
-            type="button"
-            onClick={startNew}
-            className="flex items-center gap-1.5 rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700"
-          >
+          <button type="button" onClick={startNew} className={btnPrimary}>
             <i className="ti ti-plus text-[13px]" /> {t("btn_new_trip")}
           </button>
         )}
       </div>
-
-      {error && (
-        <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
-          {error}
-        </div>
-      )}
-
+      {error && <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">{error}</div>}
       {editingId !== null && (
-        <div className="mb-4 rounded-2xl border border-teal-200 bg-teal-50 p-4 dark:border-teal-800 dark:bg-teal-950 space-y-2">
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder={t("trip_name_placeholder")}
-            className={inputCls}
-            style={{ fontSize: "16px" }}
-            autoFocus
-            onKeyDown={(e) => {
-              if (e.key === "Enter") save();
-              if (e.key === "Escape") cancelEdit();
-            }}
-          />
+        <div className="mb-4 rounded-2xl border border-teal-200 bg-teal-50 p-4 dark:border-teal-800 dark:bg-teal-950 space-y-3">
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t("trip_name_placeholder")}
+            className={inputCls} style={{ fontSize: "16px" }} autoFocus
+            onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") cancelEdit(); }} />
           <div className="grid grid-cols-3 gap-2">
-            <input
-              value={year}
-              onChange={(e) => setYear(e.target.value)}
-              placeholder={t("trip_year")}
-              type="number"
-              className={inputCls}
-              style={{ fontSize: "16px" }}
-            />
-            <input
-              value={desc}
-              onChange={(e) => setDesc(e.target.value)}
-              placeholder={t("trip_description_placeholder")}
-              className={`${inputCls} col-span-2`}
-              style={{ fontSize: "16px" }}
-            />
+            <input value={year} onChange={(e) => setYear(e.target.value)} placeholder={t("trip_year")} type="number" className={inputCls} style={{ fontSize: "16px" }} />
+            <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder={t("trip_description_placeholder")} className={`${inputCls} col-span-2`} style={{ fontSize: "16px" }} />
           </div>
           <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={cancelEdit}
-              className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
-            >
-              {t("btn_cancel")}
-            </button>
-            <button
-              type="button"
-              onClick={save}
-              disabled={saving}
-              className="flex items-center gap-1.5 rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50"
-            >
-              {saving ? (
-                <i className="ti ti-loader-2 animate-spin text-[13px]" />
-              ) : (
-                <i className="ti ti-check text-[13px]" />
-              )}
-              {t("btn_save")}
+            <button type="button" onClick={cancelEdit} className={btnSecondary}>{t("btn_cancel")}</button>
+            <button type="button" onClick={save} disabled={saving} className={btnPrimary}>
+              {saving ? <i className="ti ti-loader-2 animate-spin text-[13px]" /> : <i className="ti ti-check text-[13px]" />} {t("btn_save")}
             </button>
           </div>
         </div>
       )}
-
       {trips.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-gray-200 px-6 py-10 text-center dark:border-gray-800">
-          <i className="ti ti-route text-[32px] text-gray-300 dark:text-gray-700 block" />
-          <p className="mt-2 text-sm text-gray-400">{t("no_trips")}</p>
+        <div className="rounded-2xl border border-dashed border-gray-200 px-6 py-12 text-center dark:border-gray-800">
+          <i className="ti ti-route text-[36px] text-gray-300 dark:text-gray-700 block mb-2" />
+          <p className="text-sm text-gray-400">{t("no_trips")}</p>
         </div>
       ) : (
-        <div className="space-y-1.5">
+        <div className="space-y-2">
           {trips.map((tr) => (
-            <div
-              key={tr.id}
-              className="flex items-center gap-3 rounded-xl border border-gray-200 px-4 py-3 dark:border-gray-800"
-            >
+            <div key={tr.id} className="flex items-center gap-3 rounded-xl border border-gray-200 px-4 py-3.5 dark:border-gray-800">
               <div className="flex-1 min-w-0">
-                <span className="font-medium text-sm">{tr.name}</span>
-                {tr.year && <span className="ml-2 text-xs text-gray-400">{tr.year}</span>}
-                {tr.description && (
-                  <p className="text-xs text-gray-500 truncate mt-0.5">{tr.description}</p>
-                )}
+                <span className="font-medium">{tr.name}</span>
+                {tr.year && <span className="ml-2 text-sm text-gray-400">{tr.year}</span>}
+                {tr.description && <p className="text-sm text-gray-500 truncate mt-0.5">{tr.description}</p>}
               </div>
-              <button
-                type="button"
-                onClick={() => startEdit(tr)}
-                className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800"
-              >
-                <i className="ti ti-pencil text-[14px]" />
+              <button type="button" onClick={() => startEdit(tr)} className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800">
+                <i className="ti ti-pencil text-[15px]" />
               </button>
-              <button
-                type="button"
-                onClick={() => del(tr.id)}
-                className="rounded-lg p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950"
-              >
-                <i className="ti ti-trash text-[14px]" />
+              <button type="button" onClick={async () => { if (!window.confirm(t("trip_delete_confirm"))) return; await api.mutate("DELETE", `/trips/${tr.id}`); onReload(); }}
+                className="rounded-lg p-2 text-gray-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950">
+                <i className="ti ti-trash text-[15px]" />
               </button>
             </div>
           ))}
@@ -1244,12 +861,7 @@ function TripsView({
 
 // ── CategoriesView ─────────────────────────────────────────────────────────────
 
-function CategoriesView({
-  categories,
-  api,
-  onReload,
-  t,
-}: {
+function CategoriesView({ categories, api, onReload, t }: {
   categories: Category[];
   api: ReturnType<typeof useApi>;
   onReload: () => void;
@@ -1261,150 +873,70 @@ function CategoriesView({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  function startNew() {
-    setEditingId("new");
-    setName("");
-    setColor("#888780");
-    setError(null);
-  }
-  function startEdit(c: Category) {
-    setEditingId(c.id);
-    setName(c.name);
-    setColor(c.color);
-    setError(null);
-  }
-  function cancelEdit() {
-    setEditingId(null);
-    setError(null);
-  }
+  function startNew() { setEditingId("new"); setName(""); setColor("#888780"); setError(null); }
+  function startEdit(c: Category) { setEditingId(c.id); setName(c.name); setColor(c.color); setError(null); }
+  function cancelEdit() { setEditingId(null); setError(null); }
 
   const save = async () => {
-    if (!name.trim()) {
-      setError(t("category_name_required"));
-      return;
-    }
+    if (!name.trim()) { setError(t("category_name_required")); return; }
     setSaving(true);
     try {
       const body = { name: name.trim(), color };
       if (editingId === "new") await api.mutate("POST", "/categories", body);
       else await api.mutate("PATCH", `/categories/${editingId}`, body);
-      cancelEdit();
-      onReload();
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const del = async (id: string) => {
-    if (!window.confirm(t("category_delete_confirm"))) return;
-    await api.mutate("DELETE", `/categories/${id}`);
-    onReload();
+      cancelEdit(); onReload();
+    } catch (e) { setError(String(e)); }
+    finally { setSaving(false); }
   };
 
   return (
     <div className="mx-auto max-w-lg overflow-y-auto h-full px-4 py-6">
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-lg font-semibold">{t("nav_categories")}</h2>
+      <div className="mb-5 flex items-center justify-between">
+        <h2 className="text-xl font-bold">{t("nav_categories")}</h2>
         {editingId === null && (
-          <button
-            type="button"
-            onClick={startNew}
-            className="flex items-center gap-1.5 rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700"
-          >
+          <button type="button" onClick={startNew} className={btnPrimary}>
             <i className="ti ti-plus text-[13px]" /> {t("btn_new_category")}
           </button>
         )}
       </div>
-
-      {error && (
-        <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
-          {error}
-        </div>
-      )}
-
+      {error && <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">{error}</div>}
       {editingId !== null && (
         <div className="mb-4 rounded-2xl border border-teal-200 bg-teal-50 p-4 dark:border-teal-800 dark:bg-teal-950 space-y-3">
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder={t("category_name_placeholder")}
-            className={inputCls}
-            style={{ fontSize: "16px" }}
-            autoFocus
-            onKeyDown={(e) => {
-              if (e.key === "Enter") save();
-              if (e.key === "Escape") cancelEdit();
-            }}
-          />
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t("category_name_placeholder")}
+            className={inputCls} style={{ fontSize: "16px" }} autoFocus
+            onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") cancelEdit(); }} />
           <div className="flex items-center gap-3">
             <label className="text-sm text-gray-600 dark:text-gray-400">{t("category_color")}</label>
-            <input
-              type="color"
-              value={color}
-              onChange={(e) => setColor(e.target.value)}
-              className="h-9 w-14 cursor-pointer rounded border border-gray-300 p-1 dark:border-gray-700"
-            />
+            <input type="color" value={color} onChange={(e) => setColor(e.target.value)} className="h-10 w-16 cursor-pointer rounded border border-gray-300 p-1 dark:border-gray-700" />
             <span className="text-sm text-gray-500 font-mono">{color}</span>
           </div>
           <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={cancelEdit}
-              className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
-            >
-              {t("btn_cancel")}
-            </button>
-            <button
-              type="button"
-              onClick={save}
-              disabled={saving}
-              className="flex items-center gap-1.5 rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50"
-            >
-              {saving ? (
-                <i className="ti ti-loader-2 animate-spin text-[13px]" />
-              ) : (
-                <i className="ti ti-check text-[13px]" />
-              )}
-              {t("btn_save")}
+            <button type="button" onClick={cancelEdit} className={btnSecondary}>{t("btn_cancel")}</button>
+            <button type="button" onClick={save} disabled={saving} className={btnPrimary}>
+              {saving ? <i className="ti ti-loader-2 animate-spin text-[13px]" /> : <i className="ti ti-check text-[13px]" />} {t("btn_save")}
             </button>
           </div>
         </div>
       )}
-
       {categories.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-gray-200 px-6 py-10 text-center dark:border-gray-800">
-          <i className="ti ti-tag text-[32px] text-gray-300 dark:text-gray-700 block" />
-          <p className="mt-2 text-sm text-gray-400">{t("no_categories")}</p>
+        <div className="rounded-2xl border border-dashed border-gray-200 px-6 py-12 text-center dark:border-gray-800">
+          <i className="ti ti-tag text-[36px] text-gray-300 dark:text-gray-700 block mb-2" />
+          <p className="text-sm text-gray-400">{t("no_categories")}</p>
         </div>
       ) : (
-        <div className="space-y-1.5">
+        <div className="space-y-2">
           {categories.map((c) => (
-            <div
-              key={c.id}
-              className="flex items-center gap-3 rounded-xl border border-gray-200 px-4 py-3 dark:border-gray-800"
-            >
-              <span
-                className="w-4 h-4 rounded-full flex-shrink-0"
-                style={{ background: c.color }}
-              />
-              <span className="flex-1 text-sm font-medium">{c.name}</span>
+            <div key={c.id} className="flex items-center gap-3 rounded-xl border border-gray-200 px-4 py-3.5 dark:border-gray-800">
+              <span className="w-5 h-5 rounded-full flex-shrink-0" style={{ background: c.color }} />
+              <span className="flex-1 font-medium">{c.name}</span>
               {c.created_by !== "system" && (
                 <>
-                  <button
-                    type="button"
-                    onClick={() => startEdit(c)}
-                    className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800"
-                  >
-                    <i className="ti ti-pencil text-[14px]" />
+                  <button type="button" onClick={() => startEdit(c)} className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800">
+                    <i className="ti ti-pencil text-[15px]" />
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => del(c.id)}
-                    className="rounded-lg p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950"
-                  >
-                    <i className="ti ti-trash text-[14px]" />
+                  <button type="button" onClick={async () => { if (!window.confirm(t("category_delete_confirm"))) return; await api.mutate("DELETE", `/categories/${c.id}`); onReload(); }}
+                    className="rounded-lg p-2 text-gray-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950">
+                    <i className="ti ti-trash text-[15px]" />
                   </button>
                 </>
               )}
@@ -1418,108 +950,90 @@ function CategoriesView({
 
 // ── SettingsView ───────────────────────────────────────────────────────────────
 
-function SettingsView({
-  api,
-  onSaved,
-  t,
-}: {
+function SettingsView({ api, onSaved, t }: {
   api: ReturnType<typeof useApi>;
   onSaved: (styleUrl: string | null) => void;
   t: (k: string) => string;
 }) {
   const [key, setKey] = useState("");
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [removing, setRemoving] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [configured, setConfigured] = useState<boolean | null>(null);
 
   useEffect(() => {
-    api
-      .get<{ map_configured: boolean; map_style_url: string | null }>("/config")
+    api.get<{ map_configured: boolean; map_style_url: string | null }>("/config")
       .then((cfg) => setConfigured(cfg.map_configured))
       .catch(() => setConfigured(false));
   }, [api]);
 
   const save = async () => {
     if (!key.trim()) return;
-    setSaving(true);
-    setError(null);
+    setSaving(true); setMsg(null);
     try {
       await api.mutate("PUT", "/settings", { maptiler_api_key: key.trim() });
       const cfg = await api.get<{ map_configured: boolean; map_style_url: string | null }>("/config");
       setConfigured(cfg.map_configured);
       onSaved(cfg.map_style_url);
       setKey("");
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2500);
+      setMsg({ ok: true, text: t("settings_saved") });
     } catch {
-      setError(t("error_save"));
-    } finally {
-      setSaving(false);
-    }
+      setMsg({ ok: false, text: t("error_save") });
+    } finally { setSaving(false); }
+  };
+
+  const remove = async () => {
+    if (!window.confirm(t("settings_remove_confirm"))) return;
+    setRemoving(true); setMsg(null);
+    try {
+      await api.mutate("PUT", "/settings", { maptiler_api_key: "" });
+      setConfigured(false);
+      onSaved(null);
+      setMsg({ ok: true, text: t("settings_removed") });
+    } catch {
+      setMsg({ ok: false, text: t("error_save") });
+    } finally { setRemoving(false); }
   };
 
   return (
     <div className="mx-auto max-w-md overflow-y-auto h-full px-4 py-6">
-      <h2 className="mb-5 text-lg font-semibold">{t("settings_title")}</h2>
-
-      <div className="rounded-2xl border border-gray-200 bg-gray-50 p-5 dark:border-gray-800 dark:bg-gray-900 space-y-4">
-        <div className="flex items-center gap-2 text-sm">
-          <span
-            className={`w-2 h-2 rounded-full flex-shrink-0 ${configured ? "bg-teal-500" : "bg-red-400"}`}
-          />
-          <span className="text-gray-600 dark:text-gray-400">
-            {configured ? t("settings_key_active") : t("settings_key_missing")}
+      <h2 className="mb-1 flex items-center gap-2 text-xl font-bold">
+        {t("settings_title")}
+        {configured !== null && (
+          <span className="flex items-center gap-1.5 text-sm font-normal text-gray-500 dark:text-gray-400">
+            <span className={`h-2 w-2 rounded-full ${configured ? "bg-green-500" : "bg-gray-300 dark:bg-gray-600"}`} />
+            {configured ? t("settings_key_active_short") : t("settings_key_missing_short")}
           </span>
-        </div>
+        )}
+      </h2>
+      <p className="mb-6 text-sm text-gray-500 dark:text-gray-400">{t("settings_subtitle")}</p>
 
+      {msg && (
+        <p className={`mb-4 text-sm ${msg.ok ? "text-green-700 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
+          {msg.text}
+        </p>
+      )}
+
+      <div className="space-y-4">
         <div>
           <label className={labelCls}>{t("settings_maptiler_key")}</label>
-          <input
-            type="password"
-            value={key}
-            onChange={(e) => setKey(e.target.value)}
-            placeholder={
-              configured ? t("settings_key_replace_placeholder") : t("settings_maptiler_key_placeholder")
-            }
-            className={inputCls}
-            style={{ fontSize: "16px" }}
-            onKeyDown={(e) => e.key === "Enter" && save()}
-          />
-          <p className="mt-1.5 text-xs text-gray-400">
-            {t("settings_maptiler_hint")} —{" "}
-            <a
-              href="https://maptiler.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-teal-600 hover:underline"
-            >
-              maptiler.com
-            </a>
+          <input type="password" value={key} onChange={(e) => setKey(e.target.value)}
+            placeholder={configured ? t("settings_key_replace_placeholder") : t("settings_maptiler_key_placeholder")}
+            className={inputCls} style={{ fontSize: "16px" }}
+            onKeyDown={(e) => e.key === "Enter" && save()} />
+          <p className="mt-1.5 text-sm text-gray-400">
+            {t("settings_maptiler_hint")} — <a href="https://maptiler.com" target="_blank" rel="noopener noreferrer" className="text-teal-600 hover:underline">maptiler.com</a>
           </p>
         </div>
-
-        {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
-
-        <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={save}
-            disabled={saving || !key.trim()}
-            className="flex items-center gap-1.5 rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50"
-          >
-            {saved ? (
-              <>
-                <i className="ti ti-check text-[13px]" /> {t("settings_saved")}
-              </>
-            ) : saving ? (
-              <>
-                <i className="ti ti-loader-2 animate-spin text-[13px]" /> {t("saving")}
-              </>
-            ) : (
-              t("btn_save")
-            )}
+        <div className="flex gap-3">
+          <button type="button" onClick={save} disabled={saving || !key.trim()} className={`flex-1 ${btnPrimary}`}>
+            {saving ? <><i className="ti ti-loader-2 animate-spin text-[13px]" /> {t("saving")}</> : t("btn_save")}
           </button>
+          {configured && (
+            <button type="button" onClick={remove} disabled={removing} className={`flex-1 ${btnDanger}`}>
+              {removing ? <><i className="ti ti-loader-2 animate-spin text-[13px]" /> {t("saving")}</> : t("settings_remove_key")}
+            </button>
+          )}
         </div>
       </div>
     </div>
