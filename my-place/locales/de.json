@@ -1,11 +1,11 @@
 {
   "nav_map": "Karte",
-  "nav_spots": "Spots",
+  "nav_spots": "Orte",
   "nav_trips": "Reisen",
   "nav_categories": "Kategorien",
   "nav_settings": "Einstellungen",
 
-  "btn_new_spot": "Neuer Spot",
+  "btn_new_spot": "Neuer Ort",
   "btn_new_trip": "Neue Reise",
   "btn_new_category": "Neue Kategorie",
   "btn_save": "Speichern",
@@ -22,9 +22,9 @@
 
   "all_trips": "Alle Reisen",
   "all_categories": "Alle Kategorien",
-  "no_spots": "Noch keine Spots — füge deinen ersten hinzu!",
-  "no_spots_filter": "Keine Spots passen zum aktuellen Filter",
-  "spots_search_placeholder": "Spots suchen…",
+  "no_spots": "Noch keine Orte — füge deinen ersten hinzu!",
+  "no_spots_filter": "Keine Orte passen zum aktuellen Filter",
+  "spots_search_placeholder": "Orte suchen…",
   "sort_date": "Neueste zuerst",
   "sort_name": "Name A–Z",
   "sort_rating": "Beste Bewertung",
@@ -33,18 +33,18 @@
   "no_categories": "Noch keine Kategorien",
 
   "spot_name": "Name",
-  "spot_name_placeholder": "z.B. Da Adolfo, Positano",
+  "spot_name_placeholder": "z.B. Da Adolfo, Restaurant Seeblick…",
   "spot_name_required": "Name ist erforderlich",
   "spot_note": "Notiz",
-  "spot_note_placeholder": "Was war besonders an diesem Ort?",
+  "spot_note_placeholder": "Was ist besonders an diesem Ort?",
   "spot_rating": "Bewertung",
   "spot_trip": "Reise",
   "spot_category": "Kategorie",
   "spot_location": "Standort",
-  "spot_location_hint": "Auf die Karte klicken oder GPS verwenden",
+  "spot_location_hint": "GPS verwenden oder Koordinaten manuell eingeben",
   "spot_photos": "Fotos",
   "spot_added_by": "Eingetragen von {{name}}",
-  "spot_delete_confirm": "Diesen Spot wirklich löschen?",
+  "spot_delete_confirm": "Diesen Ort wirklich löschen?",
 
   "trip_name": "Name",
   "trip_name_placeholder": "z.B. Sardinien 2025",
@@ -63,7 +63,7 @@
   "category_delete_confirm": "Kategorie wirklich löschen? Spots darin werden nicht gelöscht.",
 
   "settings_title": "Einstellungen",
-  "settings_subtitle": "Kartenanbieter für Urlaubspunkte konfigurieren.",
+  "settings_subtitle": "Kartenanbieter für Meine Orte konfigurieren.",
   "settings_maptiler_key": "Maptiler API-Key",
   "settings_maptiler_key_placeholder": "Maptiler API-Key hier einfügen",
   "settings_key_replace_placeholder": "Neuen Key einfügen um bestehenden zu ersetzen",
@@ -81,5 +81,11 @@
   "error_save": "Speichern fehlgeschlagen",
   "error_delete": "Löschen fehlgeschlagen",
   "error_location": "GPS-Standort konnte nicht ermittelt werden",
-  "error_no_key": "Bitte zuerst den Maptiler API-Key in den Einstellungen eintragen."
+  "error_no_key": "Bitte zuerst den Maptiler API-Key in den Einstellungen eintragen.",
+
+  "open_in_apple_maps": "Apple Maps",
+  "open_in_google_maps": "Google Maps",
+
+  "spot_count_one": "Ort",
+  "spot_count_many": "Orte"
 }

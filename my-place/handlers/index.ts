@@ -1,7 +1,7 @@
 /**
  * Vacation Spots module — Deno Tier 2 handler
  *
- * Routes (all under /v1/modules/vacation-spots/api/):
+ * Routes (all under /v1/modules/my-places/api/):
  *
  * Spots
  *   GET    /spots                      list all (+ filter: ?trip=&category=)

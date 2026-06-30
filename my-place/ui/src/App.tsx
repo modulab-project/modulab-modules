@@ -11,7 +11,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import type * as GeoJSON from "geojson";
 import type { ModuleComponentProps } from "./types";
 
-const NS = "mod_vacation-spots";
+const NS = "mod_my-places";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -188,7 +188,7 @@ export default function App({ apiBase, token }: ModuleComponentProps) {
   const vt = view.type;
 
   return (
-    <div className="vacation-spots-module flex flex-col" style={{ height: "100vh" }}>
+    <div className="my-places-module flex flex-col" style={{ height: "100vh" }}>
       {/* Nav */}
       <div className="flex items-center gap-1 overflow-x-auto border-b border-gray-200 px-3 py-1 dark:border-gray-800 flex-shrink-0">
         <i className="ti ti-map-pin text-teal-600 text-base mr-1 flex-shrink-0" />
@@ -388,7 +388,7 @@ function MapView({ spots, mapStyleUrl, mapConfigured, trips, categories, onSpotC
             {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </div>
-        <div className="mt-auto text-xs text-gray-400">{filtered.length} spot{filtered.length !== 1 ? "s" : ""}</div>
+        <div className="mt-auto text-xs text-gray-400">{filtered.length} {filtered.length !== 1 ? t("spot_count_many") : t("spot_count_one")}</div>
       </div>
       <div className="flex-1 relative">
         {mapConfigured === false ? (
@@ -473,7 +473,7 @@ function SpotsListView({ spots, trips, categories, onSpotClick, onNewSpot, t }: 
           </div>
         ) : (
           <>
-            <p className="mb-3 text-xs text-gray-400">{filtered.length} {filtered.length === 1 ? "Spot" : "Spots"}</p>
+            <p className="mb-3 text-xs text-gray-400">{filtered.length} {filtered.length === 1 ? t("spot_count_one") : t("spot_count_many")}</p>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {filtered.map((spot) => {
                 const color = spot.category_color ?? "#0d9488";
@@ -611,6 +611,16 @@ function SpotDetail({ api, id, onBack, onEdit, onDeleted, t }: {
       <div className="flex flex-wrap gap-4 text-sm text-gray-500 dark:text-gray-400 mb-6 pb-5 border-b border-gray-100 dark:border-gray-800">
         {spot.trip_name && <span className="flex items-center gap-1.5"><i className="ti ti-route" />{spot.trip_name}</span>}
         <span className="flex items-center gap-1.5"><i className="ti ti-map-pin" />{spot.lat.toFixed(5)}, {spot.lng.toFixed(5)}</span>
+        <span className="flex items-center gap-2">
+          <a href={`maps://?q=${spot.lat},${spot.lng}`}
+            className="flex items-center gap-1 text-teal-600 hover:underline dark:text-teal-400" title="In Apple Maps öffnen">
+            <i className="ti ti-brand-apple text-[13px]" /> Apple Maps
+          </a>
+          <a href={`https://maps.google.com/?q=${spot.lat},${spot.lng}`} target="_blank" rel="noopener noreferrer"
+            className="flex items-center gap-1 text-teal-600 hover:underline dark:text-teal-400" title="In Google Maps öffnen">
+            <i className="ti ti-map-2 text-[13px]" /> Google Maps
+          </a>
+        </span>
         <span className="flex items-center gap-1.5"><i className="ti ti-calendar" />{new Date(spot.created_at).toLocaleDateString()}</span>
       </div>
 
@@ -637,12 +647,12 @@ function SpotDetail({ api, id, onBack, onEdit, onDeleted, t }: {
         ) : (
           <div className="grid grid-cols-3 gap-2">
             {(spot.photos ?? []).map((p) => (
-              <div key={p.id} className="relative group aspect-square rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800">
+              <div key={p.id} className="relative aspect-square rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800">
                 <img src={api.storageUrl(p.file_path)} alt="" className="w-full h-full object-cover" loading="lazy" />
                 <button type="button"
                   onClick={() => handleDeletePhoto(p.id)}
-                  className="absolute top-1 right-1 w-7 h-7 rounded-full bg-black/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                  <i className="ti ti-x text-[12px]" />
+                  className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 text-white flex items-center justify-center hover:bg-red-600 transition-colors">
+                  <i className="ti ti-x text-[11px]" />
                 </button>
               </div>
             ))}

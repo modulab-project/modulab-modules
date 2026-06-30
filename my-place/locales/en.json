@@ -1,11 +1,11 @@
 {
   "nav_map": "Map",
-  "nav_spots": "Spots",
+  "nav_spots": "Places",
   "nav_trips": "Trips",
   "nav_categories": "Categories",
   "nav_settings": "Settings",
 
-  "btn_new_spot": "New Spot",
+  "btn_new_spot": "New Place",
   "btn_new_trip": "New Trip",
   "btn_new_category": "New Category",
   "btn_save": "Save",
@@ -22,9 +22,9 @@
 
   "all_trips": "All trips",
   "all_categories": "All categories",
-  "no_spots": "No spots yet — add your first one!",
-  "no_spots_filter": "No spots match the current filter",
-  "spots_search_placeholder": "Search spots…",
+  "no_spots": "No places yet — add your first one!",
+  "no_spots_filter": "No places match the current filter",
+  "spots_search_placeholder": "Search places…",
   "sort_date": "Newest first",
   "sort_name": "Name A–Z",
   "sort_rating": "Highest rating",
@@ -33,18 +33,18 @@
   "no_categories": "No categories yet",
 
   "spot_name": "Name",
-  "spot_name_placeholder": "e.g. Da Adolfo, Positano",
+  "spot_name_placeholder": "e.g. Da Adolfo, Beach Bar Miramar…",
   "spot_name_required": "Name is required",
   "spot_note": "Note",
-  "spot_note_placeholder": "What was special about this place?",
+  "spot_note_placeholder": "What's special about this place?",
   "spot_rating": "Rating",
   "spot_trip": "Trip",
   "spot_category": "Category",
   "spot_location": "Location",
-  "spot_location_hint": "Click on the map or use GPS to set the location",
+  "spot_location_hint": "Use GPS or enter coordinates manually",
   "spot_photos": "Photos",
   "spot_added_by": "Added by {{name}}",
-  "spot_delete_confirm": "Really delete this spot?",
+  "spot_delete_confirm": "Really delete this place?",
 
   "trip_name": "Name",
   "trip_name_placeholder": "e.g. Sardinia 2025",
@@ -52,7 +52,7 @@
   "trip_year": "Year",
   "trip_description": "Description",
   "trip_description_placeholder": "Optional notes about this trip",
-  "trip_delete_confirm": "Really delete this trip? Spots will not be deleted.",
+  "trip_delete_confirm": "Really delete this trip? Places will not be deleted.",
 
   "category_name": "Name",
   "category_name_placeholder": "e.g. Hidden Gem",
@@ -60,10 +60,10 @@
   "category_color": "Marker color",
   "category_icon": "Icon",
   "category_sort_order": "Sort order",
-  "category_delete_confirm": "Really delete this category? Spots in it will not be deleted.",
+  "category_delete_confirm": "Really delete this category? Places in it will not be deleted.",
 
   "settings_title": "Settings",
-  "settings_subtitle": "Configure the map provider for Vacation Spots.",
+  "settings_subtitle": "Configure the map provider for My Places.",
   "settings_maptiler_key": "Maptiler API Key",
   "settings_maptiler_key_placeholder": "Paste your Maptiler API key here",
   "settings_key_replace_placeholder": "Paste new key to replace existing",
@@ -81,5 +81,11 @@
   "error_save": "Could not save",
   "error_delete": "Could not delete",
   "error_location": "Could not get GPS location",
-  "error_no_key": "Please enter your Maptiler API key in Settings first."
+  "error_no_key": "Please enter your Maptiler API key in Settings first.",
+
+  "open_in_apple_maps": "Apple Maps",
+  "open_in_google_maps": "Google Maps",
+
+  "spot_count_one": "place",
+  "spot_count_many": "places"
 }
