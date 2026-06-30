@@ -179,16 +179,22 @@ function PhotoGrid({ photos, uploading, uploadErr, onUpload, onDelete, fileInput
       )}
       <div className="grid grid-cols-3 gap-2">
         {photos.map((p) => (
-          <div key={p.id} className="relative aspect-square rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800">
-            <img src={storageUrl(p.file_path)} alt="" className="w-full h-full object-cover" loading="lazy" />
-            {/* Delete-Button: always visible, never hover-only (Touch-safe) */}
+          <div key={p.id}>
+            <div className="aspect-square rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800">
+              <img src={storageUrl(p.file_path)} alt="" className="w-full h-full object-cover" loading="lazy" />
+            </div>
+            {/* Delete-Button: below the image, not overlaid — avoids relying on
+                Tailwind utility classes (e.g. absolute positioning offsets)
+                that aren't used anywhere in Core's own frontend source and
+                therefore get purged from Core's built CSS (Core's Tailwind
+                content scan only covers frontend/src, not module repos). */}
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); onDelete(p.id); }}
-              className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/70 text-white flex items-center justify-center hover:bg-red-600 active:bg-red-700 transition-colors"
+              className="mt-1 flex w-full items-center justify-center gap-1 rounded-lg py-1 text-xs text-gray-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950 dark:hover:text-red-400 transition-colors"
               aria-label="Foto löschen"
             >
-              <i className="ti ti-x text-[11px]" />
+              <i className="ti ti-trash text-xs" /> Löschen
             </button>
           </div>
         ))}
