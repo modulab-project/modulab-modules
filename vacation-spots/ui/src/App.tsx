@@ -187,7 +187,7 @@ export default function App({ apiBase, token }: ModuleComponentProps) {
       map.remove();
       mapRef.current = null;
     };
-  }, [view, maptilerKey]);
+  }, [view, mapStyleUrl]);
 
   // ── Markers ──────────────────────────────────────────────────────────────────
 
