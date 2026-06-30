@@ -16,6 +16,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+import type * as GeoJSON from "geojson";
 import type { ModuleComponentProps } from "./types";
 
 const NS = "mod_vacation-spots";
@@ -217,7 +218,6 @@ export default function App({ apiBase, token }: ModuleComponentProps) {
             trips={trips}
             categories={categories}
             onSpotClick={(id) => setView({ type: "spot-detail", id })}
-            onMapClick={(lat, lng) => setView({ type: "spot-new", lat, lng })}
             t={t}
           />
         )}
@@ -235,7 +235,7 @@ export default function App({ apiBase, token }: ModuleComponentProps) {
           <SpotEditor
             api={api}
             id={vt === "spot-edit" ? view.id : undefined}
-            initialCoords={vt === "spot-new" ? { lat: view.lat, lng: view.lng } : undefined}
+            initialCoords={undefined}
             trips={trips}
             categories={categories}
             onDone={(id) => {
@@ -279,6 +279,30 @@ export default function App({ apiBase, token }: ModuleComponentProps) {
 }
 
 // ── MapView ────────────────────────────────────────────────────────────────────
+// Uses MapLibre GeoJSON source + circle layer — no DOM markers, no timing issues.
+
+const SOURCE_ID = "spots";
+const LAYER_ID = "spots-circles";
+const LAYER_LABEL_ID = "spots-labels";
+
+function spotsToGeoJSON(spots: Spot[]): GeoJSON.FeatureCollection {
+  return {
+    type: "FeatureCollection",
+    features: spots.map((s) => ({
+      type: "Feature",
+      id: s.id,
+      geometry: { type: "Point", coordinates: [s.lng, s.lat] },
+      properties: {
+        id: s.id,
+        name: s.name,
+        note: s.note ?? "",
+        rating: s.rating ?? 0,
+        color: s.category_color ?? "#0d9488",
+        category_name: s.category_name ?? "",
+      },
+    })),
+  };
+}
 
 function MapView({
   spots,
@@ -287,7 +311,6 @@ function MapView({
   trips,
   categories,
   onSpotClick,
-  onMapClick,
   t,
 }: {
   spots: Spot[];
@@ -296,13 +319,11 @@ function MapView({
   trips: Trip[];
   categories: Category[];
   onSpotClick: (id: string) => void;
-  onMapClick: (lat: number, lng: number) => void;
   t: (k: string, opts?: Record<string, unknown>) => string;
 }) {
   const mapRef = useRef<maplibregl.Map | null>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
-  const markersRef = useRef<maplibregl.Marker[]>([]);
-  const [mapLoaded, setMapLoaded] = useState(false);
+  const popupRef = useRef<maplibregl.Popup | null>(null);
   const [filterTrip, setFilterTrip] = useState("");
   const [filterCategory, setFilterCategory] = useState("");
 
@@ -316,7 +337,10 @@ function MapView({
     [spots, filterTrip, filterCategory],
   );
 
-  // Init map
+  const onSpotClickRef = useRef(onSpotClick);
+  onSpotClickRef.current = onSpotClick;
+
+  // Init map once
   useEffect(() => {
     if (!mapContainerRef.current || !mapStyleUrl) return;
     if (mapRef.current) return;
@@ -328,100 +352,111 @@ function MapView({
       zoom: 4,
     });
     map.addControl(new maplibregl.NavigationControl(), "bottom-right");
-    map.on("click", (e) => onMapClick(e.lngLat.lat, e.lngLat.lng));
-    map.on("load", () => setMapLoaded(true));
-    mapRef.current = map;
+    popupRef.current = new maplibregl.Popup({
+      closeButton: false,
+      closeOnClick: false,
+      maxWidth: "240px",
+    });
 
+    map.on("load", () => {
+      // Add source with empty data first — will be updated via setData
+      map.addSource(SOURCE_ID, {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+
+      // Circle layer
+      map.addLayer({
+        id: LAYER_ID,
+        type: "circle",
+        source: SOURCE_ID,
+        paint: {
+          "circle-radius": 10,
+          "circle-color": ["get", "color"],
+          "circle-stroke-width": 2,
+          "circle-stroke-color": "#ffffff",
+        },
+      });
+
+      // Label layer
+      map.addLayer({
+        id: LAYER_LABEL_ID,
+        type: "symbol",
+        source: SOURCE_ID,
+        layout: {
+          "text-field": ["get", "name"],
+          "text-font": ["Open Sans Regular", "Arial Unicode MS Regular"],
+          "text-size": 12,
+          "text-offset": [0, 1.4],
+          "text-anchor": "top",
+        },
+        paint: {
+          "text-color": "#111827",
+          "text-halo-color": "#ffffff",
+          "text-halo-width": 1.5,
+        },
+      });
+
+      // Hover popup
+      map.on("mouseenter", LAYER_ID, (e) => {
+        map.getCanvas().style.cursor = "pointer";
+        const f = e.features?.[0];
+        if (!f || f.geometry.type !== "Point") return;
+        const { name, note, rating, category_name, color } = f.properties as Record<string, unknown>;
+        const stars = typeof rating === "number" && rating > 0
+          ? `<div style="color:#f59e0b;margin-top:3px">${"★".repeat(rating as number)}${"☆".repeat(5 - (rating as number))}</div>`
+          : "";
+        const cat = category_name
+          ? `<span style="font-size:11px;background:${color}22;color:${color};padding:1px 6px;border-radius:4px">${category_name}</span>`
+          : "";
+        const noteHtml = note
+          ? `<div style="font-size:12px;color:#555;margin-top:4px">${(note as string).slice(0, 80)}${(note as string).length > 80 ? "…" : ""}</div>`
+          : "";
+        popupRef.current!
+          .setLngLat(f.geometry.coordinates as [number, number])
+          .setHTML(
+            `<div style="font-family:sans-serif;padding:4px"><div style="font-weight:600;font-size:13px;margin-bottom:4px">${name}</div>${cat}${stars}${noteHtml}</div>`,
+          )
+          .addTo(map);
+      });
+
+      map.on("mouseleave", LAYER_ID, () => {
+        map.getCanvas().style.cursor = "";
+        popupRef.current!.remove();
+      });
+
+      // Click to open spot detail
+      map.on("click", LAYER_ID, (e) => {
+        const id = e.features?.[0]?.properties?.id as string | undefined;
+        if (id) onSpotClickRef.current(id);
+      });
+    });
+
+    mapRef.current = map;
     return () => {
       map.remove();
       mapRef.current = null;
-      setMapLoaded(false);
     };
   }, [mapStyleUrl]);
 
-  // Place markers. Runs when mapLoaded flips to true OR when filtered spots change.
-  // Key insight: use a version counter so the effect always re-runs when spots change,
-  // even if the filtered array reference appears equal.
-  const filteredRef = useRef(filtered);
-  filteredRef.current = filtered;
-  const onSpotClickRef = useRef(onSpotClick);
-  onSpotClickRef.current = onSpotClick;
-
+  // Update GeoJSON data whenever filtered spots change
   useEffect(() => {
-    if (!mapLoaded) return;
-
-    function placeMarkers() {
-      const map = mapRef.current;
-      if (!map) return;
-
-      markersRef.current.forEach((m) => m.remove());
-      markersRef.current = [];
-
-      filteredRef.current.forEach((spot) => {
-        const color = spot.category_color ?? "#0d9488";
-        const el = document.createElement("div");
-        el.style.cssText = [
-          "width:28px",
-          "height:28px",
-          "border-radius:50%",
-          `background:${color}`,
-          "border:2px solid white",
-          "cursor:pointer",
-          "display:flex",
-          "align-items:center",
-          "justify-content:center",
-          "box-shadow:0 1px 4px rgba(0,0,0,.35)",
-        ].join(";");
-        el.innerHTML = `<i class="ti ${spot.category_icon ?? "ti-map-pin"}" style="font-size:13px;color:white;pointer-events:none"></i>`;
-
-        const popupHtml = [
-          `<div style="font-family:sans-serif;padding:4px">`,
-          `<div style="font-weight:600;font-size:13px;margin-bottom:4px">${spot.name}</div>`,
-          spot.category_name
-            ? `<span style="font-size:11px;background:${color}22;color:${color};padding:2px 6px;border-radius:4px">${spot.category_name}</span>`
-            : "",
-          spot.rating
-            ? `<div style="color:#f59e0b;margin-top:4px">${"★".repeat(spot.rating)}${"☆".repeat(5 - spot.rating)}</div>`
-            : "",
-          spot.note
-            ? `<div style="font-size:12px;color:#666;margin-top:4px">${spot.note.slice(0, 80)}${spot.note.length > 80 ? "…" : ""}</div>`
-            : "",
-          `</div>`,
-        ].join("");
-
-        const popup = new maplibregl.Popup({
-          closeButton: false,
-          closeOnClick: false,
-          offset: 16,
-          maxWidth: "220px",
-        }).setHTML(popupHtml);
-
-        el.addEventListener("mouseenter", () => popup.addTo(map));
-        el.addEventListener("mouseleave", () => popup.remove());
-        el.addEventListener("click", (e) => {
-          e.stopPropagation();
-          onSpotClickRef.current(spot.id);
-        });
-
-        markersRef.current.push(
-          new maplibregl.Marker({ element: el }).setLngLat([spot.lng, spot.lat]).addTo(map),
-        );
-      });
-    }
-
-    // If map style is still loading, wait for idle before placing markers
     const map = mapRef.current;
-    if (map && map.isStyleLoaded()) {
-      placeMarkers();
-    } else if (map) {
-      map.once("idle", placeMarkers);
-    }
+    if (!map) return;
 
-    return () => {
-      map?.off("idle", placeMarkers);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mapLoaded, filtered]); // filtered in deps so new spots trigger a re-run
+    const geoJSON = spotsToGeoJSON(filtered);
+
+    if (map.isStyleLoaded()) {
+      (map.getSource(SOURCE_ID) as maplibregl.GeoJSONSource | undefined)?.setData(geoJSON);
+    } else {
+      // Style not yet loaded — wait for the load event then set data
+      const onLoad = () => {
+        (map.getSource(SOURCE_ID) as maplibregl.GeoJSONSource | undefined)?.setData(geoJSON);
+      };
+      map.once("load", onLoad);
+      return () => { map.off("load", onLoad); };
+    }
+  }, [filtered]);
 
   return (
     <div className="flex h-full">
@@ -433,18 +468,13 @@ function MapView({
           </label>
           <select
             value={filterTrip}
-            onChange={(e) => {
-              setFilterTrip(e.target.value);
-              setFilterCategory("");
-            }}
+            onChange={(e) => { setFilterTrip(e.target.value); setFilterCategory(""); }}
             className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
             style={{ fontSize: "14px" }}
           >
             <option value="">{t("all_trips")}</option>
             {trips.map((tr) => (
-              <option key={tr.id} value={tr.id}>
-                {tr.name}
-              </option>
+              <option key={tr.id} value={tr.id}>{tr.name}</option>
             ))}
           </select>
         </div>
@@ -454,18 +484,13 @@ function MapView({
           </label>
           <select
             value={filterCategory}
-            onChange={(e) => {
-              setFilterCategory(e.target.value);
-              setFilterTrip("");
-            }}
+            onChange={(e) => { setFilterCategory(e.target.value); setFilterTrip(""); }}
             className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
             style={{ fontSize: "14px" }}
           >
             <option value="">{t("all_categories")}</option>
             {categories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
+              <option key={c.id} value={c.id}>{c.name}</option>
             ))}
           </select>
         </div>
