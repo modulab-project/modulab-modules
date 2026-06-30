@@ -130,16 +130,23 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
 
   // ── Spots ──────────────────────────────────────────────────────────────────
 
-  if (route === "GET /spots")
-    return listSpots(db, path, encKey);
+  if (route === "GET /spots") {
+    const result = await listSpots(db, path, encKey);
+    console.log(`[vs] GET /spots → ${JSON.stringify(result).slice(0, 200)}`);
+    return result;
+  }
   if (method === "GET" && pathname.match(/^\/spots\/[^/]+$/) && !pathname.endsWith("/photos"))
     return getSpot(db, segId(pathname), encKey);
   if (route === "POST /spots")
     return createSpot(db, body as SpotInput, auth.userId, encKey);
   if (method === "PATCH" && pathname.match(/^\/spots\/[^/]+$/))
     return updateSpot(db, segId(pathname), body as Partial<SpotInput>, auth.userId, encKey);
-  if (method === "DELETE" && pathname.match(/^\/spots\/[^/]+$/))
-    return deleteSpot(db, segId(pathname), auth.userId);
+  if (method === "DELETE" && pathname.match(/^\/spots\/[^/]+$/)) {
+    const id = segId(pathname);
+    const [row] = await db.query<{ created_by: string }>(`SELECT created_by FROM spots WHERE id = $1`, [id]);
+    console.log(`[vs] DELETE /spots/${id} auth.userId=${auth.userId} created_by=${row?.created_by}`);
+    return deleteSpot(db, id, auth.userId);
+  }
 
   // ── Spot photos ────────────────────────────────────────────────────────────
 
