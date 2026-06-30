@@ -20,6 +20,9 @@ import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { ModuleComponentProps } from "./types";
 
+// i18next namespace registered by ModulePage host before bundle mount
+const NS = "mod_vacation-spots";
+
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 interface Spot {
@@ -115,7 +118,7 @@ function Stars({ value, onChange }: { value: number | null; onChange?: (v: numbe
 // ── Main App ───────────────────────────────────────────────────────────────────
 
 export default function App({ apiBase, token }: ModuleComponentProps) {
-  const { t } = useTranslation();
+  const { t } = useTranslation(NS);
   const api = useApi(apiBase, token);
 
   const [view, setView] = useState<View>("map");
