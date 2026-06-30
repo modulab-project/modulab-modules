@@ -28,10 +28,6 @@ interface Recipe {
   image_path: string | null;
   source_url: string | null;
   notes: string | null;
-  kcal_per_serving: number | null;
-  protein_g_per_serving: number | null;
-  fat_g_per_serving: number | null;
-  carbs_g_per_serving: number | null;
   tag_names: string[];
   updated_at: string;
 }
@@ -42,7 +38,6 @@ interface Ingredient {
   name: string;
   amount: number | null;
   unit: string | null;
-  kcal_per_100g: number | null;
 }
 
 interface Step {
@@ -155,39 +150,47 @@ export default function RecipesApp({ apiBase, token }: ModuleComponentProps) {
           type="button"
           onClick={() => setView({ type: "list" })}
           className={navCls(view.type === "list")}
+          title={t("nav_recipes")}
         >
-          <i className="ti ti-book-2 text-[14px]" /> {t("nav_recipes")}
+          <i className="ti ti-book-2 text-[15px]" />
+          <span className="hidden sm:inline">{t("nav_recipes")}</span>
         </button>
         <button
           type="button"
           onClick={() => setView({ type: "meal-plan" })}
           className={navCls(view.type === "meal-plan")}
+          title={t("nav_meal_plan")}
         >
-          <i className="ti ti-calendar-week text-[14px]" /> {t("nav_meal_plan")}
+          <i className="ti ti-calendar-week text-[15px]" />
+          <span className="hidden sm:inline">{t("nav_meal_plan")}</span>
         </button>
         <button
           type="button"
           onClick={() => setView({ type: "import" })}
           className={navCls(view.type === "import")}
+          title={t("nav_import")}
         >
-          <i className="ti ti-link text-[14px]" /> {t("nav_import")}
+          <i className="ti ti-link text-[15px]" />
+          <span className="hidden sm:inline">{t("nav_import")}</span>
         </button>
         <button
           type="button"
           onClick={() => setView({ type: "categories" })}
           className={navCls(view.type === "categories")}
+          title={t("nav_categories")}
         >
-          <i className="ti ti-tag text-[14px]" /> {t("nav_categories")}
+          <i className="ti ti-tag text-[15px]" />
+          <span className="hidden sm:inline">{t("nav_categories")}</span>
         </button>
-        <div className="flex-1 min-w-[8px]" />
+        <div className="flex-1 min-w-[4px]" />
         <button
           type="button"
           onClick={() => setView({ type: "editor" })}
           className="flex flex-none items-center gap-1.5 rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700"
+          title={t("btn_new_recipe")}
         >
           <i className="ti ti-plus text-[14px]" />
           <span className="hidden sm:inline">{t("btn_new_recipe")}</span>
-          <span className="sm:hidden">{t("btn_new")}</span>
         </button>
       </div>
 
@@ -358,9 +361,6 @@ function RecipeList({
               {r.prep_time_min != null && (
                 <span><i className="ti ti-clock text-[12px]" /> {t("total_time", { min: r.prep_time_min })}</span>
               )}
-              {r.kcal_per_serving != null && (
-                <span><i className="ti ti-flame text-[12px]" /> {Math.round(r.kcal_per_serving)} {t("kcal")}</span>
-              )}
               <span className="ml-auto"><i className="ti ti-users text-[12px]" /> {r.servings}</span>
             </div>
           </button>
@@ -388,7 +388,6 @@ function RecipeDetail({
 }) {
   const { t } = useTranslation(NS);
   const [recipe, setRecipe] = useState<Recipe & { ingredients: Ingredient[]; steps: Step[]; tags: Tag[] } | null>(null);
-  const [nutrition, setNutrition] = useState<{ available: boolean; kcal?: number; protein?: number; fat?: number; carbs?: number } | null>(null);
   const [servings, setServings] = useState(4);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
@@ -412,16 +411,6 @@ function RecipeDetail({
       setDeleting(false);
     }
   }
-
-  useEffect(() => {
-    if (!recipe) return;
-    api
-      .get<{ available: boolean; kcal?: number; protein?: number; fat?: number; carbs?: number }>(
-        `/recipes/${id}/nutrition?servings=${servings}`,
-      )
-      .then((n) => setNutrition(n))
-      .catch(() => setNutrition({ available: false }));
-  }, [api, id, recipe, servings]);
 
   if (loading) return <p className="text-sm text-gray-400">{t("loading")}</p>;
   if (!recipe) return <p className="text-sm text-red-500">{t("recipe_not_found")}</p>;
@@ -490,35 +479,6 @@ function RecipeDetail({
           <a href={recipe.source_url} target="_blank" rel="noreferrer" className="flex items-center gap-1 hover:text-teal-600">
             <i className="ti ti-external-link" /> {t("source")}
           </a>
-        )}
-      </div>
-
-      {/* Portion adjuster + nutrition — always shown */}
-      <div className="mb-5 rounded-2xl border border-gray-200 p-4 dark:border-gray-800">
-        <div className="mb-3 flex items-center gap-3">
-          <span className="text-sm font-medium">{t("servings")}:</span>
-          <button type="button" onClick={() => setServings(Math.max(1, servings - 1))}
-            className="flex h-8 w-8 items-center justify-center rounded-full border border-gray-300 text-sm hover:bg-gray-50 dark:border-gray-700">−</button>
-          <span className="w-6 text-center text-sm font-semibold">{servings}</span>
-          <button type="button" onClick={() => setServings(servings + 1)}
-            className="flex h-8 w-8 items-center justify-center rounded-full border border-gray-300 text-sm hover:bg-gray-50 dark:border-gray-700">+</button>
-        </div>
-        {nutrition?.available ? (
-          <div className="grid grid-cols-4 gap-2 text-center text-xs">
-            {[
-              { label: t("kcal"), val: Math.round(nutrition.kcal!) },
-              { label: t("protein"), val: `${nutrition.protein!.toFixed(1)}g` },
-              { label: t("fat"), val: `${nutrition.fat!.toFixed(1)}g` },
-              { label: t("carbs"), val: `${nutrition.carbs!.toFixed(1)}g` },
-            ].map(({ label, val }) => (
-              <div key={label} className="rounded-xl bg-gray-50 py-2 dark:bg-gray-900">
-                <div className="font-semibold text-gray-800 dark:text-gray-200">{val}</div>
-                <div className="text-gray-400">{label}</div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-xs text-gray-400">{t("nutrition_unavailable")}</p>
         )}
       </div>
 
