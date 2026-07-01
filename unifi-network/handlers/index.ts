@@ -275,8 +275,8 @@ async function listDevices(db: ModuleDbClient): Promise<HandlerResponse> {
 
   const result = [];
   for (const d of devices) {
-    const gatewayRows = await db.query<DeviceGatewayRow & { gateway_name: string }>(
-      `SELECT dg.*, g.name AS gateway_name FROM device_gateways dg JOIN gateways g ON g.id = dg.gateway_id WHERE dg.device_id = $1`,
+    const gatewayRows = await db.query<DeviceGatewayRow & { gateway_name_enc: string }>(
+      `SELECT dg.*, g.name_enc AS gateway_name_enc FROM device_gateways dg JOIN gateways g ON g.id = dg.gateway_id WHERE dg.device_id = $1`,
       [d.id],
     );
     result.push({
@@ -288,7 +288,7 @@ async function listDevices(db: ModuleDbClient): Promise<HandlerResponse> {
       gateways: await Promise.all(
         gatewayRows.map(async (g) => ({
           gateway_id: g.gateway_id,
-          gateway_name: g.gateway_name,
+          gateway_name: encKey ? await decrypt(encKey, g.gateway_name_enc).catch(() => "???") : "???",
           last_seen_at: g.last_seen_at,
           name_discrepancy: g.name_discrepancy,
           // Ergänzt 2026-07-01: tatsächlicher Name auf diesem Gateway, damit
@@ -512,17 +512,22 @@ async function listPendingDevices(db: ModuleDbClient, auth: ModuleAuthContext): 
     // Freigabe-Liste zeigen kann, für welche Gateways ein Gerät angefragt
     // wurde — createDevice() legt dafür bereits Platzhalter-Zeilen in
     // device_gateways an, wurden bisher aber nie mit ausgeliefert.
-    const targetGatewayRows = await db.query<{ gateway_name: string }>(
-      `SELECT g.name AS gateway_name FROM device_gateways dg JOIN gateways g ON g.id = dg.gateway_id WHERE dg.device_id = $1 ORDER BY g.name`,
+    const targetGatewayRows = await db.query<{ gateway_name_enc: string }>(
+      `SELECT g.name_enc AS gateway_name_enc FROM device_gateways dg JOIN gateways g ON g.id = dg.gateway_id WHERE dg.device_id = $1`,
       [d.id],
     );
+    const targetGatewayNames = (
+      await Promise.all(
+        targetGatewayRows.map((g) => (encKey ? decrypt(encKey, g.gateway_name_enc).catch(() => "???") : Promise.resolve("???"))),
+      )
+    ).sort((a, b) => a.localeCompare(b));
     result.push({
       id: d.id,
       alias: encKey ? await decrypt(encKey, d.alias_enc).catch(() => "???") : "???",
       note: encKey ? await decrypt(encKey, d.note_enc).catch(() => "???") : "???",
       mac: encKey ? await decrypt(encKey, d.mac_enc).catch(() => "???") : "???",
       target_vlan_name: d.target_vlan_name,
-      target_gateway_names: targetGatewayRows.map((g) => g.gateway_name),
+      target_gateway_names: targetGatewayNames,
       created_by: d.created_by,
       created_at: d.created_at,
     });
