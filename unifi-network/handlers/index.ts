@@ -686,11 +686,14 @@ async function resolveNameDiscrepancy(
 
     try {
       const apiKey = await decrypt(encKey, gw.api_key_enc);
-      const conn: GatewayConn = { name: gw.name, baseUrl: gw.base_url, apiKey };
+      const gwName = await decrypt(encKey, gw.name_enc).catch(() => "???");
+      const baseUrl = await decrypt(encKey, gw.base_url_enc);
+      const conn: GatewayConn = { name: gwName, baseUrl, apiKey };
       await updateUserAlias(conn, dg.user_alias_id, canonical_name);
+      const canonicalAliasEnc = await encrypt(encKey, canonical_name);
       await db.query(
-        `UPDATE device_gateways SET name_discrepancy = false WHERE device_id = $1 AND gateway_id = $2`,
-        [deviceId, dg.gateway_id],
+        `UPDATE device_gateways SET name_discrepancy = false, gateway_alias_enc = $1 WHERE device_id = $2 AND gateway_id = $3`,
+        [canonicalAliasEnc, deviceId, dg.gateway_id],
       );
     } catch {
       // Entscheidungsvorlage 4.4: if the write fails for one gateway,
