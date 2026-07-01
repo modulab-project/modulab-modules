@@ -50,6 +50,7 @@ import {
   createRadiusAccount,
   deleteRadiusAccount,
   createUserNote,
+  updateUserNote,
   deleteUserAlias,
   type GatewayConn,
 } from "./unifi-client.ts";
@@ -394,16 +395,57 @@ async function updateDevice(
   }
 
   const encKey = await getEncKey();
+
+  // Bugfix (2026-07-01): updateDevice() speicherte die Notiz bisher nur in
+  // der eigenen DB (note_enc), schrieb sie aber nie an UniFi zurück — ein
+  // Edit über die UI änderte im UniFi-WebIF nichts, obwohl dasselbe PUT per
+  // Skript direkt funktioniert (bestätigt). Jetzt wird nach dem DB-Update
+  // note per PUT /rest/user/{userAliasId} auf jedes Gateway geschrieben, auf
+  // dem das Gerät bereits provisioniert ist (nur für aktive Geräte relevant
+  // — bei pending_approval gibt es noch keine UniFi-Seite, die man
+  // aktualisieren könnte).
+  const syncResults: { gateway_id: string; status: "ok" | "skipped_no_user_alias" | "error"; error?: string }[] = [];
+
   if (note !== undefined && encKey) {
     const noteEnc = await encrypt(encKey, note);
     await db.query(`UPDATE devices SET note_enc = $1, updated_at = now() WHERE id = $2`, [noteEnc, id]);
+
+    if (device.status === "active") {
+      const gatewayRows = await db.query<DeviceGatewayRow>(
+        `SELECT * FROM device_gateways WHERE device_id = $1`,
+        [id],
+      );
+      for (const dg of gatewayRows) {
+        if (!dg.user_alias_id) {
+          syncResults.push({ gateway_id: dg.gateway_id, status: "skipped_no_user_alias" });
+          continue;
+        }
+        const [gw] = await db.query<GatewayRow>(`SELECT * FROM gateways WHERE id = $1`, [dg.gateway_id]);
+        if (!gw) continue;
+        try {
+          const apiKey = await decrypt(encKey, gw.api_key_enc);
+          const gwName = await decrypt(encKey, gw.name_enc).catch(() => "???");
+          const baseUrl = await decrypt(encKey, gw.base_url_enc);
+          const conn: GatewayConn = { name: gwName, baseUrl, apiKey };
+          await updateUserNote(conn, dg.user_alias_id, note);
+          syncResults.push({ gateway_id: dg.gateway_id, status: "ok" });
+        } catch (err) {
+          // Fehler nicht verschlucken (gleicher Bugfix-Grundsatz wie in der
+          // inzwischen entfernten resolveNameDiscrepancy() — ein
+          // fehlgeschlagenes Zurückschreiben muss sichtbar sein statt
+          // stillschweigend nichts zu tun).
+          syncResults.push({ gateway_id: dg.gateway_id, status: "error", error: String(err) });
+        }
+      }
+    }
   }
+
   if (target_vlan_name) {
     await db.query(`UPDATE devices SET target_vlan_name = $1, updated_at = now() WHERE id = $2`, [target_vlan_name, id]);
   }
 
   await audit(db, auth.userEmail, "device.update", "device", id);
-  return ok({ ok: true });
+  return ok({ ok: true, results: syncResults });
 }
 
 // Ergänzt 2026-07-01: Ziel-Gateways eines bereits aktiven Geräts ändern —
