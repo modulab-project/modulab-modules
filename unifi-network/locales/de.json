@@ -60,6 +60,9 @@
   "error_gateway_required": "Bitte mindestens ein Gateway auswählen",
   "error_name_url_required": "Name und Base-URL sind erforderlich",
   "error_api_key_required": "API-Key ist erforderlich",
+  "error_device_mac_pending": "Ein Gerät mit dieser MAC-Adresse wartet bereits auf Freigabe.",
+  "error_device_mac_rejected": "Ein Gerät mit dieser MAC-Adresse wurde bereits abgelehnt. Bitte den bestehenden Eintrag bearbeiten statt neu anzulegen.",
+  "error_device_mac_exists": "Ein Gerät mit dieser MAC-Adresse ist bereits vorhanden. Bitte in der Übersicht bearbeiten statt neu anzulegen.",
 
   "discrepancy_dialog_heading": "Namensabweichung auflösen",
   "label_canonical_name": "Einheitlicher Name",

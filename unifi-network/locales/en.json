@@ -60,6 +60,9 @@
   "error_gateway_required": "Please select at least one gateway",
   "error_name_url_required": "Name and base URL are required",
   "error_api_key_required": "API key is required",
+  "error_device_mac_pending": "A device with this MAC address is already awaiting approval.",
+  "error_device_mac_rejected": "A device with this MAC address was already rejected. Please edit the existing entry instead of creating a new one.",
+  "error_device_mac_exists": "A device with this MAC address already exists. Please edit it from the overview instead of creating a new one.",
 
   "discrepancy_dialog_heading": "Resolve name discrepancy",
   "label_canonical_name": "Canonical name",

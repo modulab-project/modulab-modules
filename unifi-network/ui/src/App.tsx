@@ -498,6 +498,21 @@ function OverviewView({ api }: { api: ReturnType<typeof useApi> }) {
 // client-seitige Live-Vorschau, keine eigene Validierungslogik, die von der
 // Backend-Regel abweichen könnte.
 
+// Bekannte Backend-Fehlercodes (badRequest("device_mac_pending") etc., siehe
+// createDevice() in handlers/index.ts) werden auf i18n-Keys gemappt; alles
+// andere (z. B. Netzwerkfehler) wird unverändert als Rohtext angezeigt.
+const KNOWN_ERROR_CODES: Record<string, string> = {
+  device_mac_pending: "error_device_mac_pending",
+  device_mac_rejected: "error_device_mac_rejected",
+  device_mac_exists: "error_device_mac_exists",
+};
+
+function translateApiError(err: unknown, t: (k: string) => string): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  const key = KNOWN_ERROR_CODES[raw.trim()];
+  return key ? t(key) : raw;
+}
+
 function previewSanitizedMac(input: string): { value: string; valid: boolean } {
   const stripped = input.replace(/[^a-fA-F0-9]/g, "").toLowerCase();
   const valid = /^[0-9a-f]{12}$/.test(stripped);
@@ -564,7 +579,7 @@ function OnboardingForm({
       });
       onDone();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(translateApiError(err, t));
     } finally {
       setSubmitting(false);
     }

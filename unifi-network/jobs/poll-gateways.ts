@@ -138,11 +138,24 @@ async function pollSingleGateway(ctx: JobContext, gw: GatewayRow): Promise<void>
       const gatewayAlias = user?.name ?? null;
       const discrepancy = gatewayAlias !== null && gatewayAlias !== canonicalAlias;
 
+      // Upsert statt reinem UPDATE: ein bereits über ein anderes Gateway
+      // bekanntes Gerät (device existiert) kann auf DIESEM Gateway trotzdem
+      // zum ersten Mal auftauchen (z.B. zweites Gateway nachträglich
+      // hinzugefügt, RADIUS-Account dort schon länger vorhanden) — dann gibt
+      // es noch keine device_gateways-Zeile für diese Kombination, und ein
+      // reines UPDATE träfe keine Zeile (Bug, gefunden 2026-07-01: zweites
+      // Gateway zeigte das Gerät nie an, obwohl der Account dort existierte).
       await db.query(
-        `UPDATE device_gateways
-         SET last_seen_at = $1, name_discrepancy = $2, user_alias_id = COALESCE($3, user_alias_id)
-         WHERE device_id = $4 AND gateway_id = $5`,
-        [lastSeen, discrepancy, user?._id ?? null, device.id, gw.id],
+        `INSERT INTO device_gateways
+           (device_id, gateway_id, radius_account_id, user_alias_id, last_seen_at, name_discrepancy, provisioning_status)
+         VALUES ($1, $2, $3, $4, $5, $6, 'ok')
+         ON CONFLICT (device_id, gateway_id)
+         DO UPDATE SET
+           last_seen_at = $5,
+           name_discrepancy = $6,
+           user_alias_id = COALESCE($4, device_gateways.user_alias_id),
+           radius_account_id = $3`,
+        [device.id, gw.id, acc._id, user?._id ?? null, lastSeen, discrepancy],
       );
     }
 

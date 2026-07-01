@@ -309,6 +309,22 @@ async function createDevice(
   const aliasEnc = await encrypt(encKey, alias);
   const noteEnc = await encrypt(encKey, input.note);
 
+  // Vorab-Check statt blindem INSERT (2026-07-01 ergänzt): mac_hash ist
+  // UNIQUE — ohne diesen Check schlug ein INSERT für eine bereits bekannte
+  // MAC (z. B. schon per Auto-Adopt übernommen, → 4.14, oder schon einmal
+  // onboarded) mit einem rohen Postgres-Fehler durch statt einer
+  // verständlichen Meldung.
+  const [existing] = await db.query<DeviceRow>(`SELECT * FROM devices WHERE mac_hash = $1`, [hash]);
+  if (existing) {
+    if (existing.status === "pending_approval") {
+      return badRequest("device_mac_pending");
+    }
+    if (existing.status === "rejected") {
+      return badRequest("device_mac_rejected");
+    }
+    return badRequest("device_mac_exists");
+  }
+
   // Entscheidungsvorlage 4.7: onboarding never provisions immediately.
   // The device is stored as pending_approval; no RADIUS/user API calls happen
   // until an Org-Admin/Super-Admin approves it (see approveDevice()).
