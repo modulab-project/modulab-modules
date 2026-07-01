@@ -52,12 +52,18 @@ import type {
 import { getEncKey, getMacHashKey, encrypt, decrypt, macHash, sanitizeMac, InvalidMacError } from "./crypto.ts";
 import {
   createRadiusAccount,
+  updateRadiusAccount,
   deleteRadiusAccount,
+  fetchRadiusAccounts,
+  fetchUsers,
   createUserNote,
   updateUserNote,
   deleteUserAlias,
   isAlreadyGoneError,
+  isDuplicateError,
   type GatewayConn,
+  type UnifiRadiusAccount,
+  type UnifiUser,
 } from "./unifi-client.ts";
 
 const ADMIN_ROLES = ["super-admin", "org-admin"];
@@ -751,11 +757,37 @@ async function provisionOnGateway(
       };
     }
 
-    const radiusAccount = await createRadiusAccount(conn, sanitized, vlan.vlan_number);
+    // Bugfix (2026-07-01, Entscheidungsvorlage 4.27): wird ein Gateway erst
+    // ab- und dann wieder zugewählt (oder existierte auf UniFi bereits vorher
+    // ein Account/Alias mit dieser MAC, z.B. ein Leftover aus einem zuvor
+    // fehlgeschlagenen Löschvorgang), lehnt UniFi das Neuanlegen mit
+    // "api.err.MacUsed" / "api.err.DuplicateAccountName" ab. Statt die ganze
+    // Zuweisung fehlschlagen zu lassen, wird in diesem Fall der bestehende
+    // Account/Alias per MAC gesucht und übernommen (Update statt Create).
+    let radiusAccount: UnifiRadiusAccount;
+    try {
+      radiusAccount = await createRadiusAccount(conn, sanitized, vlan.vlan_number);
+    } catch (err) {
+      if (!isDuplicateError(err)) throw err;
+      const existing = (await fetchRadiusAccounts(conn)).find((a) => a.name === sanitized);
+      if (!existing) throw err;
+      await updateRadiusAccount(conn, existing._id, sanitized, vlan.vlan_number);
+      radiusAccount = existing;
+    }
+
     // "name" entfernt (2026-07-01): nur noch note wird bei UniFi gesetzt.
     // note ist auf devices.note_enc Pflichtfeld, kann hier also nicht leer
     // sein — der Fallback ("") ist nur eine defensive Typ-Absicherung.
-    const userAlias = await createUserNote(conn, sanitized, note ?? "");
+    let userAlias: UnifiUser;
+    try {
+      userAlias = await createUserNote(conn, sanitized, note ?? "");
+    } catch (err) {
+      if (!isDuplicateError(err)) throw err;
+      const existingUser = (await fetchUsers(conn)).find((u) => u.mac === sanitized);
+      if (!existingUser) throw err;
+      await updateUserNote(conn, existingUser._id, note ?? "");
+      userAlias = existingUser;
+    }
 
     await db.query(
       `INSERT INTO device_gateways

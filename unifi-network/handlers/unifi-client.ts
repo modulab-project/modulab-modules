@@ -51,6 +51,18 @@ export function isAlreadyGoneError(err: unknown): boolean {
   return msg.includes("api.err.IdInvalid") || msg.includes("HTTP 404");
 }
 
+// Entscheidungsvorlage 4.27 (2026-07-01): beim (Wieder-)Anlegen eines RADIUS-
+// Accounts/User-Alias meldet UniFi einen bereits vorhandenen Eintrag mit
+// gleicher MAC/gleichem Namen als HTTP 400 "api.err.MacUsed" bzw.
+// "api.err.DuplicateAccountName" statt eines 409 Conflict. Wird genutzt, um
+// in provisionOnGateway() auf den Adopt-Pfad (bestehenden Account/Alias per
+// MAC suchen und aktualisieren statt neu anzulegen) umzuschalten, statt die
+// ganze Zuweisung fehlschlagen zu lassen.
+export function isDuplicateError(err: unknown): boolean {
+  const msg = String(err instanceof Error ? err.message : err);
+  return msg.includes("api.err.MacUsed") || msg.includes("api.err.DuplicateAccountName");
+}
+
 // ── Private-IP validation (Entscheidungsvorlage Abschnitt 1.2) ──────────────
 //
 // Application-level check, NOT a real Deno sandbox boundary (Deno's

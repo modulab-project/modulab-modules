@@ -380,10 +380,18 @@ function OverviewView({ api }: { api: ReturnType<typeof useApi> }) {
 
         {devices.length > 0 && (
           <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-            <div className="relative flex-1 sm:max-w-xs">
+            {/* max-w-xs ist nicht Teil des Core-Tailwind-Whitelists (Module
+                haben keinen eigenen Compiler, siehe Entscheidungsvorlage) und
+                wurde beim Purge entfernt — daher hier per Inline-Style
+                begrenzt statt per Utility-Klasse. */}
+            <div className="relative flex-1" style={{ maxWidth: "20rem" }}>
               <i className="ti ti-search pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[14px] text-gray-400" />
               <input
                 type="text"
+                name="unifi-network-device-search"
+                autoComplete="off"
+                data-1p-ignore="true"
+                data-lpignore="true"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder={t("search_placeholder")}
