@@ -167,10 +167,10 @@ async function createGateway(db: ModuleDbClient, auth: ModuleAuthContext, body: 
   const [row] = await db.query<GatewayRow>(
     `INSERT INTO gateways (name, base_url, api_key_enc, created_by)
      VALUES ($1, $2, $3, $4) RETURNING id, name, base_url, status, created_at`,
-    [name, base_url, apiKeyEnc, auth.userId],
+    [name, base_url, apiKeyEnc, auth.userEmail],
   );
 
-  await audit(db, auth.userId, "gateway.create", "gateway", row.id, name);
+  await audit(db, auth.userEmail, "gateway.create", "gateway", row.id, name);
   return created(row);
 }
 
@@ -198,14 +198,14 @@ async function updateGateway(
     );
   }
 
-  await audit(db, auth.userId, "gateway.update", "gateway", id, name);
+  await audit(db, auth.userEmail, "gateway.update", "gateway", id, name);
   return ok({ ok: true });
 }
 
 async function deleteGateway(db: ModuleDbClient, auth: ModuleAuthContext, id: string): Promise<HandlerResponse> {
   if (!isAdmin(auth)) return forbidden();
   await db.query(`DELETE FROM gateways WHERE id = $1`, [id]);
-  await audit(db, auth.userId, "gateway.delete", "gateway", id);
+  await audit(db, auth.userEmail, "gateway.delete", "gateway", id);
   return ok({ ok: true });
 }
 
@@ -315,7 +315,7 @@ async function createDevice(
   const [row] = await db.query<DeviceRow>(
     `INSERT INTO devices (mac_enc, mac_hash, alias_enc, note_enc, target_vlan_name, status, created_by)
      VALUES ($1, $2, $3, $4, $5, 'pending_approval', $6) RETURNING id`,
-    [macEnc, hash, aliasEnc, noteEnc, input.target_vlan_name, auth.userId],
+    [macEnc, hash, aliasEnc, noteEnc, input.target_vlan_name, auth.userEmail],
   );
 
   // Store the requested target gateways as device_gateways rows with a
@@ -330,7 +330,7 @@ async function createDevice(
     );
   }
 
-  await audit(db, auth.userId, "device.create", "device", row.id, alias);
+  await audit(db, auth.userEmail, "device.create", "device", row.id, alias);
   return created({ id: row.id, status: "pending_approval" });
 }
 
@@ -346,7 +346,7 @@ async function updateDevice(
   // Entscheidungsvorlage 4.7: editing an already-approved device requires
   // Admin; a user can still amend their own not-yet-approved submission.
   if (device.status === "active" && !isAdmin(auth)) return forbidden();
-  if (device.status === "pending_approval" && device.created_by !== auth.userId && !isAdmin(auth)) return forbidden();
+  if (device.status === "pending_approval" && device.created_by !== auth.userEmail && !isAdmin(auth)) return forbidden();
 
   const { alias, note, target_vlan_name } = body as { alias?: string; note?: string; target_vlan_name?: string };
 
@@ -371,7 +371,7 @@ async function updateDevice(
     await db.query(`UPDATE devices SET target_vlan_name = $1, updated_at = now() WHERE id = $2`, [target_vlan_name, id]);
   }
 
-  await audit(db, auth.userId, "device.update", "device", id);
+  await audit(db, auth.userEmail, "device.update", "device", id);
   return ok({ ok: true });
 }
 
@@ -383,7 +383,7 @@ async function deleteDevice(db: ModuleDbClient, auth: ModuleAuthContext, id: str
   // aktiven Geräts verlangt Admin, analog zu updateDevice. Ein Nutzer darf
   // weiterhin seine eigene, noch nicht freigegebene Einreichung zurückziehen.
   if (device.status === "active" && !isAdmin(auth)) return forbidden();
-  if (device.status === "pending_approval" && device.created_by !== auth.userId && !isAdmin(auth)) return forbidden();
+  if (device.status === "pending_approval" && device.created_by !== auth.userEmail && !isAdmin(auth)) return forbidden();
 
   const gatewayRows = await db.query<DeviceGatewayRow>(`SELECT * FROM device_gateways WHERE device_id = $1`, [id]);
 
@@ -392,7 +392,7 @@ async function deleteDevice(db: ModuleDbClient, auth: ModuleAuthContext, id: str
   }
 
   await db.query(`DELETE FROM devices WHERE id = $1`, [id]);
-  await audit(db, auth.userId, "device.delete", "device", id);
+  await audit(db, auth.userEmail, "device.delete", "device", id);
   return ok({ ok: true });
 }
 
@@ -411,7 +411,7 @@ async function deleteDeviceFromGateway(
   if (!dg) return notFound();
 
   await queueOrExecuteDeletion(db, deviceId, gatewayId, dg.radius_account_id, dg.user_alias_id);
-  await audit(db, auth.userId, "device.gateway_remove", "device", deviceId, gatewayId);
+  await audit(db, auth.userEmail, "device.gateway_remove", "device", deviceId, gatewayId);
   return ok({ ok: true });
 }
 
@@ -502,10 +502,10 @@ async function approveDevice(db: ModuleDbClient, auth: ModuleAuthContext, id: st
   }
 
   await db.query(`UPDATE devices SET status = 'active', approved_by = $1, approved_at = now() WHERE id = $2`, [
-    auth.userId,
+    auth.userEmail,
     id,
   ]);
-  await audit(db, auth.userId, "device.approve", "device", id, alias);
+  await audit(db, auth.userEmail, "device.approve", "device", id, alias);
 
   return ok({ status: "active", results });
 }
@@ -582,7 +582,7 @@ async function rejectDevice(db: ModuleDbClient, auth: ModuleAuthContext, id: str
   if (!isAdmin(auth)) return forbidden();
   // No API calls were ever made for a pending_approval device — safe to just discard.
   await db.query(`UPDATE devices SET status = 'rejected', updated_at = now() WHERE id = $1`, [id]);
-  await audit(db, auth.userId, "device.reject", "device", id);
+  await audit(db, auth.userEmail, "device.reject", "device", id);
   return ok({ status: "rejected" });
 }
 
@@ -625,6 +625,6 @@ async function resolveNameDiscrepancy(
     }
   }
 
-  await audit(db, auth.userId, "device.resolve_name", "device", deviceId, canonical_name);
+  await audit(db, auth.userEmail, "device.resolve_name", "device", deviceId, canonical_name);
   return ok({ ok: true });
 }
