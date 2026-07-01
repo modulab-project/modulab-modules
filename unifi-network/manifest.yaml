@@ -1,0 +1,60 @@
+name: "unifi-network"
+version: "0.1.0"
+display_name:
+  en: "UniFi Network"
+  de: "UniFi Netzwerk"
+description: "Manage RADIUS-based MAC authentication, dynamic VLAN assignment, and live connection status across multiple independent UniFi gateways"
+icon: "ti-router"
+author: "modulab-project"
+license: "AGPL-3.0"
+category: "network"
+min_core_api: "v1"
+min_core_ui: "v1"
+tier: 2
+scope: "per-location"
+startup: "eager"
+
+handler: "handlers/index.ts"
+
+resources:
+  memory: "256m"
+  timeout: "20s"
+
+storage:
+  quota: "1g"
+
+# Kein credentials-Block: Gateway-API-Keys werden vom Modul selbst in einer
+# eigenen `gateways`-Tabelle verwaltet (AES-256-GCM verschlüsselt), nicht über
+# den Core-credentials-Mechanismus. Siehe Entscheidungsvorlage Abschnitt 2.
+
+# Offene Netzwerk-Erlaubnis: Gateway-URLs werden vom Nutzer zur Laufzeit
+# angelegt, eine statische egress_allowlist kann das nicht abbilden.
+# Der Handler validiert selbst, dass jede Base-URL auf eine private
+# IP-Range auflöst (siehe handlers/unifi-client.ts, isPrivateHost()).
+# Siehe Entscheidungsvorlage Abschnitt 1.2.
+#
+# HINWEIS: Das reale recipes-Modul zeigt, dass egress_allowlist normalerweise
+# eine einfache Liste konkreter Hostnamen ist (z.B. "world.openfoodfacts.org"),
+# nicht host/port-Objekte wie zuvor hier angenommen. Für einen echten
+# Wildcard-Eintrag ("beliebiger Host im LAN") ist unklar, ob Core dafür ein
+# eigenes Format vorsieht (z.B. "*" als String-Eintrag) — das war in keinem
+# der bisher gesehenen Referenzmodule nötig, da sie feste Ziel-Domains haben.
+# Vor dem produktiven Einsatz mit Core-Doku/-Maintainer abgleichen, welches
+# Format für "beliebiger LAN-Host" tatsächlich unterstützt wird.
+egress_allowlist:
+  - "*"
+
+requested_scopes:
+  - "Dieses Modul kann zu beliebigen Zielen im lokalen Netzwerk verbinden (auf vom Nutzer konfigurierte UniFi-Gateways beschränkt durch Anwendungslogik, nicht durch das Betriebssystem)"
+
+# Warnung, die bei der Installation im Klartext angezeigt wird
+# (siehe Core-Installations-Dialog, requested_scopes-Mechanismus):
+#   "Dieses Modul kann zu beliebigen Zielen im lokalen Netzwerk verbinden
+#    (auf vom Nutzer konfigurierte UniFi-Gateways beschränkt durch
+#    Anwendungslogik, nicht durch das Betriebssystem)."
+
+jobs:
+  - name: "poll_gateways"
+    schedule: "* * * * *"        # jede Minute; Cron-Format erlaubt kein Sub-Minuten-Intervall
+    handler: "jobs/poll-gateways.ts"
+    catch_up: false
