@@ -196,7 +196,7 @@ function statusBadge(status: GatewayStatus, t: (k: string) => string) {
   const map: Record<GatewayStatus, { label: string; cls: string; icon: string }> = {
     online: {
       label: t("status_online"),
-      cls: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300",
+      cls: "bg-teal-50 text-teal-700 dark:bg-teal-950 dark:text-teal-300",
       icon: "ti-circle-check",
     },
     offline: {
@@ -598,7 +598,7 @@ function OnboardingForm({
           style={{ fontSize: "16px" }}
         />
         {mac.length > 0 && (
-          <span className={`mt-1 block text-xs ${macPreview.valid ? "text-emerald-600" : "text-red-500"}`}>
+          <span className={`mt-1 block text-xs ${macPreview.valid ? "text-teal-600" : "text-red-500"}`}>
             {macPreview.valid ? macPreview.value : t("error_invalid_mac")}
           </span>
         )}
@@ -1024,7 +1024,7 @@ function PendingApprovalList({
                   type="button"
                   onClick={() => approve(r.id)}
                   disabled={busyId === r.id}
-                  className="flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+                  className="flex items-center gap-1 rounded-lg bg-teal-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-teal-700 disabled:opacity-50"
                 >
                   <i className="ti ti-check text-[13px]" />
                   {t("btn_approve")}
@@ -1047,7 +1047,7 @@ function PendingApprovalList({
                   <div key={g.gateway_id} className="flex items-center gap-1">
                     <span className="text-gray-400">{g.gateway_name}:</span>
                     {g.provisioning_status === "ok" && (
-                      <span className="text-emerald-600 dark:text-emerald-400">{t("provisioning_ok")}</span>
+                      <span className="text-teal-600 dark:text-teal-400">{t("provisioning_ok")}</span>
                     )}
                     {g.provisioning_status === "vlan_not_found" && (
                       <span className="text-red-500">{t("vlan_not_found")}</span>
