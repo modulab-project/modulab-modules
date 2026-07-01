@@ -52,6 +52,7 @@ interface PendingDevice {
   note: string;
   mac: string;
   target_vlan_name: string;
+  target_gateway_names: string[];
   created_by: string;
   created_at: string;
 }
@@ -1059,6 +1060,20 @@ function PendingApprovalList({
                 <p className="mt-1 text-[11px] text-gray-400">
                   {t("requested_by", { user: r.created_by })} · {t("col_vlan")}: {r.target_vlan_name}
                 </p>
+                <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                  <span className="text-[11px] text-gray-400">{t("label_target_gateways")}:</span>
+                  {r.target_gateway_names.length === 0 && (
+                    <span className="text-[11px] text-gray-400">—</span>
+                  )}
+                  {r.target_gateway_names.map((name) => (
+                    <span
+                      key={name}
+                      className="inline-block rounded-full bg-gray-100 px-2 py-0.5 text-[11px] text-gray-600 dark:bg-gray-800 dark:text-gray-300"
+                    >
+                      {name}
+                    </span>
+                  ))}
+                </div>
               </div>
               <div className="flex flex-none gap-1.5">
                 <button

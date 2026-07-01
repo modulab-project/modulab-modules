@@ -483,12 +483,21 @@ async function listPendingDevices(db: ModuleDbClient, auth: ModuleAuthContext): 
 
   const result = [];
   for (const d of rows) {
+    // Ergänzt 2026-07-01: Ziel-Gateways mitliefern, damit die
+    // Freigabe-Liste zeigen kann, für welche Gateways ein Gerät angefragt
+    // wurde — createDevice() legt dafür bereits Platzhalter-Zeilen in
+    // device_gateways an, wurden bisher aber nie mit ausgeliefert.
+    const targetGatewayRows = await db.query<{ gateway_name: string }>(
+      `SELECT g.name AS gateway_name FROM device_gateways dg JOIN gateways g ON g.id = dg.gateway_id WHERE dg.device_id = $1 ORDER BY g.name`,
+      [d.id],
+    );
     result.push({
       id: d.id,
       alias: encKey ? await decrypt(encKey, d.alias_enc).catch(() => "???") : "???",
       note: encKey ? await decrypt(encKey, d.note_enc).catch(() => "???") : "???",
       mac: encKey ? await decrypt(encKey, d.mac_enc).catch(() => "???") : "???",
       target_vlan_name: d.target_vlan_name,
+      target_gateway_names: targetGatewayRows.map((g) => g.gateway_name),
       created_by: d.created_by,
       created_at: d.created_at,
     });
