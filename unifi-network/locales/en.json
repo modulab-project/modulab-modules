@@ -36,6 +36,7 @@
   "vlan_not_found": "VLAN not found",
   "provisioning_error": "Error",
   "provisioning_ok": "Success",
+  "note_discrepancy_hint": "Note differs between gateways",
 
   "onboard_heading": "Add new device",
   "onboard_approval_hint": "New devices must be approved by an admin before they become active.",
@@ -59,7 +60,13 @@
   "error_device_mac_rejected": "A device with this MAC address was already rejected. Please edit the existing entry instead of creating a new one.",
   "error_device_mac_exists": "A device with this MAC address already exists. Please edit it from the overview instead of creating a new one.",
 
+  "note_discrepancy_dialog_heading": "Resolve note discrepancy",
+  "note_discrepancy_click_hint": "Click a gateway to use its note.",
+  "use_this_note_hint": "Use this note",
+  "no_note_set": "no note set",
+  "label_canonical_note": "Canonical note",
   "btn_cancel": "Cancel",
+  "btn_resolve_sync": "Resolve & sync",
 
   "edit_device_heading": "Edit device",
   "confirm_delete_device": "Really delete device \"{{name}}\" everywhere?",

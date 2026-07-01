@@ -31,6 +31,10 @@ interface DeviceGatewayView {
   gateway_id: string;
   gateway_name: string;
   last_seen_at: string | null;
+  // Ergänzt 2026-07-01: Notiz-Diskrepanz-Mechanismus (Nachfolger des
+  // entfernten Namensdiskrepanz-Mechanismus, jetzt für "note" statt "name").
+  note_discrepancy: boolean;
+  gateway_note: string | null;
   provisioning_status: "ok" | "vlan_not_found" | "error";
   provisioning_error: string | null;
 }
@@ -247,6 +251,7 @@ function OverviewView({ api }: { api: ReturnType<typeof useApi> }) {
   const [devices, setDevices] = useState<Device[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [noteDialogDeviceId, setNoteDialogDeviceId] = useState<string | null>(null);
   const [editDeviceId, setEditDeviceId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
@@ -285,6 +290,8 @@ function OverviewView({ api }: { api: ReturnType<typeof useApi> }) {
     },
     [api, load],
   );
+
+  const hasNoteDiscrepancy = (d: Device) => d.gateways.some((g) => g.note_discrepancy);
 
   const removeDevice = useCallback(
     async (device: Device) => {
@@ -387,7 +394,19 @@ function OverviewView({ api }: { api: ReturnType<typeof useApi> }) {
                 {devices.map((d) => (
                   <tr key={d.id} className="border-b border-gray-100 last:border-0 dark:border-gray-800/60">
                     <td className="px-3 py-2">
-                      <span className="font-medium text-gray-800 dark:text-gray-100">{d.note}</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-medium text-gray-800 dark:text-gray-100">{d.note}</span>
+                        {hasNoteDiscrepancy(d) && (
+                          <button
+                            type="button"
+                            onClick={() => setNoteDialogDeviceId(d.id)}
+                            className="flex h-5 w-5 items-center justify-center rounded-full text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950"
+                            title={t("note_discrepancy_hint")}
+                          >
+                            <i className="ti ti-alert-triangle text-[13px]" />
+                          </button>
+                        )}
+                      </div>
                     </td>
                     <td className="px-3 py-2 font-mono text-xs text-gray-600 dark:text-gray-300">{d.mac}</td>
                     <td className="px-3 py-2">
@@ -447,6 +466,18 @@ function OverviewView({ api }: { api: ReturnType<typeof useApi> }) {
           </div>
         )}
       </div>
+
+      {noteDialogDeviceId && (
+        <NoteDiscrepancyDialog
+          api={api}
+          device={devices.find((d) => d.id === noteDialogDeviceId)!}
+          onClose={() => setNoteDialogDeviceId(null)}
+          onResolved={() => {
+            setNoteDialogDeviceId(null);
+            load();
+          }}
+        />
+      )}
 
       {editDeviceId && (
         <EditDeviceDialog
@@ -660,6 +691,128 @@ function OnboardingForm({
       >
         {submitting ? t("submitting") : t("btn_submit_onboard")}
       </button>
+    </div>
+  );
+}
+
+// ── Note discrepancy dialog ───────────────────────────────────────────────────
+// Zeigt die pro Gateway abweichende Notiz und lässt den Nutzer einen
+// einheitlichen Wert wählen/eingeben; Sync erfolgt automatisch auf alle
+// Gateways. Nachfolger des entfernten NameDiscrepancyDialog (2026-07-01),
+// jetzt für "note" statt "name" — note ist das einzige Freitextfeld, kann
+// aber weiterhin pro Gateway auseinanderlaufen, wenn direkt im UniFi-WebIF
+// geändert statt über das Modul.
+
+function NoteDiscrepancyDialog({
+  api,
+  device,
+  onClose,
+  onResolved,
+}: {
+  api: ReturnType<typeof useApi>;
+  device: Device;
+  onClose: () => void;
+  onResolved: () => void;
+}) {
+  const { t } = useTranslation(NS);
+  const [canonicalNote, setCanonicalNote] = useState(device.note);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    if (!canonicalNote.trim()) {
+      setError(t("error_note_required"));
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      await api.mutate("POST", `/devices/${device.id}/resolve-note`, {
+        canonical_note: canonicalNote.trim(),
+      });
+      onResolved();
+    } catch (err) {
+      setError(translateApiError(err, t));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+      <div className="w-full max-w-md rounded-2xl bg-white p-5 dark:bg-gray-900">
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100">
+            {t("note_discrepancy_dialog_heading")}
+          </h3>
+          <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+            <i className="ti ti-x text-[16px]" />
+          </button>
+        </div>
+
+        {error && (
+          <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+            {error}
+          </div>
+        )}
+
+        <p className="mb-2 text-xs text-gray-500 dark:text-gray-400 font-mono">{device.mac}</p>
+
+        <div className="mb-4 flex flex-col gap-1.5">
+          {device.gateways.map((g) => (
+            <button
+              key={g.gateway_id}
+              type="button"
+              onClick={() => g.gateway_note && setCanonicalNote(g.gateway_note)}
+              disabled={!g.gateway_note}
+              className={`flex items-center justify-between rounded-lg border px-3 py-1.5 text-left text-xs disabled:cursor-default ${
+                g.note_discrepancy
+                  ? "border-amber-200 bg-amber-50 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950 dark:hover:bg-amber-900"
+                  : "border-gray-200 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-800"
+              }`}
+              title={g.gateway_note ? t("use_this_note_hint") : ""}
+            >
+              <span className="text-gray-500">{g.gateway_name}</span>
+              <span className="flex items-center gap-1">
+                <span className={g.note_discrepancy ? "font-medium text-amber-700 dark:text-amber-300" : "text-gray-700 dark:text-gray-200"}>
+                  {g.gateway_note ?? t("no_note_set")}
+                </span>
+                {g.note_discrepancy && <i className="ti ti-alert-triangle text-[12px] text-amber-600 dark:text-amber-400" />}
+              </span>
+            </button>
+          ))}
+        </div>
+        <p className="mb-4 -mt-2 text-[11px] text-gray-400">{t("note_discrepancy_click_hint")}</p>
+
+        <label className="mb-4 block">
+          <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">{t("label_canonical_note")}</span>
+          <input
+            type="text"
+            value={canonicalNote}
+            onChange={(e) => setCanonicalNote(e.target.value)}
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 dark:border-gray-700 dark:bg-gray-800"
+            style={{ fontSize: "16px" }}
+          />
+        </label>
+
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+          >
+            {t("btn_cancel")}
+          </button>
+          <button
+            type="button"
+            onClick={submit}
+            disabled={submitting}
+            className="rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50"
+          >
+            {submitting ? t("submitting") : t("btn_resolve_sync")}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

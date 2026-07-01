@@ -88,10 +88,14 @@ export interface DeviceGatewayRow {
   user_alias_id: string | null;
   resolved_vlan_id: string | null;
   last_seen_at: string | null;
-  // name_discrepancy/gateway_alias_enc entfernt (2026-07-01): der gesamte
-  // Namensdiskrepanz-Mechanismus entfällt zusammen mit dem UniFi-name-Feld —
-  // mit nur noch einem vom Modul verwalteten Feld (note) gibt es nichts mehr,
-  // was zwischen Gateways auseinanderlaufen könnte.
+  // name_discrepancy/gateway_alias_enc entfernt (2026-07-01): der
+  // ursprüngliche Namensdiskrepanz-Mechanismus entfiel zusammen mit dem
+  // UniFi-name-Feld. Direkt danach aber wieder eingeführt für "note" (die
+  // Notiz kann ebenso pro Gateway auseinanderlaufen, wenn sie direkt im
+  // UniFi-WebIF geändert wird statt über das Modul) — siehe Migration
+  // 0005_note_discrepancy.sql.
+  note_discrepancy: boolean;
+  gateway_note_enc: string | null; // AES-256-GCM verschlüsselt — auf diesem Gateway tatsächlich gesetzte Notiz, NULL falls noch nie gepollt
   provisioning_status: ProvisioningStatus;
   provisioning_error: string | null;
   provisioned_at: string;

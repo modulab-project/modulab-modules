@@ -28,9 +28,13 @@
  *   POST   /devices/:id/approve            approve -> run gateway provisioning loop
  *   POST   /devices/:id/reject             reject -> discard, no API calls ever made
  *
+ * Note discrepancy resolution
+ *   POST   /devices/:id/resolve-note       set canonical note, sync to all gateways
+ *
  * HINWEIS (2026-07-01): das Name-Konzept (UniFi-Feld "name", kanonischer
- * Alias, Namensdiskrepanz-Sync) wurde vollständig entfernt. Das Modul nutzt
- * ausschließlich die Notiz (UniFi-Feld "note") als einziges Freitextfeld.
+ * Alias) wurde vollständig entfernt. Das Modul nutzt ausschließlich die
+ * Notiz (UniFi-Feld "note") als einziges Freitextfeld — der Diskrepanz-
+ * Mechanismus wurde dafür direkt danach wieder eingeführt (siehe oben).
  */
 
 import type {
@@ -136,6 +140,11 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
     return approveDevice(db, auth, segId(pathname, -2));
   if (method === "POST" && pathname.match(/^\/devices\/[^/]+\/reject$/))
     return rejectDevice(db, auth, segId(pathname, -2));
+
+  // ── Note discrepancy resolution ──────────────────────────────────────────
+
+  if (method === "POST" && pathname.match(/^\/devices\/[^/]+\/resolve-note$/))
+    return resolveNoteDiscrepancy(db, auth, segId(pathname, -2), body);
 
   return notFound();
 }
@@ -290,6 +299,13 @@ async function listDevices(db: ModuleDbClient): Promise<HandlerResponse> {
           gateway_id: g.gateway_id,
           gateway_name: encKey ? await decrypt(encKey, g.gateway_name_enc).catch(() => "???") : "???",
           last_seen_at: g.last_seen_at,
+          note_discrepancy: g.note_discrepancy,
+          // Ergänzt 2026-07-01: die tatsächlich auf diesem Gateway gesetzte
+          // Notiz, damit der Diskrepanz-Dialog die konkreten Werte
+          // nebeneinander zeigen kann (gleiches Muster wie zuvor gateway_alias
+          // für "name", jetzt für "note").
+          gateway_note:
+            g.gateway_note_enc && encKey ? await decrypt(encKey, g.gateway_note_enc).catch(() => null) : null,
           provisioning_status: g.provisioning_status,
           provisioning_error: g.provisioning_error,
         })),
@@ -428,6 +444,13 @@ async function updateDevice(
           const baseUrl = await decrypt(encKey, gw.base_url_enc);
           const conn: GatewayConn = { name: gwName, baseUrl, apiKey };
           await updateUserNote(conn, dg.user_alias_id, note);
+          // note_discrepancy sofort zurücksetzen, statt bis zum nächsten
+          // Cron-Poll zu warten (gleiches Muster wie resolveNoteDiscrepancy()).
+          const noteEncForGateway = await encrypt(encKey, note);
+          await db.query(
+            `UPDATE device_gateways SET note_discrepancy = false, gateway_note_enc = $1 WHERE device_id = $2 AND gateway_id = $3`,
+            [noteEncForGateway, id, dg.gateway_id],
+          );
           syncResults.push({ gateway_id: dg.gateway_id, status: "ok" });
         } catch (err) {
           // Fehler nicht verschlucken (gleicher Bugfix-Grundsatz wie in der
@@ -753,6 +776,60 @@ async function rejectDevice(db: ModuleDbClient, auth: ModuleAuthContext, id: str
 
 // Namensdiskrepanz-Mechanismus (Entscheidungsvorlage 4.4) komplett entfernt
 // (2026-07-01): baute ausschließlich auf dem UniFi-name-Feld auf, das nicht
-// mehr genutzt wird. Mit nur noch einem vom Modul verwalteten Feld (note)
-// gibt es nichts mehr, was zwischen Gateways auseinanderlaufen könnte —
-// siehe Migration 0004_remove_name_use_note_only.sql.
+// mehr genutzt wird — siehe Migration 0004_remove_name_use_note_only.sql.
+// Direkt danach wieder eingeführt, diesmal für "note" (→ resolveNoteDiscrepancy
+// unten), da note ebenfalls pro Gateway auseinanderlaufen kann, wenn direkt
+// im UniFi-WebIF geändert statt über das Modul (Migration 0005_note_discrepancy.sql).
+
+async function resolveNoteDiscrepancy(
+  db: ModuleDbClient,
+  auth: ModuleAuthContext,
+  deviceId: string,
+  body: unknown,
+): Promise<HandlerResponse> {
+  const { canonical_note } = body as { canonical_note?: string };
+  if (!canonical_note || canonical_note.trim().length === 0) return badRequest("canonical_note is required");
+
+  const encKey = await getEncKey();
+  if (!encKey) return { status: 500, body: { error: "MODULAB_ENCRYPTION_KEY not configured on server" } };
+
+  const noteEnc = await encrypt(encKey, canonical_note);
+  await db.query(`UPDATE devices SET note_enc = $1, updated_at = now() WHERE id = $2`, [noteEnc, deviceId]);
+
+  const gatewayRows = await db.query<DeviceGatewayRow>(`SELECT * FROM device_gateways WHERE device_id = $1`, [deviceId]);
+
+  // Gleiches Fehlerbehandlungs-Muster wie im ursprünglichen
+  // resolveNameDiscrepancy(): Ergebnisse pro Gateway sammeln und
+  // zurückgeben, statt einen Fehlschlag stillschweigend zu verschlucken.
+  const results: { gateway_id: string; status: "ok" | "skipped_no_user_alias" | "error"; error?: string }[] = [];
+
+  for (const dg of gatewayRows) {
+    if (!dg.user_alias_id) {
+      results.push({ gateway_id: dg.gateway_id, status: "skipped_no_user_alias" });
+      continue;
+    }
+    const [gw] = await db.query<GatewayRow>(`SELECT * FROM gateways WHERE id = $1`, [dg.gateway_id]);
+    if (!gw) continue;
+
+    try {
+      const apiKey = await decrypt(encKey, gw.api_key_enc);
+      const gwName = await decrypt(encKey, gw.name_enc).catch(() => "???");
+      const baseUrl = await decrypt(encKey, gw.base_url_enc);
+      const conn: GatewayConn = { name: gwName, baseUrl, apiKey };
+      await updateUserNote(conn, dg.user_alias_id, canonical_note);
+      const canonicalNoteEnc = await encrypt(encKey, canonical_note);
+      await db.query(
+        `UPDATE device_gateways SET note_discrepancy = false, gateway_note_enc = $1 WHERE device_id = $2 AND gateway_id = $3`,
+        [canonicalNoteEnc, deviceId, dg.gateway_id],
+      );
+      results.push({ gateway_id: dg.gateway_id, status: "ok" });
+    } catch (err) {
+      // Fehler nicht verschlucken — bleibt note_discrepancy = true, wird
+      // beim nächsten Cron-Poll erneut erkannt und kann erneut versucht werden.
+      results.push({ gateway_id: dg.gateway_id, status: "error", error: String(err) });
+    }
+  }
+
+  await audit(db, auth.userEmail, "device.resolve_note", "device", deviceId, canonical_note);
+  return ok({ ok: true, results });
+}

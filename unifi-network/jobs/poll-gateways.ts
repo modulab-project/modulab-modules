@@ -13,8 +13,15 @@
 //
 // NAME-KONZEPT ENTFERNT (2026-07-01): das Modul nutzt ausschließlich das
 // UniFi-Feld "note" als einziges Freitextfeld — "name" wird nie mehr
-// gelesen oder geschrieben. Der bisherige Namensdiskrepanz-Mechanismus
-// (Vergleich von UniFi-name zwischen Gateways) entfällt damit ersatzlos.
+// gelesen oder geschrieben.
+//
+// NOTE-DISKREPANZ (2026-07-01, direkt danach ergänzt): note kann trotzdem
+// pro Gateway auseinanderlaufen, wenn jemand direkt im UniFi-WebIF eine
+// Notiz ändert statt über das Modul — der Poll-Job vergleicht daher bei
+// jedem Durchlauf die tatsächlich auf dem Gateway hinterlegte note gegen
+// devices.note_enc und markiert Abweichungen (device_gateways.note_discrepancy
+// + gateway_note_enc, Migration 0005_note_discrepancy.sql). Gleiches Muster
+// wie zuvor für name (Entscheidungsvorlage 4.4, dort entfernt).
 //
 // NOTE: MAC matching across RADIUS/user/client-history data happens in-memory
 // per gateway (small per-gateway result sets), then persisted via mac_hash
@@ -145,6 +152,21 @@ async function pollSingleGateway(ctx: JobContext, gw: GatewayRow): Promise<void>
         if (!device) continue; // adoption failed (e.g. encrypt error) — skip, will retry next poll
       }
 
+      // Note-Diskrepanz-Check: die tatsächlich auf diesem Gateway hinterlegte
+      // Notiz (user?.note) gegen den kanonischen Wert (devices.note_enc)
+      // vergleichen. `undefined` bei user?.note bedeutet "auf UniFi noch nie
+      // gesetzt" — wird NICHT als Abweichung gewertet (kein Vergleichswert
+      // vorhanden), sondern nur als "unbekannt" gespeichert.
+      const encKeyForNote = await getEncKey();
+      let canonicalNote = "";
+      if (encKeyForNote) {
+        canonicalNote = await decrypt(encKeyForNote, device.note_enc).catch(() => "");
+      }
+      const gatewayNote = user?.note ?? null;
+      const noteDiscrepancy = gatewayNote !== null && gatewayNote !== canonicalNote;
+      const gatewayNoteEnc =
+        gatewayNote !== null && encKeyForNote ? await encrypt(encKeyForNote, gatewayNote).catch(() => null) : null;
+
       // Upsert statt reinem UPDATE: ein bereits über ein anderes Gateway
       // bekanntes Gerät (device existiert) kann auf DIESEM Gateway trotzdem
       // zum ersten Mal auftauchen (z.B. zweites Gateway nachträglich
@@ -154,14 +176,16 @@ async function pollSingleGateway(ctx: JobContext, gw: GatewayRow): Promise<void>
       // Gateway zeigte das Gerät nie an, obwohl der Account dort existierte).
       await db.query(
         `INSERT INTO device_gateways
-           (device_id, gateway_id, radius_account_id, user_alias_id, last_seen_at, provisioning_status)
-         VALUES ($1, $2, $3, $4, $5, 'ok')
+           (device_id, gateway_id, radius_account_id, user_alias_id, last_seen_at, note_discrepancy, gateway_note_enc, provisioning_status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'ok')
          ON CONFLICT (device_id, gateway_id)
          DO UPDATE SET
            last_seen_at = $5,
+           note_discrepancy = $6,
+           gateway_note_enc = $7,
            user_alias_id = COALESCE($4, device_gateways.user_alias_id),
            radius_account_id = $3`,
-        [device.id, gw.id, acc._id, user?._id ?? null, lastSeen],
+        [device.id, gw.id, acc._id, user?._id ?? null, lastSeen, noteDiscrepancy, gatewayNoteEnc],
       );
     }
 

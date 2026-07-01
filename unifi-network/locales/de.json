@@ -36,6 +36,7 @@
   "vlan_not_found": "VLAN nicht gefunden",
   "provisioning_error": "Fehler",
   "provisioning_ok": "Erfolgreich",
+  "note_discrepancy_hint": "Notiz weicht zwischen Gateways ab",
 
   "onboard_heading": "Neues Gerät anlegen",
   "onboard_approval_hint": "Neue Geräte müssen von einem Admin freigegeben werden, bevor sie aktiv geschaltet werden.",
@@ -59,7 +60,13 @@
   "error_device_mac_rejected": "Ein Gerät mit dieser MAC-Adresse wurde bereits abgelehnt. Bitte den bestehenden Eintrag bearbeiten statt neu anzulegen.",
   "error_device_mac_exists": "Ein Gerät mit dieser MAC-Adresse ist bereits vorhanden. Bitte in der Übersicht bearbeiten statt neu anzulegen.",
 
+  "note_discrepancy_dialog_heading": "Notizabweichung auflösen",
+  "note_discrepancy_click_hint": "Auf ein Gateway klicken, um dessen Notiz zu übernehmen.",
+  "use_this_note_hint": "Diese Notiz übernehmen",
+  "no_note_set": "keine Notiz gesetzt",
+  "label_canonical_note": "Einheitliche Notiz",
   "btn_cancel": "Abbrechen",
+  "btn_resolve_sync": "Auflösen & synchronisieren",
 
   "edit_device_heading": "Gerät bearbeiten",
   "confirm_delete_device": "Gerät \"{{name}}\" wirklich überall löschen?",
