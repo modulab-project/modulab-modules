@@ -42,6 +42,8 @@
   "onboard_approval_hint": "Neue Geräte müssen von einem Admin freigegeben werden, bevor sie aktiv geschaltet werden.",
   "label_mac": "MAC-Adresse",
   "label_alias": "Name",
+  "optional": "optional",
+  "alias_fallback_hint": "Leer lassen — dann wird die MAC-Adresse als Name verwendet.",
   "placeholder_alias": "z. B. Laptop Kay",
   "label_note": "Notiz",
   "placeholder_note": "z. B. iPhone Kay",
@@ -80,7 +82,7 @@
   "new_gateway_heading": "Neues Gateway",
   "edit_gateway_heading": "Gateway bearbeiten",
   "label_gateway_name": "Name",
-  "label_base_url": "Base-URL",
+  "label_base_url": "IP-Adresse oder Hostname",
   "label_api_key": "API-Key",
   "leave_blank_unchanged": "leer lassen = unverändert",
   "btn_save": "Speichern"

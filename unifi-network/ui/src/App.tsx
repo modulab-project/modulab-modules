@@ -340,7 +340,7 @@ function OverviewView({ api }: { api: ReturnType<typeof useApi> }) {
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-gray-800 dark:text-gray-100">{gw.name}</p>
-                  <p className="truncate text-xs text-gray-400">{gw.base_url}</p>
+                  <p className="truncate text-xs text-gray-400">{stripHttps(gw.base_url)}</p>
                 </div>
                 <button
                   type="button"
@@ -540,10 +540,6 @@ function OnboardingForm({
       setError(t("error_invalid_mac"));
       return;
     }
-    if (!alias.trim()) {
-      setError(t("error_alias_required"));
-      return;
-    }
     if (!note.trim()) {
       setError(t("error_note_required"));
       return;
@@ -590,7 +586,9 @@ function OnboardingForm({
       </div>
 
       <label className="mb-3 block">
-        <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">{t("label_mac")}</span>
+        <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
+          {t("label_mac")} <span className="text-red-500">*</span>
+        </span>
         <input
           type="text"
           value={mac}
@@ -607,7 +605,9 @@ function OnboardingForm({
       </label>
 
       <label className="mb-3 block">
-        <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">{t("label_alias")}</span>
+        <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
+          {t("label_alias")} <span className="text-gray-400">({t("optional")})</span>
+        </span>
         <input
           type="text"
           value={alias}
@@ -616,6 +616,7 @@ function OnboardingForm({
           className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 dark:border-gray-700 dark:bg-gray-900"
           style={{ fontSize: "16px" }}
         />
+        <span className="mt-1 block text-xs text-gray-400">{t("alias_fallback_hint")}</span>
       </label>
 
       <label className="mb-3 block">
@@ -633,7 +634,9 @@ function OnboardingForm({
       </label>
 
       <label className="mb-3 block">
-        <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">{t("label_vlan")}</span>
+        <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
+          {t("label_vlan")} <span className="text-red-500">*</span>
+        </span>
         <select
           value={targetVlanName}
           onChange={(e) => setTargetVlanName(e.target.value)}
@@ -648,7 +651,9 @@ function OnboardingForm({
       </label>
 
       <div className="mb-5">
-        <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">{t("label_target_gateways")}</span>
+        <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
+          {t("label_target_gateways")} <span className="text-red-500">*</span>
+        </span>
         {gateways.length === 0 && <p className="text-sm text-gray-400">{t("no_gateways")}</p>}
         <div className="flex flex-col gap-1.5">
           {gateways.map((gw) => (
@@ -932,6 +937,7 @@ function PendingApprovalList({
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [resultsByDevice, setResultsByDevice] = useState<Record<string, DeviceGatewayView[]>>({});
+  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -949,14 +955,20 @@ function PendingApprovalList({
 
   const approve = async (id: string) => {
     setBusyId(id);
+    setError(null);
     try {
-      const result = await api.mutate<{ gateways: DeviceGatewayView[] }>(
+      // Backend (approveDevice) liefert { status: "active", results: [...] },
+      // nicht "gateways" — vorheriger Feldname-Mismatch verschluckte das
+      // Provisioning-Ergebnis stillschweigend (Array blieb immer leer).
+      const result = await api.mutate<{ status: string; results: DeviceGatewayView[] }>(
         "POST",
         `/devices/${id}/approve`,
       );
-      setResultsByDevice((prev) => ({ ...prev, [id]: result?.gateways ?? [] }));
+      setResultsByDevice((prev) => ({ ...prev, [id]: result?.results ?? [] }));
       setRows((prev) => prev.filter((r) => r.id !== id));
       onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setBusyId(null);
     }
@@ -964,10 +976,13 @@ function PendingApprovalList({
 
   const reject = async (id: string) => {
     setBusyId(id);
+    setError(null);
     try {
       await api.mutate("POST", `/devices/${id}/reject`);
       setRows((prev) => prev.filter((r) => r.id !== id));
       onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setBusyId(null);
     }
@@ -976,6 +991,12 @@ function PendingApprovalList({
   return (
     <div>
       <h2 className="mb-2 text-sm font-semibold text-gray-700 dark:text-gray-300">{t("nav_pending")}</h2>
+
+      {error && (
+        <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+          {error}
+        </div>
+      )}
 
       {loading && <p className="text-sm text-gray-400">{t("loading")}</p>}
 
@@ -1048,6 +1069,19 @@ function PendingApprovalList({
 }
 
 // ── Gateways view (Admin-only CRUD) ───────────────────────────────────────────
+//
+// Backend erwartet weiterhin eine vollständige URL in base_url (isPrivateHost()
+// macht new URL(baseUrl).hostname, siehe unifi-client.ts). Im UI wird aber nur
+// die IP/der FQDN ohne https:// abgefragt und angezeigt — das https:// wird
+// hier ein-/ausgeblendet, nicht im Backend geändert.
+
+function stripHttps(url: string): string {
+  return url.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
+}
+
+function toBaseUrl(hostOrFqdn: string): string {
+  return `https://${stripHttps(hostOrFqdn.trim())}`;
+}
 
 function GatewaysView({ api }: { api: ReturnType<typeof useApi> }) {
   const { t } = useTranslation(NS);
@@ -1056,7 +1090,7 @@ function GatewaysView({ api }: { api: ReturnType<typeof useApi> }) {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Gateway | null>(null);
   const [name, setName] = useState("");
-  const [baseUrl, setBaseUrl] = useState("");
+  const [host, setHost] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -1078,7 +1112,7 @@ function GatewaysView({ api }: { api: ReturnType<typeof useApi> }) {
   const openCreate = () => {
     setEditing(null);
     setName("");
-    setBaseUrl("");
+    setHost("");
     setApiKey("");
     setError(null);
     setShowForm(true);
@@ -1087,14 +1121,14 @@ function GatewaysView({ api }: { api: ReturnType<typeof useApi> }) {
   const openEdit = (gw: Gateway) => {
     setEditing(gw);
     setName(gw.name);
-    setBaseUrl(gw.base_url);
+    setHost(stripHttps(gw.base_url));
     setApiKey("");
     setError(null);
     setShowForm(true);
   };
 
   const submit = async () => {
-    if (!name.trim() || !baseUrl.trim()) {
+    if (!name.trim() || !host.trim()) {
       setError(t("error_name_url_required"));
       return;
     }
@@ -1105,14 +1139,15 @@ function GatewaysView({ api }: { api: ReturnType<typeof useApi> }) {
     setSubmitting(true);
     setError(null);
     try {
+      const base_url = toBaseUrl(host);
       if (editing) {
-        const body: Record<string, unknown> = { name: name.trim(), base_url: baseUrl.trim() };
+        const body: Record<string, unknown> = { name: name.trim(), base_url };
         if (apiKey.trim()) body.api_key = apiKey.trim();
         await api.mutate("PATCH", `/gateways/${editing.id}`, body);
       } else {
         await api.mutate("POST", "/gateways", {
           name: name.trim(),
-          base_url: baseUrl.trim(),
+          base_url,
           api_key: apiKey.trim(),
         });
       }
@@ -1162,7 +1197,7 @@ function GatewaysView({ api }: { api: ReturnType<typeof useApi> }) {
                 <p className="truncate text-sm font-medium text-gray-800 dark:text-gray-100">{gw.name}</p>
                 {statusBadge(gw.status, t)}
               </div>
-              <p className="truncate text-xs text-gray-400">{gw.base_url}</p>
+              <p className="truncate text-xs text-gray-400">{stripHttps(gw.base_url)}</p>
               <p className="text-[11px] text-gray-400">{t("created_by_label", { user: gw.created_by })}</p>
             </div>
             <div className="flex flex-none gap-1.5">
@@ -1224,9 +1259,9 @@ function GatewaysView({ api }: { api: ReturnType<typeof useApi> }) {
               <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">{t("label_base_url")}</span>
               <input
                 type="text"
-                value={baseUrl}
-                onChange={(e) => setBaseUrl(e.target.value)}
-                placeholder="https://udm.example.com"
+                value={host}
+                onChange={(e) => setHost(stripHttps(e.target.value))}
+                placeholder="udm.example.com"
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 dark:border-gray-700 dark:bg-gray-800"
                 style={{ fontSize: "16px" }}
               />

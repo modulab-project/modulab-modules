@@ -42,6 +42,8 @@
   "onboard_approval_hint": "New devices must be approved by an admin before they become active.",
   "label_mac": "MAC address",
   "label_alias": "Name",
+  "optional": "optional",
+  "alias_fallback_hint": "Leave blank to use the MAC address as the name.",
   "placeholder_alias": "e.g. Kay's laptop",
   "label_note": "Note",
   "placeholder_note": "e.g. Kay's iPhone",
@@ -80,7 +82,7 @@
   "new_gateway_heading": "New gateway",
   "edit_gateway_heading": "Edit gateway",
   "label_gateway_name": "Name",
-  "label_base_url": "Base URL",
+  "label_base_url": "IP address or hostname",
   "label_api_key": "API key",
   "leave_blank_unchanged": "leave blank = unchanged",
   "btn_save": "Save"

@@ -293,6 +293,11 @@ async function createDevice(
     return badRequest("note is required");
   }
 
+  // Entscheidungsvorlage 4.15: alias (Name) ist beim Onboarding kein
+  // Pflichtfeld mehr — fällt auf die sanitized MAC zurück, falls leer
+  // (gleiches Fallback-Verhalten wie beim Auto-Adopt, → 4.14).
+  const alias = input.alias && input.alias.trim().length > 0 ? input.alias.trim() : sanitized;
+
   const encKey = await getEncKey();
   const macHashKey = await getMacHashKey();
   if (!encKey || !macHashKey) {
@@ -301,7 +306,7 @@ async function createDevice(
 
   const macEnc = await encrypt(encKey, sanitized);
   const hash = await macHash(macHashKey, sanitized);
-  const aliasEnc = await encrypt(encKey, input.alias);
+  const aliasEnc = await encrypt(encKey, alias);
   const noteEnc = await encrypt(encKey, input.note);
 
   // Entscheidungsvorlage 4.7: onboarding never provisions immediately.
@@ -325,7 +330,7 @@ async function createDevice(
     );
   }
 
-  await audit(db, auth.userId, "device.create", "device", row.id, input.alias);
+  await audit(db, auth.userId, "device.create", "device", row.id, alias);
   return created({ id: row.id, status: "pending_approval" });
 }
 
