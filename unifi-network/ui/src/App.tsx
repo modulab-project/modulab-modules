@@ -231,18 +231,6 @@ function statusBadge(status: GatewayStatus, t: (k: string) => string) {
   );
 }
 
-function relativeTime(iso: string | null, t: (k: string, opts?: Record<string, unknown>) => string): string {
-  if (!iso) return t("never_seen");
-  const diffMs = Date.now() - new Date(iso).getTime();
-  const diffMin = Math.round(diffMs / 60000);
-  if (diffMin < 1) return t("just_now");
-  if (diffMin < 60) return t("minutes_ago", { count: diffMin });
-  const diffH = Math.round(diffMin / 60);
-  if (diffH < 24) return t("hours_ago", { count: diffH });
-  const diffD = Math.round(diffH / 24);
-  return t("days_ago", { count: diffD });
-}
-
 // ── Overview: gateway status bar + global RADIUS table ──────────────────────
 
 function OverviewView({ api }: { api: ReturnType<typeof useApi> }) {
@@ -254,6 +242,12 @@ function OverviewView({ api }: { api: ReturnType<typeof useApi> }) {
   const [noteDialogDeviceId, setNoteDialogDeviceId] = useState<string | null>(null);
   const [editDeviceId, setEditDeviceId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  // Ergänzt 2026-07-01: Suche (Notiz, MAC) + Filter (VLAN, zugewiesenes
+  // Gateway) über die bereits geladene devices-Liste — rein clientseitig,
+  // da listDevices() ohnehin schon alle entschlüsselten Felder liefert.
+  const [search, setSearch] = useState("");
+  const [filterVlan, setFilterVlan] = useState("");
+  const [filterGatewayId, setFilterGatewayId] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -292,6 +286,19 @@ function OverviewView({ api }: { api: ReturnType<typeof useApi> }) {
   );
 
   const hasNoteDiscrepancy = (d: Device) => d.gateways.some((g) => g.note_discrepancy);
+
+  const vlanOptions = Array.from(new Set(devices.map((d) => d.target_vlan_name))).sort();
+  const gatewayFilterOptions = Array.from(
+    new Map(devices.flatMap((d) => d.gateways.map((g) => [g.gateway_id, g.gateway_name] as const))).entries(),
+  ).sort((a, b) => a[1].localeCompare(b[1]));
+
+  const filteredDevices = devices.filter((d) => {
+    const q = search.trim().toLowerCase();
+    if (q && !d.note.toLowerCase().includes(q) && !d.mac.toLowerCase().includes(q)) return false;
+    if (filterVlan && d.target_vlan_name !== filterVlan) return false;
+    if (filterGatewayId && !d.gateways.some((g) => g.gateway_id === filterGatewayId)) return false;
+    return true;
+  });
 
   const removeDevice = useCallback(
     async (device: Device) => {
@@ -371,6 +378,44 @@ function OverviewView({ api }: { api: ReturnType<typeof useApi> }) {
       <div>
         <h2 className="mb-2 text-sm font-semibold text-gray-700 dark:text-gray-300">{t("devices_heading")}</h2>
 
+        {devices.length > 0 && (
+          <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+            <div className="relative flex-1 sm:max-w-xs">
+              <i className="ti ti-search pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[14px] text-gray-400" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={t("search_placeholder")}
+                className="w-full rounded-lg border border-gray-300 py-1.5 pl-8 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 dark:border-gray-700 dark:bg-gray-800"
+                style={{ fontSize: "16px" }}
+              />
+            </div>
+            <select
+              value={filterVlan}
+              onChange={(e) => setFilterVlan(e.target.value)}
+              className="rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800"
+              style={{ fontSize: "16px" }}
+            >
+              <option value="">{t("filter_all_vlans")}</option>
+              {vlanOptions.map((name) => (
+                <option key={name} value={name}>{name}</option>
+              ))}
+            </select>
+            <select
+              value={filterGatewayId}
+              onChange={(e) => setFilterGatewayId(e.target.value)}
+              className="rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800"
+              style={{ fontSize: "16px" }}
+            >
+              <option value="">{t("filter_all_gateways")}</option>
+              {gatewayFilterOptions.map(([id, name]) => (
+                <option key={id} value={id}>{name}</option>
+              ))}
+            </select>
+          </div>
+        )}
+
         {!loading && devices.length === 0 && (
           <div className="rounded-2xl border border-dashed border-gray-200 px-6 py-12 text-center dark:border-gray-800">
             <i className="ti ti-devices-off text-[36px] text-gray-300 dark:text-gray-700" />
@@ -378,7 +423,14 @@ function OverviewView({ api }: { api: ReturnType<typeof useApi> }) {
           </div>
         )}
 
-        {devices.length > 0 && (
+        {devices.length > 0 && filteredDevices.length === 0 && (
+          <div className="rounded-2xl border border-dashed border-gray-200 px-6 py-12 text-center dark:border-gray-800">
+            <i className="ti ti-filter-off text-[36px] text-gray-300 dark:text-gray-700" />
+            <p className="mt-3 text-sm text-gray-400">{t("no_devices_match_filter")}</p>
+          </div>
+        )}
+
+        {filteredDevices.length > 0 && (
           <div className="overflow-x-auto rounded-2xl border border-gray-200 dark:border-gray-800">
             <table className="w-full text-sm">
               <thead>
@@ -386,12 +438,12 @@ function OverviewView({ api }: { api: ReturnType<typeof useApi> }) {
                   <th className="px-3 py-2 font-medium">{t("col_note")}</th>
                   <th className="px-3 py-2 font-medium">{t("col_mac")}</th>
                   <th className="px-3 py-2 font-medium">{t("col_vlan")}</th>
-                  <th className="px-3 py-2 font-medium">{t("col_last_seen")}</th>
+                  <th className="px-3 py-2 font-medium">{t("col_gateways_assigned")}</th>
                   <th className="px-3 py-2 font-medium text-right">{t("col_actions")}</th>
                 </tr>
               </thead>
               <tbody>
-                {devices.map((d) => (
+                {filteredDevices.map((d) => (
                   <tr key={d.id} className="border-b border-gray-100 last:border-0 dark:border-gray-800/60">
                     <td className="px-3 py-2">
                       <div className="flex items-center gap-1.5">
@@ -415,26 +467,21 @@ function OverviewView({ api }: { api: ReturnType<typeof useApi> }) {
                       </span>
                     </td>
                     <td className="px-3 py-2">
-                      <div className="flex flex-col gap-0.5">
+                      <div className="flex flex-wrap gap-1">
                         {d.gateways.map((g) => (
-                          <div key={g.gateway_id} className="flex items-center gap-1 text-xs">
-                            <span className="text-gray-400">{g.gateway_name}:</span>
-                            {g.provisioning_status === "ok" && (
-                              <span className="text-gray-600 dark:text-gray-300">
-                                {relativeTime(g.last_seen_at, t)}
-                              </span>
-                            )}
-                            {g.provisioning_status === "vlan_not_found" && (
-                              <span className="text-red-500" title={g.provisioning_error ?? ""}>
-                                {t("vlan_not_found")}
-                              </span>
-                            )}
-                            {g.provisioning_status === "error" && (
-                              <span className="text-red-500" title={g.provisioning_error ?? ""}>
-                                {t("provisioning_error")}
-                              </span>
-                            )}
-                          </div>
+                          <span
+                            key={g.gateway_id}
+                            className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] ${
+                              g.provisioning_status === "ok"
+                                ? "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300"
+                                : "bg-red-50 text-red-600 dark:bg-red-950 dark:text-red-300"
+                            }`}
+                            title={g.provisioning_status !== "ok" ? (g.provisioning_error ?? "") : undefined}
+                          >
+                            {g.gateway_name}
+                            {g.provisioning_status === "vlan_not_found" && ` — ${t("vlan_not_found")}`}
+                            {g.provisioning_status === "error" && ` — ${t("provisioning_error")}`}
+                          </span>
                         ))}
                       </div>
                     </td>

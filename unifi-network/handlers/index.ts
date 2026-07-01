@@ -56,6 +56,7 @@ import {
   createUserNote,
   updateUserNote,
   deleteUserAlias,
+  isAlreadyGoneError,
   type GatewayConn,
 } from "./unifi-client.ts";
 
@@ -515,6 +516,9 @@ async function updateDeviceGateways(
     }
     for (const dg of toRemove) {
       await queueOrExecuteDeletion(db, id, dg.gateway_id, dg.radius_account_id, dg.user_alias_id);
+      const [removedGw] = await db.query<GatewayRow>(`SELECT * FROM gateways WHERE id = $1`, [dg.gateway_id]);
+      const removedGwName = removedGw ? await decrypt(encKey, removedGw.name_enc).catch(() => "???") : "?";
+      results.push({ gateway_id: dg.gateway_id, gateway_name: removedGwName, status: "ok" });
     }
   } else {
     for (const gatewayId of toAdd) {
@@ -600,8 +604,23 @@ async function queueOrExecuteDeletion(
     const gwName = await decrypt(encKey, gw.name_enc).catch(() => "???");
     const baseUrl = await decrypt(encKey, gw.base_url_enc);
     const conn: GatewayConn = { name: gwName, baseUrl, apiKey };
-    await deleteRadiusAccount(conn, radiusAccountId);
-    if (userAliasId) await deleteUserAlias(conn, userAliasId);
+    // Bugfix (2026-07-01): RADIUS-Account und User-Alias sind zwei getrennte
+    // UniFi-Objekte, aber das Löschen des Accounts entfernt teils bereits das
+    // verknüpfte User-Objekt mit (oder umgekehrt) — ein zweiter DELETE-Aufruf
+    // auf ein bereits verschwundenes Objekt lieferte dann "api.err.IdInvalid".
+    // Das ließ den ganzen try-Block fehlschlagen, bevor die device_gateways-
+    // Zeile gelöscht wurde: der RADIUS-Account war auf UniFi bereits weg, aber
+    // ModuLab zeigte das Gateway weiterhin als zugewiesen an. Beide Deletes
+    // laufen daher jetzt unabhängig voneinander und ein "schon nicht mehr
+    // vorhanden"-Fehler (IdInvalid) wird als Erfolg gewertet.
+    await deleteRadiusAccount(conn, radiusAccountId).catch((err) => {
+      if (!isAlreadyGoneError(err)) throw err;
+    });
+    if (userAliasId) {
+      await deleteUserAlias(conn, userAliasId).catch((err) => {
+        if (!isAlreadyGoneError(err)) throw err;
+      });
+    }
     await db.query(`DELETE FROM device_gateways WHERE device_id = $1 AND gateway_id = $2`, [deviceId, gatewayId]);
   } catch (err) {
     await db.query(

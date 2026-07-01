@@ -46,6 +46,7 @@ import {
   fetchClientHistory,
   deleteRadiusAccount,
   deleteUserAlias,
+  isAlreadyGoneError,
   type GatewayConn,
   type UnifiRadiusAccount,
   type UnifiUser,
@@ -303,8 +304,18 @@ async function processPendingDeletions(ctx: JobContext): Promise<void> {
       const baseUrl = await decrypt(encKey, gw.base_url_enc);
       const conn: GatewayConn = { name: gwName, baseUrl, apiKey };
 
-      await deleteRadiusAccount(conn, p.radius_account_id);
-      if (p.user_alias_id) await deleteUserAlias(conn, p.user_alias_id);
+      // Bugfix (2026-07-01, siehe Entscheidungsvorlage 4.25): "schon nicht
+      // mehr vorhanden" (api.err.IdInvalid) wird als Erfolg gewertet, damit
+      // ein bereits verschwundener User-Alias nicht den ganzen Retry blockiert
+      // und die pending_deletions-Zeile ewig mit IdInvalid hängen bleibt.
+      await deleteRadiusAccount(conn, p.radius_account_id).catch((err) => {
+        if (!isAlreadyGoneError(err)) throw err;
+      });
+      if (p.user_alias_id) {
+        await deleteUserAlias(conn, p.user_alias_id).catch((err) => {
+          if (!isAlreadyGoneError(err)) throw err;
+        });
+      }
 
       await db.query(`DELETE FROM pending_deletions WHERE id = $1`, [p.id]);
       await db.query(

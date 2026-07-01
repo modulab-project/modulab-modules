@@ -37,6 +37,20 @@ export class PrivateHostViolationError extends Error {
   }
 }
 
+// Entscheidungsvorlage 4.25 (2026-07-01): UniFi meldet ein bereits gelöschtes
+// bzw. unbekanntes Objekt (RADIUS-Account oder User-Alias) als HTTP 400
+// "api.err.IdInvalid" statt eines 404. Löschen von Account + User-Alias sind
+// zwei getrennte Aufrufe, aber auf UniFi-Seite hängen die Objekte teils so
+// zusammen, dass der erste Delete bereits beide entfernt — der zweite Delete
+// lief dann in diesen Fehler und ließ den gesamten Lösch-Vorgang fehlschlagen,
+// obwohl der RADIUS-Account bereits erfolgreich weg war. Wird von den
+// Löschpfaden (queueOrExecuteDeletion, processPendingDeletions) genutzt, um
+// ein "schon nicht mehr vorhanden" als Erfolg statt als Fehler zu werten.
+export function isAlreadyGoneError(err: unknown): boolean {
+  const msg = String(err instanceof Error ? err.message : err);
+  return msg.includes("api.err.IdInvalid") || msg.includes("HTTP 404");
+}
+
 // ── Private-IP validation (Entscheidungsvorlage Abschnitt 1.2) ──────────────
 //
 // Application-level check, NOT a real Deno sandbox boundary (Deno's
