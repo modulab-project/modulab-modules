@@ -15,9 +15,18 @@
 // per gateway (small per-gateway result sets), then persisted via mac_hash
 // lookups against `devices` — see matchDeviceByMac() below. This avoids ever
 // decrypting more than the current gateway's rows at once.
+//
+// AUTO-ADOPT (2026-07-01): RADIUS accounts that exist on the controller but
+// have no matching `devices` row (created outside this module, e.g. manually
+// via the UniFi UI before this module existed) are now automatically adopted
+// as a new `devices` row + `device_gateways` link, status 'active' immediately
+// (no approval workflow — the account already exists for real on the
+// gateway, approval would be pointless). `note` is a NOT NULL column with no
+// source value available for pre-existing accounts, so a fixed placeholder
+// is used and surfaced in the UI so an admin can fill in a real note later.
 
 import type { JobContext, GatewayRow, DeviceRow } from "../handlers/types.ts";
-import { getEncKey, getMacHashKey, decrypt, macHash, sanitizeMac } from "../handlers/crypto.ts";
+import { getEncKey, getMacHashKey, encrypt, decrypt, macHash, sanitizeMac } from "../handlers/crypto.ts";
 import {
   fetchVlans,
   fetchRadiusAccounts,
@@ -26,7 +35,14 @@ import {
   deleteRadiusAccount,
   deleteUserAlias,
   type GatewayConn,
+  type UnifiRadiusAccount,
+  type UnifiUser,
 } from "../handlers/unifi-client.ts";
+
+// Placeholder for the required `note` column when adopting an account that
+// was never created through this module's onboarding form (no source value
+// exists). Surfaced as-is in the UI so an admin recognizes it needs editing.
+const ADOPTED_NOTE_PLACEHOLDER = "(übernommen — bitte Notiz ergänzen)";
 
 const CIRCUIT_BREAKER_THRESHOLD = 5; // consecutive failures before pausing a gateway (Entscheidungsvorlage 4.12)
 
@@ -102,10 +118,17 @@ async function pollSingleGateway(ctx: JobContext, gw: GatewayRow): Promise<void>
       const lastSeen = hist?.last_seen ? new Date(hist.last_seen * 1000).toISOString() : null;
 
       if (!macHashKey) continue;
-      const hash = await macHash(macHashKey, sanitized);
+      const activeMacHashKey: CryptoKey = macHashKey;
+      const hash = await macHash(activeMacHashKey, sanitized);
 
-      const [device] = await db.query<DeviceRow>(`SELECT * FROM devices WHERE mac_hash = $1`, [hash]);
-      if (!device) continue; // device not managed by this module (no matching devices row)
+      let [device] = await db.query<DeviceRow>(`SELECT * FROM devices WHERE mac_hash = $1`, [hash]);
+
+      if (!device) {
+        // Auto-adopt: RADIUS account exists on the controller but this module
+        // never created it (e.g. set up manually before this module existed).
+        device = await adoptExistingRadiusAccount(db, encKey, activeMacHashKey, sanitized, hash, acc, user, gw.id);
+        if (!device) continue; // adoption failed (e.g. encrypt error) — skip, will retry next poll
+      }
 
       const encKeyForAlias = await getEncKey();
       let canonicalAlias = "";
@@ -131,6 +154,60 @@ async function pollSingleGateway(ctx: JobContext, gw: GatewayRow): Promise<void>
     );
   } catch (err) {
     await markGatewayError(ctx.db, gw.id, String(err));
+  }
+}
+
+// ── Auto-adopt pre-existing RADIUS accounts (see header note above) ────────
+
+async function adoptExistingRadiusAccount(
+  db: JobContext["db"],
+  encKey: CryptoKey,
+  macHashKey: CryptoKey,
+  sanitizedMac: string,
+  macHashValue: string,
+  acc: UnifiRadiusAccount,
+  user: UnifiUser | undefined,
+  gatewayId: string,
+): Promise<DeviceRow | null> {
+  try {
+    const alias = user?.name ?? sanitizedMac; // fall back to the MAC itself if no alias was ever set
+    const note = user?.note ?? ADOPTED_NOTE_PLACEHOLDER;
+
+    // Reverse-lookup: acc.vlan is a plain VLAN number, vlan_cache stores the
+    // name we display/match on elsewhere (target_vlan_name references VLANs
+    // by name, not number, since names are the thing kept identical across
+    // gateways — see Entscheidungsvorlage 4.5/4.8).
+    let targetVlanName = "";
+    if (acc.vlan !== undefined) {
+      const [vlan] = await db.query<{ vlan_name: string }>(
+        `SELECT vlan_name FROM vlan_cache WHERE gateway_id = $1 AND vlan_number = $2 LIMIT 1`,
+        [gatewayId, acc.vlan],
+      );
+      targetVlanName = vlan?.vlan_name ?? "";
+    }
+
+    const macEnc = await encrypt(encKey, sanitizedMac);
+    const aliasEnc = await encrypt(encKey, alias);
+    const noteEnc = await encrypt(encKey, note);
+
+    const [device] = await db.query<DeviceRow>(
+      `INSERT INTO devices (mac_enc, mac_hash, alias_enc, note_enc, target_vlan_name, status, created_by)
+       VALUES ($1, $2, $3, $4, $5, 'active', 'system:auto-adopt')
+       RETURNING *`,
+      [macEnc, macHashValue, aliasEnc, noteEnc, targetVlanName],
+    );
+
+    await db.query(
+      `INSERT INTO device_gateways
+         (device_id, gateway_id, radius_account_id, user_alias_id, provisioning_status, provisioned_at)
+       VALUES ($1, $2, $3, $4, 'ok', now())
+       ON CONFLICT (device_id, gateway_id) DO NOTHING`,
+      [device.id, gatewayId, acc._id, user?._id ?? null],
+    );
+
+    return device;
+  } catch {
+    return null; // e.g. encrypt() failure — skip this cycle, will retry next poll
   }
 }
 
