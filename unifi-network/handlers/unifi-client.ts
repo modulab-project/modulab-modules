@@ -43,6 +43,15 @@ export class PrivateHostViolationError extends Error {
 // --allow-net has no CIDR matching). Prevents accidental/malicious
 // configuration of public hosts; a compromised handler could bypass this.
 // RFC1918 ranges + .local/mDNS hostnames are treated as private.
+//
+// REVISED (2026-07-01): Real gateways use split-horizon DNS — a public FQDN
+// (needed for a CA-validated Let's Encrypt cert, see 4.2) that resolves to a
+// private IP only from inside the LAN/this container. A plain hostname
+// string-match (the original implementation) rejected every such FQDN
+// outright. This now does an actual DNS lookup and checks the resolved
+// IP(s) against RFC1918 — but the resolved IP is used ONLY for this check.
+// The actual fetch() call still connects via the hostname (see unifiFetch),
+// so TLS SNI/certificate hostname validation keeps working.
 
 function isPrivateIPv4(ip: string): boolean {
   const parts = ip.split(".").map(Number);
@@ -55,7 +64,7 @@ function isPrivateIPv4(ip: string): boolean {
   return false;
 }
 
-export function isPrivateHost(baseUrl: string): boolean {
+export async function isPrivateHost(baseUrl: string): Promise<boolean> {
   let host: string;
   try {
     host = new URL(baseUrl).hostname;
@@ -63,7 +72,15 @@ export function isPrivateHost(baseUrl: string): boolean {
     return false;
   }
   if (host.endsWith(".local")) return true;
-  return isPrivateIPv4(host);
+  if (isPrivateIPv4(host)) return true; // already a literal IP
+
+  // Hostname (FQDN) — resolve and check the actual IP(s) it points to.
+  try {
+    const records = await Deno.resolveDns(host, "A");
+    return records.length > 0 && records.every((ip) => isPrivateIPv4(ip));
+  } catch {
+    return false; // NXDOMAIN or resolver error — treat as not private
+  }
 }
 
 // ── Low-level request helper ────────────────────────────────────────────────
@@ -80,7 +97,7 @@ async function unifiFetch<T>(
   init: RequestInit = {},
   timeoutMs = DEFAULT_TIMEOUT_MS,
 ): Promise<T> {
-  if (!isPrivateHost(conn.baseUrl)) {
+  if (!(await isPrivateHost(conn.baseUrl))) {
     throw new PrivateHostViolationError(conn.baseUrl);
   }
 
