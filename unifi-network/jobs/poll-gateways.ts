@@ -77,7 +77,17 @@ async function pollSingleGateway(ctx: JobContext, gw: GatewayRow): Promise<void>
     return;
   }
 
-  const conn: GatewayConn = { name: gw.name, baseUrl: gw.base_url, apiKey };
+  let gwName: string;
+  let baseUrl: string;
+  try {
+    gwName = await decrypt(encKey, gw.name_enc);
+    baseUrl = await decrypt(encKey, gw.base_url_enc);
+  } catch {
+    await markGatewayError(db, gw.id, "Failed to decrypt gateway name/base_url (config_error)", "config_error");
+    return;
+  }
+
+  const conn: GatewayConn = { name: gwName, baseUrl, apiKey };
 
   try {
     const [vlans, radiusAccounts, users, history] = await Promise.all([
@@ -276,7 +286,9 @@ async function processPendingDeletions(ctx: JobContext): Promise<void> {
 
     try {
       const apiKey = await decrypt(encKey, gw.api_key_enc);
-      const conn: GatewayConn = { name: gw.name, baseUrl: gw.base_url, apiKey };
+      const gwName = await decrypt(encKey, gw.name_enc).catch(() => "???");
+      const baseUrl = await decrypt(encKey, gw.base_url_enc);
+      const conn: GatewayConn = { name: gwName, baseUrl, apiKey };
 
       await deleteRadiusAccount(conn, p.radius_account_id);
       if (p.user_alias_id) await deleteUserAlias(conn, p.user_alias_id);

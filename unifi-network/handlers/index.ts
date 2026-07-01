@@ -147,12 +147,28 @@ function segId(pathname: string, fromEnd = -1): string {
 
 // ── Gateway handlers (Admin only, Entscheidungsvorlage 4.7) ─────────────────
 
+// Entschlüsselt eine GatewayRow für die API-Response (name/base_url/created_by
+// waren zuvor Klartext, ergänzt 2026-07-01 — siehe Migration 0003).
+async function decryptGatewayForResponse(gw: GatewayRow, encKey: CryptoKey | null) {
+  return {
+    id: gw.id,
+    name: encKey ? await decrypt(encKey, gw.name_enc).catch(() => "???") : "???",
+    base_url: encKey ? await decrypt(encKey, gw.base_url_enc).catch(() => "???") : "???",
+    status: gw.status,
+    consecutive_failures: gw.consecutive_failures,
+    last_checked_at: gw.last_checked_at,
+    last_error: gw.last_error,
+    created_by: encKey ? await decrypt(encKey, gw.created_by_enc).catch(() => "???") : "???",
+    created_at: gw.created_at,
+  };
+}
+
 async function listGateways(db: ModuleDbClient): Promise<HandlerResponse> {
-  const rows = await db.query<GatewayRow>(
-    `SELECT id, name, base_url, status, consecutive_failures, last_checked_at, last_error, created_by, created_at
-     FROM gateways ORDER BY name`,
-  );
-  return ok(rows);
+  const rows = await db.query<GatewayRow>(`SELECT * FROM gateways`);
+  const encKey = await getEncKey();
+  const result = await Promise.all(rows.map((gw) => decryptGatewayForResponse(gw, encKey)));
+  result.sort((a, b) => a.name.localeCompare(b.name));
+  return ok(result);
 }
 
 async function createGateway(db: ModuleDbClient, auth: ModuleAuthContext, body: unknown): Promise<HandlerResponse> {
@@ -163,15 +179,18 @@ async function createGateway(db: ModuleDbClient, auth: ModuleAuthContext, body: 
   const { name, base_url, api_key } = body as { name?: string; base_url?: string; api_key?: string };
   if (!name || !base_url || !api_key) return badRequest("name, base_url and api_key are required");
 
+  const nameEnc = await encrypt(encKey, name);
+  const baseUrlEnc = await encrypt(encKey, base_url);
+  const createdByEnc = await encrypt(encKey, auth.userEmail);
   const apiKeyEnc = await encrypt(encKey, api_key);
   const [row] = await db.query<GatewayRow>(
-    `INSERT INTO gateways (name, base_url, api_key_enc, created_by)
-     VALUES ($1, $2, $3, $4) RETURNING id, name, base_url, status, created_at`,
-    [name, base_url, apiKeyEnc, auth.userEmail],
+    `INSERT INTO gateways (name_enc, base_url_enc, api_key_enc, created_by_enc)
+     VALUES ($1, $2, $3, $4) RETURNING *`,
+    [nameEnc, baseUrlEnc, apiKeyEnc, createdByEnc],
   );
 
   await audit(db, auth.userEmail, "gateway.create", "gateway", row.id, name);
-  return created(row);
+  return created(await decryptGatewayForResponse(row, encKey));
 }
 
 async function updateGateway(
@@ -183,18 +202,22 @@ async function updateGateway(
   if (!isAdmin(auth)) return forbidden();
   const { name, base_url, api_key } = body as { name?: string; base_url?: string; api_key?: string };
 
+  const encKey = await getEncKey();
+  if (!encKey) return { status: 500, body: { error: "MODULAB_ENCRYPTION_KEY not configured on server" } };
+
+  const nameEnc = name ? await encrypt(encKey, name) : null;
+  const baseUrlEnc = base_url ? await encrypt(encKey, base_url) : null;
+
   if (api_key) {
-    const encKey = await getEncKey();
-    if (!encKey) return { status: 500, body: { error: "MODULAB_ENCRYPTION_KEY not configured on server" } };
     const apiKeyEnc = await encrypt(encKey, api_key);
     await db.query(
-      `UPDATE gateways SET name = COALESCE($1, name), base_url = COALESCE($2, base_url), api_key_enc = $3, updated_at = now() WHERE id = $4`,
-      [name ?? null, base_url ?? null, apiKeyEnc, id],
+      `UPDATE gateways SET name_enc = COALESCE($1, name_enc), base_url_enc = COALESCE($2, base_url_enc), api_key_enc = $3, updated_at = now() WHERE id = $4`,
+      [nameEnc, baseUrlEnc, apiKeyEnc, id],
     );
   } else {
     await db.query(
-      `UPDATE gateways SET name = COALESCE($1, name), base_url = COALESCE($2, base_url), updated_at = now() WHERE id = $3`,
-      [name ?? null, base_url ?? null, id],
+      `UPDATE gateways SET name_enc = COALESCE($1, name_enc), base_url_enc = COALESCE($2, base_url_enc), updated_at = now() WHERE id = $3`,
+      [nameEnc, baseUrlEnc, id],
     );
   }
 
@@ -461,7 +484,9 @@ async function queueOrExecuteDeletion(
 
   try {
     const apiKey = await decrypt(encKey, gw.api_key_enc);
-    const conn: GatewayConn = { name: gw.name, baseUrl: gw.base_url, apiKey };
+    const gwName = await decrypt(encKey, gw.name_enc).catch(() => "???");
+    const baseUrl = await decrypt(encKey, gw.base_url_enc);
+    const conn: GatewayConn = { name: gwName, baseUrl, apiKey };
     await deleteRadiusAccount(conn, radiusAccountId);
     if (userAliasId) await deleteUserAlias(conn, userAliasId);
     await db.query(`DELETE FROM device_gateways WHERE device_id = $1 AND gateway_id = $2`, [deviceId, gatewayId]);
@@ -555,11 +580,14 @@ async function provisionOnGateway(
   if (!gw) return { gateway_id: gatewayId, gateway_name: "?", status: "error", error: "Gateway not found" };
 
   const encKey = await getEncKey();
-  if (!encKey) return { gateway_id: gatewayId, gateway_name: gw.name, status: "error", error: "Encryption key missing" };
+  if (!encKey) return { gateway_id: gatewayId, gateway_name: "???", status: "error", error: "Encryption key missing" };
+
+  const gwName = await decrypt(encKey, gw.name_enc).catch(() => "???");
 
   try {
     const apiKey = await decrypt(encKey, gw.api_key_enc);
-    const conn: GatewayConn = { name: gw.name, baseUrl: gw.base_url, apiKey };
+    const baseUrl = await decrypt(encKey, gw.base_url_enc);
+    const conn: GatewayConn = { name: gwName, baseUrl, apiKey };
 
     // Entscheidungsvorlage 4.5: sanitize again at the start of the gateway
     // loop (defense in depth), even though the caller already sanitized it.
@@ -578,11 +606,11 @@ async function provisionOnGateway(
          VALUES ($1, $2, '', 'vlan_not_found', $3)
          ON CONFLICT (device_id, gateway_id)
          DO UPDATE SET provisioning_status = 'vlan_not_found', provisioning_error = $3`,
-        [deviceId, gatewayId, `VLAN "${targetVlanName}" not found on gateway "${gw.name}"`],
+        [deviceId, gatewayId, `VLAN "${targetVlanName}" not found on gateway "${gwName}"`],
       );
       return {
         gateway_id: gatewayId,
-        gateway_name: gw.name,
+        gateway_name: gwName,
         status: "vlan_not_found",
         error: `VLAN "${targetVlanName}" not found`,
       };
@@ -600,13 +628,13 @@ async function provisionOnGateway(
       [deviceId, gatewayId, radiusAccount._id, userAlias._id, vlan.unifi_vlan_uid],
     );
 
-    return { gateway_id: gatewayId, gateway_name: gw.name, status: "ok" };
+    return { gateway_id: gatewayId, gateway_name: gwName, status: "ok" };
   } catch (err) {
     await db.query(
       `UPDATE device_gateways SET provisioning_status = 'error', provisioning_error = $1 WHERE device_id = $2 AND gateway_id = $3`,
       [String(err), deviceId, gatewayId],
     );
-    return { gateway_id: gatewayId, gateway_name: gw.name, status: "error", error: String(err) };
+    return { gateway_id: gatewayId, gateway_name: gwName, status: "error", error: String(err) };
   }
 }
 

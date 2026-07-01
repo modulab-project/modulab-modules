@@ -48,14 +48,14 @@ export type GatewayStatus = "online" | "offline" | "config_error" | "paused" | "
 
 export interface GatewayRow {
   id: string;
-  name: string;
-  base_url: string;
+  name_enc: string; // AES-256-GCM verschlüsselt — Standortname (ergänzt 2026-07-01, war zuvor Klartext)
+  base_url_enc: string; // AES-256-GCM verschlüsselt — interner Hostname/IP (ergänzt 2026-07-01, war zuvor Klartext)
   api_key_enc: string;
   status: GatewayStatus;
   consecutive_failures: number;
   last_checked_at: string | null;
   last_error: string | null;
-  created_by: string;
+  created_by_enc: string; // AES-256-GCM verschlüsselt — E-Mail-Adresse (ergänzt 2026-07-01, war zuvor Klartext)
   created_at: string;
   updated_at: string;
 }
