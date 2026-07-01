@@ -14,5 +14,13 @@
     "sha256": "5a95e868c609d03b26876002ce2f493f7a6db67e77d268f668301653f025fc04",
     "cosign_sig_url": "",
     "category": "productivity"
+  },
+  {
+    "name": "unifi-network",
+    "version": "0.1.0",
+    "release_url": "https://github.com/modulab-project/modulab-modules/releases/download/unifi-network-v0.1.0/unifi-network-v0.1.0.zip",
+    "sha256": "a95a18f3457f7dd31360395de117a8a7ef0340e7b71063b5d550c8d05f442675",
+    "cosign_sig_url": "",
+    "category": "network"
   }
 ]
