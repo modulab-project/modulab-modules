@@ -138,6 +138,13 @@ async function pollSingleGateway(ctx: JobContext, gw: GatewayRow): Promise<void>
       const gatewayAlias = user?.name ?? null;
       const discrepancy = gatewayAlias !== null && gatewayAlias !== canonicalAlias;
 
+      // Ergänzt 2026-07-01: der tatsächlich auf diesem Gateway gesetzte Name
+      // wird jetzt mitgespeichert (verschlüsselt), nicht nur das Boolean
+      // name_discrepancy — sonst konnte der Namensdiskrepanz-Dialog nur
+      // "es gibt eine Abweichung" anzeigen, nicht WOVON.
+      const gatewayAliasEnc =
+        gatewayAlias !== null && encKeyForAlias ? await encrypt(encKeyForAlias, gatewayAlias).catch(() => null) : null;
+
       // Upsert statt reinem UPDATE: ein bereits über ein anderes Gateway
       // bekanntes Gerät (device existiert) kann auf DIESEM Gateway trotzdem
       // zum ersten Mal auftauchen (z.B. zweites Gateway nachträglich
@@ -147,15 +154,16 @@ async function pollSingleGateway(ctx: JobContext, gw: GatewayRow): Promise<void>
       // Gateway zeigte das Gerät nie an, obwohl der Account dort existierte).
       await db.query(
         `INSERT INTO device_gateways
-           (device_id, gateway_id, radius_account_id, user_alias_id, last_seen_at, name_discrepancy, provisioning_status)
-         VALUES ($1, $2, $3, $4, $5, $6, 'ok')
+           (device_id, gateway_id, radius_account_id, user_alias_id, last_seen_at, name_discrepancy, gateway_alias_enc, provisioning_status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'ok')
          ON CONFLICT (device_id, gateway_id)
          DO UPDATE SET
            last_seen_at = $5,
            name_discrepancy = $6,
            user_alias_id = COALESCE($4, device_gateways.user_alias_id),
+           gateway_alias_enc = $7,
            radius_account_id = $3`,
-        [device.id, gw.id, acc._id, user?._id ?? null, lastSeen, discrepancy],
+        [device.id, gw.id, acc._id, user?._id ?? null, lastSeen, discrepancy, gatewayAliasEnc],
       );
     }
 

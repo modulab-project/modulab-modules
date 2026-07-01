@@ -262,14 +262,21 @@ async function listDevices(db: ModuleDbClient): Promise<HandlerResponse> {
       note: encKey ? await decrypt(encKey, d.note_enc).catch(() => "") : "",
       mac: encKey ? await decrypt(encKey, d.mac_enc).catch(() => "???") : "???",
       target_vlan_name: d.target_vlan_name,
-      gateways: gatewayRows.map((g) => ({
-        gateway_id: g.gateway_id,
-        gateway_name: g.gateway_name,
-        last_seen_at: g.last_seen_at,
-        name_discrepancy: g.name_discrepancy,
-        provisioning_status: g.provisioning_status,
-        provisioning_error: g.provisioning_error,
-      })),
+      gateways: await Promise.all(
+        gatewayRows.map(async (g) => ({
+          gateway_id: g.gateway_id,
+          gateway_name: g.gateway_name,
+          last_seen_at: g.last_seen_at,
+          name_discrepancy: g.name_discrepancy,
+          // Ergänzt 2026-07-01: tatsächlicher Name auf diesem Gateway, damit
+          // der Namensdiskrepanz-Dialog die konkreten Werte nebeneinander
+          // zeigen kann statt nur "es gibt eine Abweichung".
+          gateway_alias:
+            g.gateway_alias_enc && encKey ? await decrypt(encKey, g.gateway_alias_enc).catch(() => null) : null,
+          provisioning_status: g.provisioning_status,
+          provisioning_error: g.provisioning_error,
+        })),
+      ),
     });
   }
   return ok(result);
@@ -597,7 +604,16 @@ async function provisionOnGateway(
 async function rejectDevice(db: ModuleDbClient, auth: ModuleAuthContext, id: string): Promise<HandlerResponse> {
   if (!isAdmin(auth)) return forbidden();
   // No API calls were ever made for a pending_approval device — safe to just discard.
-  await db.query(`UPDATE devices SET status = 'rejected', updated_at = now() WHERE id = $1`, [id]);
+  //
+  // Ergänzt 2026-07-01: vorher wurde die Zeile nur auf status='rejected'
+  // gesetzt, nie gelöscht — wegen des UNIQUE-Constraints auf mac_hash
+  // (→ 4.18) blockierte das jede erneute Einreichung derselben MAC dauerhaft.
+  // Ablehnung soll aber kein permanentes Verbot sein; die Zeile (inkl. der
+  // Platzhalter-device_gateways-Zeilen aus createDevice()) wird jetzt
+  // tatsächlich gelöscht. Der audit()-Eintrag bleibt als Nachweis bestehen,
+  // dass die Ablehnung stattgefunden hat.
+  await db.query(`DELETE FROM device_gateways WHERE device_id = $1`, [id]);
+  await db.query(`DELETE FROM devices WHERE id = $1`, [id]);
   await audit(db, auth.userEmail, "device.reject", "device", id);
   return ok({ status: "rejected" });
 }

@@ -87,6 +87,7 @@ export interface DeviceGatewayRow {
   resolved_vlan_id: string | null;
   last_seen_at: string | null;
   name_discrepancy: boolean;
+  gateway_alias_enc: string | null; // AES-256-GCM verschlüsselt — auf diesem Gateway tatsächlich gesetzter Name, NULL falls nie gesetzt
   provisioning_status: ProvisioningStatus;
   provisioning_error: string | null;
   provisioned_at: string;

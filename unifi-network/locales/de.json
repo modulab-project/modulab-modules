@@ -65,6 +65,9 @@
   "error_device_mac_exists": "Ein Gerät mit dieser MAC-Adresse ist bereits vorhanden. Bitte in der Übersicht bearbeiten statt neu anzulegen.",
 
   "discrepancy_dialog_heading": "Namensabweichung auflösen",
+  "discrepancy_click_hint": "Auf ein Gateway klicken, um dessen Namen zu übernehmen.",
+  "use_this_name_hint": "Diesen Namen übernehmen",
+  "no_alias_set": "kein Name gesetzt",
   "label_canonical_name": "Einheitlicher Name",
   "btn_cancel": "Abbrechen",
   "btn_resolve_sync": "Auflösen & synchronisieren",

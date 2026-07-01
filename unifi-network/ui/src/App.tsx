@@ -32,6 +32,7 @@ interface DeviceGatewayView {
   gateway_name: string;
   last_seen_at: string | null;
   name_discrepancy: boolean;
+  gateway_alias: string | null;
   provisioning_status: "ok" | "vlan_not_found" | "error";
   provisioning_error: string | null;
 }
@@ -773,17 +774,29 @@ function NameDiscrepancyDialog({
 
         <div className="mb-4 flex flex-col gap-1.5">
           {device.gateways.map((g) => (
-            <div key={g.gateway_id} className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-1.5 text-xs dark:border-gray-800">
+            <button
+              key={g.gateway_id}
+              type="button"
+              onClick={() => g.gateway_alias && setCanonicalName(g.gateway_alias)}
+              disabled={!g.gateway_alias}
+              className={`flex items-center justify-between rounded-lg border px-3 py-1.5 text-left text-xs disabled:cursor-default ${
+                g.name_discrepancy
+                  ? "border-amber-200 bg-amber-50 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950 dark:hover:bg-amber-900"
+                  : "border-gray-200 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-800"
+              }`}
+              title={g.gateway_alias ? t("use_this_name_hint") : ""}
+            >
               <span className="text-gray-500">{g.gateway_name}</span>
-              {g.name_discrepancy && (
-                <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
-                  <i className="ti ti-alert-triangle text-[12px]" />
-                  {t("name_discrepancy_hint")}
+              <span className="flex items-center gap-1">
+                <span className={g.name_discrepancy ? "font-medium text-amber-700 dark:text-amber-300" : "text-gray-700 dark:text-gray-200"}>
+                  {g.gateway_alias ?? t("no_alias_set")}
                 </span>
-              )}
-            </div>
+                {g.name_discrepancy && <i className="ti ti-alert-triangle text-[12px] text-amber-600 dark:text-amber-400" />}
+              </span>
+            </button>
           ))}
         </div>
+        <p className="mb-4 -mt-2 text-[11px] text-gray-400">{t("discrepancy_click_hint")}</p>
 
         <label className="mb-4 block">
           <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">{t("label_canonical_name")}</span>

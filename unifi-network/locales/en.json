@@ -65,6 +65,9 @@
   "error_device_mac_exists": "A device with this MAC address already exists. Please edit it from the overview instead of creating a new one.",
 
   "discrepancy_dialog_heading": "Resolve name discrepancy",
+  "discrepancy_click_hint": "Click a gateway to use its name.",
+  "use_this_name_hint": "Use this name",
+  "no_alias_set": "no name set",
   "label_canonical_name": "Canonical name",
   "btn_cancel": "Cancel",
   "btn_resolve_sync": "Resolve & sync",
