@@ -31,15 +31,12 @@ interface DeviceGatewayView {
   gateway_id: string;
   gateway_name: string;
   last_seen_at: string | null;
-  name_discrepancy: boolean;
-  gateway_alias: string | null;
   provisioning_status: "ok" | "vlan_not_found" | "error";
   provisioning_error: string | null;
 }
 
 interface Device {
   id: string;
-  name: string;
   note: string;
   mac: string;
   target_vlan_name: string;
@@ -48,7 +45,6 @@ interface Device {
 
 interface PendingDevice {
   id: string;
-  alias: string;
   note: string;
   mac: string;
   target_vlan_name: string;
@@ -251,7 +247,6 @@ function OverviewView({ api }: { api: ReturnType<typeof useApi> }) {
   const [devices, setDevices] = useState<Device[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [nameDialogDeviceId, setNameDialogDeviceId] = useState<string | null>(null);
   const [editDeviceId, setEditDeviceId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
@@ -291,11 +286,9 @@ function OverviewView({ api }: { api: ReturnType<typeof useApi> }) {
     [api, load],
   );
 
-  const hasDiscrepancy = (d: Device) => d.gateways.some((g) => g.name_discrepancy);
-
   const removeDevice = useCallback(
     async (device: Device) => {
-      if (!window.confirm(t("confirm_delete_device", { name: device.name }))) return;
+      if (!window.confirm(t("confirm_delete_device", { name: device.note }))) return;
       setDeletingId(device.id);
       try {
         await api.mutate("DELETE", `/devices/${device.id}`);
@@ -383,7 +376,7 @@ function OverviewView({ api }: { api: ReturnType<typeof useApi> }) {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-200 bg-gray-50 text-left text-xs text-gray-500 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-400">
-                  <th className="px-3 py-2 font-medium">{t("col_name")}</th>
+                  <th className="px-3 py-2 font-medium">{t("col_note")}</th>
                   <th className="px-3 py-2 font-medium">{t("col_mac")}</th>
                   <th className="px-3 py-2 font-medium">{t("col_vlan")}</th>
                   <th className="px-3 py-2 font-medium">{t("col_last_seen")}</th>
@@ -394,20 +387,7 @@ function OverviewView({ api }: { api: ReturnType<typeof useApi> }) {
                 {devices.map((d) => (
                   <tr key={d.id} className="border-b border-gray-100 last:border-0 dark:border-gray-800/60">
                     <td className="px-3 py-2">
-                      <div className="flex items-center gap-1.5">
-                        <span className="font-medium text-gray-800 dark:text-gray-100">{d.name}</span>
-                        {hasDiscrepancy(d) && (
-                          <button
-                            type="button"
-                            onClick={() => setNameDialogDeviceId(d.id)}
-                            className="flex h-5 w-5 items-center justify-center rounded-full text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950"
-                            title={t("name_discrepancy_hint")}
-                          >
-                            <i className="ti ti-alert-triangle text-[13px]" />
-                          </button>
-                        )}
-                      </div>
-                      {d.note && <p className="text-xs text-gray-400">{d.note}</p>}
+                      <span className="font-medium text-gray-800 dark:text-gray-100">{d.note}</span>
                     </td>
                     <td className="px-3 py-2 font-mono text-xs text-gray-600 dark:text-gray-300">{d.mac}</td>
                     <td className="px-3 py-2">
@@ -467,18 +447,6 @@ function OverviewView({ api }: { api: ReturnType<typeof useApi> }) {
           </div>
         )}
       </div>
-
-      {nameDialogDeviceId && (
-        <NameDiscrepancyDialog
-          api={api}
-          device={devices.find((d) => d.id === nameDialogDeviceId)!}
-          onClose={() => setNameDialogDeviceId(null)}
-          onResolved={() => {
-            setNameDialogDeviceId(null);
-            load();
-          }}
-        />
-      )}
 
       {editDeviceId && (
         <EditDeviceDialog
@@ -544,7 +512,6 @@ function OnboardingForm({
 }) {
   const { t } = useTranslation(NS);
   const [mac, setMac] = useState("");
-  const [alias, setAlias] = useState("");
   const [note, setNote] = useState("");
   const [targetVlanName, setTargetVlanName] = useState("");
   const [vlanOptions, setVlanOptions] = useState<string[]>([]);
@@ -587,7 +554,6 @@ function OnboardingForm({
     try {
       await api.mutate("POST", "/devices", {
         mac,
-        alias: alias.trim(),
         note: note.trim(),
         target_vlan_name: targetVlanName,
         target_gateway_ids: selectedGatewayIds,
@@ -632,21 +598,6 @@ function OnboardingForm({
             {macPreview.valid ? macPreview.value : t("error_invalid_mac")}
           </span>
         )}
-      </label>
-
-      <label className="mb-3 block">
-        <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
-          {t("label_alias")} <span className="text-gray-400">({t("optional")})</span>
-        </span>
-        <input
-          type="text"
-          value={alias}
-          onChange={(e) => setAlias(e.target.value)}
-          placeholder={t("placeholder_alias")}
-          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 dark:border-gray-700 dark:bg-gray-900"
-          style={{ fontSize: "16px" }}
-        />
-        <span className="mt-1 block text-xs text-gray-400">{t("alias_fallback_hint")}</span>
       </label>
 
       <label className="mb-3 block">
@@ -713,130 +664,13 @@ function OnboardingForm({
   );
 }
 
-// ── Name discrepancy dialog ───────────────────────────────────────────────────
-// Zeigt die pro Gateway abweichenden Aliase und lässt den Nutzer einen
-// kanonischen Namen wählen/eingeben; Sync erfolgt automatisch auf alle
-// Gateways (Entscheidungsvorlage 4.4). Betrifft nur "name", nicht "note".
-
-function NameDiscrepancyDialog({
-  api,
-  device,
-  onClose,
-  onResolved,
-}: {
-  api: ReturnType<typeof useApi>;
-  device: Device;
-  onClose: () => void;
-  onResolved: () => void;
-}) {
-  const { t } = useTranslation(NS);
-  const [canonicalName, setCanonicalName] = useState(device.name);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const submit = async () => {
-    if (!canonicalName.trim()) {
-      setError(t("error_alias_required"));
-      return;
-    }
-    setSubmitting(true);
-    setError(null);
-    try {
-      await api.mutate("POST", `/devices/${device.id}/resolve-name`, {
-        canonical_name: canonicalName.trim(),
-      });
-      onResolved();
-    } catch (err) {
-      setError(translateApiError(err, t));
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-      <div className="w-full max-w-md rounded-2xl bg-white p-5 dark:bg-gray-900">
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100">
-            {t("discrepancy_dialog_heading")}
-          </h3>
-          <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
-            <i className="ti ti-x text-[16px]" />
-          </button>
-        </div>
-
-        {error && (
-          <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
-            {error}
-          </div>
-        )}
-
-        <p className="mb-2 text-xs text-gray-500 dark:text-gray-400 font-mono">{device.mac}</p>
-
-        <div className="mb-4 flex flex-col gap-1.5">
-          {device.gateways.map((g) => (
-            <button
-              key={g.gateway_id}
-              type="button"
-              onClick={() => g.gateway_alias && setCanonicalName(g.gateway_alias)}
-              disabled={!g.gateway_alias}
-              className={`flex items-center justify-between rounded-lg border px-3 py-1.5 text-left text-xs disabled:cursor-default ${
-                g.name_discrepancy
-                  ? "border-amber-200 bg-amber-50 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950 dark:hover:bg-amber-900"
-                  : "border-gray-200 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-800"
-              }`}
-              title={g.gateway_alias ? t("use_this_name_hint") : ""}
-            >
-              <span className="text-gray-500">{g.gateway_name}</span>
-              <span className="flex items-center gap-1">
-                <span className={g.name_discrepancy ? "font-medium text-amber-700 dark:text-amber-300" : "text-gray-700 dark:text-gray-200"}>
-                  {g.gateway_alias ?? t("no_alias_set")}
-                </span>
-                {g.name_discrepancy && <i className="ti ti-alert-triangle text-[12px] text-amber-600 dark:text-amber-400" />}
-              </span>
-            </button>
-          ))}
-        </div>
-        <p className="mb-4 -mt-2 text-[11px] text-gray-400">{t("discrepancy_click_hint")}</p>
-
-        <label className="mb-4 block">
-          <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">{t("label_canonical_name")}</span>
-          <input
-            type="text"
-            value={canonicalName}
-            onChange={(e) => setCanonicalName(e.target.value)}
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 dark:border-gray-700 dark:bg-gray-800"
-            style={{ fontSize: "16px" }}
-          />
-        </label>
-
-        <div className="flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
-          >
-            {t("btn_cancel")}
-          </button>
-          <button
-            type="button"
-            onClick={submit}
-            disabled={submitting}
-            className="rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50"
-          >
-            {submitting ? t("submitting") : t("btn_resolve_sync")}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ── Edit device dialog ─────────────────────────────────────────────────────────
-// Bearbeitet alias/note/target_vlan_name eines bereits aktiven Geräts über
-// PATCH /devices/:id. Namensdiskrepanz-Sync (NameDiscrepancyDialog) bleibt
-// ein separater, spezialisierter Flow — dieser Dialog ist die allgemeine
-// "Gerät bearbeiten"-Aktion aus der Übersichtstabelle.
+// Bearbeitet note/target_vlan_name eines bereits aktiven Geräts über
+// PATCH /devices/:id, sowie die Ziel-Gateways über die neue
+// PATCH /devices/:id/gateways (ergänzt 2026-07-01) — gleiche Checkbox-UI wie
+// beim Onboarding, aktuell zugeordnete Gateways vorausgewählt. Neu angehakte
+// Gateways werden provisioniert, abgewählte über den bestehenden
+// Teil-Lösch-Mechanismus entfernt (Entscheidungsvorlage 4.6).
 
 function EditDeviceDialog({
   api,
@@ -850,22 +684,26 @@ function EditDeviceDialog({
   onSaved: () => void;
 }) {
   const { t } = useTranslation(NS);
-  const [alias, setAlias] = useState(device.name);
   const [note, setNote] = useState(device.note);
   const [targetVlanName, setTargetVlanName] = useState(device.target_vlan_name);
   const [vlanOptions, setVlanOptions] = useState<string[]>([]);
+  const [gateways, setGateways] = useState<Gateway[]>([]);
+  const [selectedGatewayIds, setSelectedGatewayIds] = useState<string[]>(
+    device.gateways.map((g) => g.gateway_id),
+  );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     api.get<string[]>("/vlans").then((rows) => setVlanOptions(Array.isArray(rows) ? rows : [])).catch(() => {});
+    api.get<Gateway[]>("/gateways").then((rows) => setGateways(Array.isArray(rows) ? rows : [])).catch(() => {});
   }, [api]);
 
+  const toggleGateway = (id: string) => {
+    setSelectedGatewayIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
   const submit = async () => {
-    if (!alias.trim()) {
-      setError(t("error_alias_required"));
-      return;
-    }
     if (!note.trim()) {
       setError(t("error_note_required"));
       return;
@@ -874,10 +712,21 @@ function EditDeviceDialog({
     setError(null);
     try {
       await api.mutate("PATCH", `/devices/${device.id}`, {
-        alias: alias.trim(),
         note: note.trim(),
         target_vlan_name: targetVlanName,
       });
+      // Ziel-Gateways nur mit anfragen, wenn sich die Auswahl gegenüber dem
+      // aktuellen Stand tatsächlich geändert hat — vermeidet einen
+      // unnötigen Provisionierungs-/Löschdurchlauf bei reinem Notiz-Edit.
+      const currentIds = new Set(device.gateways.map((g) => g.gateway_id));
+      const newIds = new Set(selectedGatewayIds);
+      const changed =
+        currentIds.size !== newIds.size || [...currentIds].some((id) => !newIds.has(id));
+      if (changed) {
+        await api.mutate("PATCH", `/devices/${device.id}/gateways`, {
+          target_gateway_ids: selectedGatewayIds,
+        });
+      }
       onSaved();
     } catch (err) {
       setError(translateApiError(err, t));
@@ -888,7 +737,7 @@ function EditDeviceDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-      <div className="w-full max-w-md rounded-2xl bg-white p-5 dark:bg-gray-900">
+      <div className="w-full max-w-lg rounded-2xl bg-white p-5 dark:bg-gray-900">
         <div className="mb-3 flex items-center justify-between">
           <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100">{t("edit_device_heading")}</h3>
           <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
@@ -905,17 +754,6 @@ function EditDeviceDialog({
         <p className="mb-3 text-xs text-gray-500 dark:text-gray-400 font-mono">{device.mac}</p>
 
         <label className="mb-3 block">
-          <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">{t("label_alias")}</span>
-          <input
-            type="text"
-            value={alias}
-            onChange={(e) => setAlias(e.target.value)}
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 dark:border-gray-700 dark:bg-gray-800"
-            style={{ fontSize: "16px" }}
-          />
-        </label>
-
-        <label className="mb-3 block">
           <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
             {t("label_note")} <span className="text-red-500">*</span>
           </span>
@@ -928,7 +766,7 @@ function EditDeviceDialog({
           />
         </label>
 
-        <label className="mb-4 block">
+        <label className="mb-3 block">
           <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">{t("label_vlan")}</span>
           <select
             value={targetVlanName}
@@ -942,6 +780,30 @@ function EditDeviceDialog({
             ))}
           </select>
         </label>
+
+        <div className="mb-4">
+          <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
+            {t("label_target_gateways")}
+          </span>
+          {gateways.length === 0 && <p className="text-sm text-gray-400">{t("no_gateways")}</p>}
+          <div className="flex flex-col gap-1.5">
+            {gateways.map((gw) => (
+              <label
+                key={gw.id}
+                className="flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-800"
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedGatewayIds.includes(gw.id)}
+                  onChange={() => toggleGateway(gw.id)}
+                  className="h-4 w-4"
+                />
+                <span className="text-gray-700 dark:text-gray-200">{gw.name}</span>
+                {statusBadge(gw.status, t)}
+              </label>
+            ))}
+          </div>
+        </div>
 
         <div className="flex justify-end gap-2">
           <button
@@ -1054,8 +916,7 @@ function PendingApprovalList({
           <div key={r.id} className="rounded-2xl border border-gray-200 p-3 dark:border-gray-800">
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div>
-                <p className="text-sm font-medium text-gray-800 dark:text-gray-100">{r.alias}</p>
-                <p className="text-xs text-gray-400">{r.note}</p>
+                <p className="text-sm font-medium text-gray-800 dark:text-gray-100">{r.note}</p>
                 <p className="mt-1 font-mono text-xs text-gray-500 dark:text-gray-400">{r.mac}</p>
                 <p className="mt-1 text-[11px] text-gray-400">
                   {t("requested_by", { user: r.created_by })} · {t("col_vlan")}: {r.target_vlan_name}

@@ -8,8 +8,13 @@
 // Responsibilities per run:
 //   1. For each gateway: fetch VLANs, RADIUS accounts, users, client history;
 //      update gateways.status/consecutive_failures/last_error, vlan_cache,
-//      device_gateways.last_seen_at + name_discrepancy.
+//      device_gateways.last_seen_at.
 //   2. Process pending_deletions: retry failed deletes, escalate at max_retries.
+//
+// NAME-KONZEPT ENTFERNT (2026-07-01): das Modul nutzt ausschließlich das
+// UniFi-Feld "note" als einziges Freitextfeld — "name" wird nie mehr
+// gelesen oder geschrieben. Der bisherige Namensdiskrepanz-Mechanismus
+// (Vergleich von UniFi-name zwischen Gateways) entfällt damit ersatzlos.
 //
 // NOTE: MAC matching across RADIUS/user/client-history data happens in-memory
 // per gateway (small per-gateway result sets), then persisted via mac_hash
@@ -140,21 +145,6 @@ async function pollSingleGateway(ctx: JobContext, gw: GatewayRow): Promise<void>
         if (!device) continue; // adoption failed (e.g. encrypt error) — skip, will retry next poll
       }
 
-      const encKeyForAlias = await getEncKey();
-      let canonicalAlias = "";
-      if (encKeyForAlias) {
-        canonicalAlias = await decrypt(encKeyForAlias, device.alias_enc).catch(() => "");
-      }
-      const gatewayAlias = user?.name ?? null;
-      const discrepancy = gatewayAlias !== null && gatewayAlias !== canonicalAlias;
-
-      // Ergänzt 2026-07-01: der tatsächlich auf diesem Gateway gesetzte Name
-      // wird jetzt mitgespeichert (verschlüsselt), nicht nur das Boolean
-      // name_discrepancy — sonst konnte der Namensdiskrepanz-Dialog nur
-      // "es gibt eine Abweichung" anzeigen, nicht WOVON.
-      const gatewayAliasEnc =
-        gatewayAlias !== null && encKeyForAlias ? await encrypt(encKeyForAlias, gatewayAlias).catch(() => null) : null;
-
       // Upsert statt reinem UPDATE: ein bereits über ein anderes Gateway
       // bekanntes Gerät (device existiert) kann auf DIESEM Gateway trotzdem
       // zum ersten Mal auftauchen (z.B. zweites Gateway nachträglich
@@ -164,16 +154,14 @@ async function pollSingleGateway(ctx: JobContext, gw: GatewayRow): Promise<void>
       // Gateway zeigte das Gerät nie an, obwohl der Account dort existierte).
       await db.query(
         `INSERT INTO device_gateways
-           (device_id, gateway_id, radius_account_id, user_alias_id, last_seen_at, name_discrepancy, gateway_alias_enc, provisioning_status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, 'ok')
+           (device_id, gateway_id, radius_account_id, user_alias_id, last_seen_at, provisioning_status)
+         VALUES ($1, $2, $3, $4, $5, 'ok')
          ON CONFLICT (device_id, gateway_id)
          DO UPDATE SET
            last_seen_at = $5,
-           name_discrepancy = $6,
            user_alias_id = COALESCE($4, device_gateways.user_alias_id),
-           gateway_alias_enc = $7,
            radius_account_id = $3`,
-        [device.id, gw.id, acc._id, user?._id ?? null, lastSeen, discrepancy, gatewayAliasEnc],
+        [device.id, gw.id, acc._id, user?._id ?? null, lastSeen],
       );
     }
 
@@ -201,7 +189,9 @@ async function adoptExistingRadiusAccount(
   gatewayId: string,
 ): Promise<DeviceRow | null> {
   try {
-    const alias = user?.name ?? sanitizedMac; // fall back to the MAC itself if no alias was ever set
+    // Kein alias-Fallback mehr (2026-07-01): das Modul verwaltet nur noch
+    // die Notiz. Existiert auf UniFi bereits eine `note`, wird sie übernommen;
+    // sonst der feste Platzhalter (s.o.), den ein Admin nachträglich ausfüllt.
     const note = user?.note ?? ADOPTED_NOTE_PLACEHOLDER;
 
     // Reverse-lookup: acc.vlan is a plain VLAN number, vlan_cache stores the
@@ -218,14 +208,13 @@ async function adoptExistingRadiusAccount(
     }
 
     const macEnc = await encrypt(encKey, sanitizedMac);
-    const aliasEnc = await encrypt(encKey, alias);
     const noteEnc = await encrypt(encKey, note);
 
     const [device] = await db.query<DeviceRow>(
-      `INSERT INTO devices (mac_enc, mac_hash, alias_enc, note_enc, target_vlan_name, status, created_by)
-       VALUES ($1, $2, $3, $4, $5, 'active', 'system:auto-adopt')
+      `INSERT INTO devices (mac_enc, mac_hash, note_enc, target_vlan_name, status, created_by)
+       VALUES ($1, $2, $3, $4, 'active', 'system:auto-adopt')
        RETURNING *`,
-      [macEnc, macHashValue, aliasEnc, noteEnc, targetVlanName],
+      [macEnc, macHashValue, noteEnc, targetVlanName],
     );
 
     await db.query(

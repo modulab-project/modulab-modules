@@ -155,8 +155,11 @@ export interface UnifiRadiusAccount {
 export interface UnifiUser {
   _id: string;
   mac: string;
-  name?: string; // verified (2026-07-01): manually set alias, only present once set via the UniFi UI/API
-  note?: string; // verified (2026-07-01): separate free-text field, independent of `name` (e.g. "iPhone Kay")
+  // `name` entfernt (2026-07-01): das Modul liest/schreibt es nicht mehr —
+  // Nutzerentscheidung, ausschließlich `note` als einziges Freitextfeld zu
+  // nutzen. Das Feld existiert weiterhin bei UniFi selbst (z.B. wenn der
+  // Nutzer es manuell über die UniFi-UI setzt), wird von uns aber ignoriert.
+  note?: string; // verified (2026-07-01): separate free-text field, e.g. "iPhone Kay" — jetzt das einzige vom Modul verwaltete Feld
   noted?: boolean; // set to true by the controller once `note` has been set
   hostname?: string; // reported by the device itself, NOT something this module writes
 }
@@ -234,28 +237,26 @@ export async function deleteRadiusAccount(conn: GatewayConn, accountId: string):
   await unifiFetch(conn, `/rest/account/${accountId}`, { method: "DELETE" });
 }
 
-export async function createUserAlias(
+export async function createUserNote(
   conn: GatewayConn,
   mac: string,
-  name: string,
-  note?: string,
+  note: string,
 ): Promise<UnifiUser> {
   const res = await unifiFetch<{ data: UnifiUser[] }>(conn, "/rest/user", {
     method: "POST",
-    body: JSON.stringify(note ? { mac, name, note } : { mac, name }),
+    body: JSON.stringify({ mac, note }),
   });
   return res.data[0];
 }
 
-export async function updateUserAlias(
+export async function updateUserNote(
   conn: GatewayConn,
   userId: string,
-  name: string,
-  note?: string,
+  note: string,
 ): Promise<void> {
   await unifiFetch(conn, `/rest/user/${userId}`, {
     method: "PUT",
-    body: JSON.stringify(note !== undefined ? { name, note } : { name }),
+    body: JSON.stringify({ note }),
   });
 }
 

@@ -18,7 +18,8 @@
  * Devices (RADIUS table)
  *   GET    /devices                        list all (global RADIUS table, joined view)
  *   POST   /devices                        onboarding form submit -> pending_approval
- *   PATCH  /devices/:id                    edit alias/VLAN/target gateways (own pending devices, or Admin for active ones)
+ *   PATCH  /devices/:id                    edit note/VLAN (own pending devices, or Admin for active ones)
+ *   PATCH  /devices/:id/gateways           change target gateways of an already-active device (checkbox UI, like onboarding)
  *   DELETE /devices/:id                    delete everywhere it's provisioned
  *   DELETE /devices/:id/gateways/:gatewayId  partial delete (remove from a single gateway)
  *
@@ -27,8 +28,9 @@
  *   POST   /devices/:id/approve            approve -> run gateway provisioning loop
  *   POST   /devices/:id/reject             reject -> discard, no API calls ever made
  *
- * Name discrepancy resolution
- *   POST   /devices/:id/resolve-name       set canonical alias, sync to all gateways
+ * HINWEIS (2026-07-01): das Name-Konzept (UniFi-Feld "name", kanonischer
+ * Alias, Namensdiskrepanz-Sync) wurde vollständig entfernt. Das Modul nutzt
+ * ausschließlich die Notiz (UniFi-Feld "note") als einziges Freitextfeld.
  */
 
 import type {
@@ -40,14 +42,14 @@ import type {
   DeviceRow,
   DeviceGatewayRow,
   DeviceInput,
+  DeviceGatewaysInput,
   GatewayProvisionResult,
 } from "./types.ts";
 import { getEncKey, getMacHashKey, encrypt, decrypt, macHash, sanitizeMac, InvalidMacError } from "./crypto.ts";
 import {
   createRadiusAccount,
   deleteRadiusAccount,
-  createUserAlias,
-  updateUserAlias,
+  createUserNote,
   deleteUserAlias,
   type GatewayConn,
 } from "./unifi-client.ts";
@@ -117,6 +119,8 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
 
   if (route === "GET /devices") return listDevices(db);
   if (route === "POST /devices") return createDevice(db, auth, body as DeviceInput);
+  if (method === "PATCH" && pathname.match(/^\/devices\/[^/]+\/gateways$/))
+    return updateDeviceGateways(db, auth, segId(pathname, -2), body as DeviceGatewaysInput);
   if (method === "PATCH" && pathname.match(/^\/devices\/[^/]+$/))
     return updateDevice(db, auth, segId(pathname), body);
   if (method === "DELETE" && pathname.match(/^\/devices\/[^/]+$/))
@@ -131,11 +135,6 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
     return approveDevice(db, auth, segId(pathname, -2));
   if (method === "POST" && pathname.match(/^\/devices\/[^/]+\/reject$/))
     return rejectDevice(db, auth, segId(pathname, -2));
-
-  // ── Name discrepancy resolution ──────────────────────────────────────────
-
-  if (method === "POST" && pathname.match(/^\/devices\/[^/]+\/resolve-name$/))
-    return resolveNameDiscrepancy(db, auth, segId(pathname, -2), body);
 
   return notFound();
 }
@@ -281,7 +280,7 @@ async function listDevices(db: ModuleDbClient): Promise<HandlerResponse> {
     );
     result.push({
       id: d.id,
-      name: encKey ? await decrypt(encKey, d.alias_enc).catch(() => "Unbekannt") : "Unbekannt",
+      // "name" entfernt (2026-07-01): note ist jetzt das einzige Freitextfeld.
       note: encKey ? await decrypt(encKey, d.note_enc).catch(() => "") : "",
       mac: encKey ? await decrypt(encKey, d.mac_enc).catch(() => "???") : "???",
       target_vlan_name: d.target_vlan_name,
@@ -290,12 +289,6 @@ async function listDevices(db: ModuleDbClient): Promise<HandlerResponse> {
           gateway_id: g.gateway_id,
           gateway_name: encKey ? await decrypt(encKey, g.gateway_name_enc).catch(() => "???") : "???",
           last_seen_at: g.last_seen_at,
-          name_discrepancy: g.name_discrepancy,
-          // Ergänzt 2026-07-01: tatsächlicher Name auf diesem Gateway, damit
-          // der Namensdiskrepanz-Dialog die konkreten Werte nebeneinander
-          // zeigen kann statt nur "es gibt eine Abweichung".
-          gateway_alias:
-            g.gateway_alias_enc && encKey ? await decrypt(encKey, g.gateway_alias_enc).catch(() => null) : null,
           provisioning_status: g.provisioning_status,
           provisioning_error: g.provisioning_error,
         })),
@@ -318,15 +311,11 @@ async function createDevice(
     throw err;
   }
 
-  // note ist Pflichtfeld beim Anlegen (Entscheidungsvorlage 4.13).
+  // note ist Pflichtfeld beim Anlegen (Entscheidungsvorlage 4.13). Kein
+  // alias/Name-Feld mehr (2026-07-01) — note ist das einzige Freitextfeld.
   if (!input.note || input.note.trim().length === 0) {
     return badRequest("note is required");
   }
-
-  // Entscheidungsvorlage 4.15: alias (Name) ist beim Onboarding kein
-  // Pflichtfeld mehr — fällt auf die sanitized MAC zurück, falls leer
-  // (gleiches Fallback-Verhalten wie beim Auto-Adopt, → 4.14).
-  const alias = input.alias && input.alias.trim().length > 0 ? input.alias.trim() : sanitized;
 
   const encKey = await getEncKey();
   const macHashKey = await getMacHashKey();
@@ -336,7 +325,6 @@ async function createDevice(
 
   const macEnc = await encrypt(encKey, sanitized);
   const hash = await macHash(macHashKey, sanitized);
-  const aliasEnc = await encrypt(encKey, alias);
   const noteEnc = await encrypt(encKey, input.note);
 
   // Vorab-Check statt blindem INSERT (2026-07-01 ergänzt): mac_hash ist
@@ -359,9 +347,9 @@ async function createDevice(
   // The device is stored as pending_approval; no RADIUS/user API calls happen
   // until an Org-Admin/Super-Admin approves it (see approveDevice()).
   const [row] = await db.query<DeviceRow>(
-    `INSERT INTO devices (mac_enc, mac_hash, alias_enc, note_enc, target_vlan_name, status, created_by)
-     VALUES ($1, $2, $3, $4, $5, 'pending_approval', $6) RETURNING id`,
-    [macEnc, hash, aliasEnc, noteEnc, input.target_vlan_name, auth.userEmail],
+    `INSERT INTO devices (mac_enc, mac_hash, note_enc, target_vlan_name, status, created_by)
+     VALUES ($1, $2, $3, $4, 'pending_approval', $5) RETURNING id`,
+    [macEnc, hash, noteEnc, input.target_vlan_name, auth.userEmail],
   );
 
   // Store the requested target gateways as device_gateways rows with a
@@ -376,7 +364,7 @@ async function createDevice(
     );
   }
 
-  await audit(db, auth.userEmail, "device.create", "device", row.id, alias);
+  await audit(db, auth.userEmail, "device.create", "device", row.id, input.note);
   return created({ id: row.id, status: "pending_approval" });
 }
 
@@ -394,7 +382,8 @@ async function updateDevice(
   if (device.status === "active" && !isAdmin(auth)) return forbidden();
   if (device.status === "pending_approval" && device.created_by !== auth.userEmail && !isAdmin(auth)) return forbidden();
 
-  const { alias, note, target_vlan_name } = body as { alias?: string; note?: string; target_vlan_name?: string };
+  // "alias" entfernt (2026-07-01): note ist das einzige Freitextfeld.
+  const { note, target_vlan_name } = body as { note?: string; target_vlan_name?: string };
 
   // note ist Pflichtfeld — darf beim Bearbeiten nicht auf leer gesetzt werden
   // (Entscheidungsvorlage 4.13). Ein explizit übergebenes, aber leeres note
@@ -405,10 +394,6 @@ async function updateDevice(
   }
 
   const encKey = await getEncKey();
-  if (alias && encKey) {
-    const aliasEnc = await encrypt(encKey, alias);
-    await db.query(`UPDATE devices SET alias_enc = $1, updated_at = now() WHERE id = $2`, [aliasEnc, id]);
-  }
   if (note !== undefined && encKey) {
     const noteEnc = await encrypt(encKey, note);
     await db.query(`UPDATE devices SET note_enc = $1, updated_at = now() WHERE id = $2`, [noteEnc, id]);
@@ -419,6 +404,69 @@ async function updateDevice(
 
   await audit(db, auth.userEmail, "device.update", "device", id);
   return ok({ ok: true });
+}
+
+// Ergänzt 2026-07-01: Ziel-Gateways eines bereits aktiven Geräts ändern —
+// gleiche Checkbox-UI wie beim Onboarding, aktuell zugeordnete Gateways
+// vorausgewählt. Neu angehakte Gateways werden provisioniert (wie beim
+// Erstanlegen über approveDevice()/provisionOnGateway()), abgewählte über
+// den bestehenden Teil-Lösch-Mechanismus entfernt (Entscheidungsvorlage 4.6,
+// inkl. pending_deletions-Fallback bei nicht erreichbarem Gateway).
+async function updateDeviceGateways(
+  db: ModuleDbClient,
+  auth: ModuleAuthContext,
+  id: string,
+  input: DeviceGatewaysInput,
+): Promise<HandlerResponse> {
+  const [device] = await db.query<DeviceRow>(`SELECT * FROM devices WHERE id = $1`, [id]);
+  if (!device) return notFound();
+
+  // Gleiche Berechtigungslogik wie updateDevice()/deleteDevice() (→ 4.7):
+  // Ändern der Provisionierung eines aktiven Geräts erfordert Admin.
+  if (device.status === "active" && !isAdmin(auth)) return forbidden();
+  if (device.status === "pending_approval" && device.created_by !== auth.userEmail && !isAdmin(auth)) return forbidden();
+
+  const encKey = await getEncKey();
+  if (!encKey) return { status: 500, body: { error: "MODULAB_ENCRYPTION_KEY not configured on server" } };
+
+  const currentRows = await db.query<DeviceGatewayRow>(`SELECT * FROM device_gateways WHERE device_id = $1`, [id]);
+  const currentGatewayIds = new Set(currentRows.map((r) => r.gateway_id));
+  const newGatewayIds = new Set(input.target_gateway_ids);
+
+  const toAdd = [...newGatewayIds].filter((gid) => !currentGatewayIds.has(gid));
+  const toRemove = currentRows.filter((r) => !newGatewayIds.has(r.gateway_id));
+
+  const results: GatewayProvisionResult[] = [];
+
+  // Nur für bereits aktive Geräte wird tatsächlich provisioniert/gelöscht —
+  // bei pending_approval-Geräten passiert (wie beim Erstanlegen) noch kein
+  // API-Call, die Zuordnung wird nur als Platzhalterzeile vorgemerkt.
+  if (device.status === "active") {
+    const mac = await decrypt(encKey, device.mac_enc);
+    const note = await decrypt(encKey, device.note_enc).catch(() => undefined);
+
+    for (const gatewayId of toAdd) {
+      results.push(await provisionOnGateway(db, gatewayId, id, mac, device.target_vlan_name, note));
+    }
+    for (const dg of toRemove) {
+      await queueOrExecuteDeletion(db, id, dg.gateway_id, dg.radius_account_id, dg.user_alias_id);
+    }
+  } else {
+    for (const gatewayId of toAdd) {
+      await db.query(
+        `INSERT INTO device_gateways (device_id, gateway_id, radius_account_id, provisioning_status)
+         VALUES ($1, $2, '', 'ok')
+         ON CONFLICT (device_id, gateway_id) DO NOTHING`,
+        [id, gatewayId],
+      );
+    }
+    for (const dg of toRemove) {
+      await db.query(`DELETE FROM device_gateways WHERE device_id = $1 AND gateway_id = $2`, [id, dg.gateway_id]);
+    }
+  }
+
+  await audit(db, auth.userEmail, "device.gateways_update", "device", id);
+  return ok({ ok: true, results });
 }
 
 async function deleteDevice(db: ModuleDbClient, auth: ModuleAuthContext, id: string): Promise<HandlerResponse> {
@@ -523,7 +571,7 @@ async function listPendingDevices(db: ModuleDbClient, auth: ModuleAuthContext): 
     ).sort((a, b) => a.localeCompare(b));
     result.push({
       id: d.id,
-      alias: encKey ? await decrypt(encKey, d.alias_enc).catch(() => "???") : "???",
+      // "alias" entfernt (2026-07-01): note ist das einzige Freitextfeld.
       note: encKey ? await decrypt(encKey, d.note_enc).catch(() => "???") : "???",
       mac: encKey ? await decrypt(encKey, d.mac_enc).catch(() => "???") : "???",
       target_vlan_name: d.target_vlan_name,
@@ -546,7 +594,6 @@ async function approveDevice(db: ModuleDbClient, auth: ModuleAuthContext, id: st
   if (!encKey) return { status: 500, body: { error: "MODULAB_ENCRYPTION_KEY not configured on server" } };
 
   const mac = await decrypt(encKey, device.mac_enc);
-  const alias = await decrypt(encKey, device.alias_enc);
   const note = await decrypt(encKey, device.note_enc).catch(() => undefined);
 
   const targetGateways = await db.query<{ gateway_id: string }>(
@@ -560,14 +607,14 @@ async function approveDevice(db: ModuleDbClient, auth: ModuleAuthContext, id: st
   // a VLAN-not-found (or any other) failure on one gateway does not block
   // provisioning on the others (partial success, reported per gateway).
   for (const { gateway_id } of targetGateways) {
-    results.push(await provisionOnGateway(db, gateway_id, device.id, mac, alias, device.target_vlan_name, note));
+    results.push(await provisionOnGateway(db, gateway_id, device.id, mac, device.target_vlan_name, note));
   }
 
   await db.query(`UPDATE devices SET status = 'active', approved_by = $1, approved_at = now() WHERE id = $2`, [
     auth.userEmail,
     id,
   ]);
-  await audit(db, auth.userEmail, "device.approve", "device", id, alias);
+  await audit(db, auth.userEmail, "device.approve", "device", id, note);
 
   return ok({ status: "active", results });
 }
@@ -577,7 +624,6 @@ async function provisionOnGateway(
   gatewayId: string,
   deviceId: string,
   mac: string,
-  alias: string,
   targetVlanName: string,
   note?: string,
 ): Promise<GatewayProvisionResult> {
@@ -622,7 +668,10 @@ async function provisionOnGateway(
     }
 
     const radiusAccount = await createRadiusAccount(conn, sanitized, vlan.vlan_number);
-    const userAlias = await createUserAlias(conn, sanitized, alias, note);
+    // "name" entfernt (2026-07-01): nur noch note wird bei UniFi gesetzt.
+    // note ist auf devices.note_enc Pflichtfeld, kann hier also nicht leer
+    // sein — der Fallback ("") ist nur eine defensive Typ-Absicherung.
+    const userAlias = await createUserNote(conn, sanitized, note ?? "");
 
     await db.query(
       `INSERT INTO device_gateways
@@ -660,62 +709,8 @@ async function rejectDevice(db: ModuleDbClient, auth: ModuleAuthContext, id: str
   return ok({ status: "rejected" });
 }
 
-// ── Name discrepancy resolution (Entscheidungsvorlage 4.4) ──────────────────
-
-async function resolveNameDiscrepancy(
-  db: ModuleDbClient,
-  auth: ModuleAuthContext,
-  deviceId: string,
-  body: unknown,
-): Promise<HandlerResponse> {
-  const { canonical_name } = body as { canonical_name?: string };
-  if (!canonical_name) return badRequest("canonical_name is required");
-
-  const encKey = await getEncKey();
-  if (!encKey) return { status: 500, body: { error: "MODULAB_ENCRYPTION_KEY not configured on server" } };
-
-  const aliasEnc = await encrypt(encKey, canonical_name);
-  await db.query(`UPDATE devices SET alias_enc = $1, updated_at = now() WHERE id = $2`, [aliasEnc, deviceId]);
-
-  const gatewayRows = await db.query<DeviceGatewayRow>(`SELECT * FROM device_gateways WHERE device_id = $1`, [deviceId]);
-
-  // Ergänzt 2026-07-01 (Bugfix): der ursprüngliche catch-Block verschluckte
-  // jeden Fehler beim Zurückschreiben komplett (catch { continue; }, kein
-  // Logging, keine Rückmeldung an den Aufrufer) — ein fehlgeschlagener Sync
-  // sah in der UI identisch aus wie ein erfolgreicher ({ok: true}), nur dass
-  // name_discrepancy beim nächsten Poll wieder auftauchte. Jetzt werden
-  // Ergebnisse pro Gateway gesammelt und mit zurückgegeben, damit ein
-  // Fehlschlag sichtbar wird statt nur "kam irgendwie nicht an".
-  const results: { gateway_id: string; status: "ok" | "skipped_no_user_alias" | "error"; error?: string }[] = [];
-
-  for (const dg of gatewayRows) {
-    if (!dg.user_alias_id) {
-      results.push({ gateway_id: dg.gateway_id, status: "skipped_no_user_alias" });
-      continue;
-    }
-    const [gw] = await db.query<GatewayRow>(`SELECT * FROM gateways WHERE id = $1`, [dg.gateway_id]);
-    if (!gw) continue;
-
-    try {
-      const apiKey = await decrypt(encKey, gw.api_key_enc);
-      const gwName = await decrypt(encKey, gw.name_enc).catch(() => "???");
-      const baseUrl = await decrypt(encKey, gw.base_url_enc);
-      const conn: GatewayConn = { name: gwName, baseUrl, apiKey };
-      await updateUserAlias(conn, dg.user_alias_id, canonical_name);
-      const canonicalAliasEnc = await encrypt(encKey, canonical_name);
-      await db.query(
-        `UPDATE device_gateways SET name_discrepancy = false, gateway_alias_enc = $1 WHERE device_id = $2 AND gateway_id = $3`,
-        [canonicalAliasEnc, deviceId, dg.gateway_id],
-      );
-      results.push({ gateway_id: dg.gateway_id, status: "ok" });
-    } catch (err) {
-      // Entscheidungsvorlage 4.4: if the write fails for one gateway,
-      // name_discrepancy stays true there and gets retried on the next cron poll.
-      results.push({ gateway_id: dg.gateway_id, status: "error", error: String(err) });
-      continue;
-    }
-  }
-
-  await audit(db, auth.userEmail, "device.resolve_name", "device", deviceId, canonical_name);
-  return ok({ ok: true, results });
-}
+// Namensdiskrepanz-Mechanismus (Entscheidungsvorlage 4.4) komplett entfernt
+// (2026-07-01): baute ausschließlich auf dem UniFi-name-Feld auf, das nicht
+// mehr genutzt wird. Mit nur noch einem vom Modul verwalteten Feld (note)
+// gibt es nichts mehr, was zwischen Gateways auseinanderlaufen könnte —
+// siehe Migration 0004_remove_name_use_note_only.sql.

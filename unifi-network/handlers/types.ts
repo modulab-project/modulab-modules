@@ -66,8 +66,10 @@ export interface DeviceRow {
   id: string;
   mac_enc: string;
   mac_hash: string;
-  alias_enc: string;      // UniFi-Feld "name" — kanonischer Alias, Namensdiskrepanz-Sync-Ziel
-  note_enc: string;       // UniFi-Feld "note" — freier Kommentar, z.B. "iPhone Kay". Pflichtfeld, nicht Teil des Namensdiskrepanz-Mechanismus
+  // alias_enc entfernt (2026-07-01): Name-Konzept komplett gestrichen,
+  // note_enc ist jetzt das einzige Freitextfeld, sowohl kanonisch als auch
+  // beim Zurückschreiben auf UniFi (Nutzerentscheidung: "nur noch Notiz").
+  note_enc: string;       // UniFi-Feld "note" — einziges Freitextfeld, z.B. "iPhone Kay". Pflichtfeld.
   target_vlan_name: string;
   status: DeviceStatus;
   created_by: string;
@@ -86,8 +88,10 @@ export interface DeviceGatewayRow {
   user_alias_id: string | null;
   resolved_vlan_id: string | null;
   last_seen_at: string | null;
-  name_discrepancy: boolean;
-  gateway_alias_enc: string | null; // AES-256-GCM verschlüsselt — auf diesem Gateway tatsächlich gesetzter Name, NULL falls nie gesetzt
+  // name_discrepancy/gateway_alias_enc entfernt (2026-07-01): der gesamte
+  // Namensdiskrepanz-Mechanismus entfällt zusammen mit dem UniFi-name-Feld —
+  // mit nur noch einem vom Modul verwalteten Feld (note) gibt es nichts mehr,
+  // was zwischen Gateways auseinanderlaufen könnte.
   provisioning_status: ProvisioningStatus;
   provisioning_error: string | null;
   provisioned_at: string;
@@ -117,10 +121,18 @@ export interface PendingDeletionRow {
 // Input shape for the onboarding form (POST /devices).
 export interface DeviceInput {
   mac: string;                 // raw, will be run through sanitizeMac()
-  alias: string;                // -> UniFi "name" field
+  // alias entfernt (2026-07-01): kein UniFi "name" mehr, nur noch note.
   note: string;                  // -> UniFi "note" field, required, e.g. "iPhone Kay"
   target_vlan_name: string;
   target_gateway_ids: string[]; // checkboxes in the form
+}
+
+// Input shape for changing an existing device's target gateways
+// (PATCH /devices/:id/gateways) — same checkbox UI as onboarding, but for
+// an already-active device. Newly checked gateways get provisioned, unchecked
+// ones go through the existing partial-delete flow (Entscheidungsvorlage 4.6).
+export interface DeviceGatewaysInput {
+  target_gateway_ids: string[];
 }
 
 // Result of provisioning a single gateway during the onboarding loop.
