@@ -103,7 +103,7 @@ function useApi(apiBase: string, token: string) {
 
 // ── Root component ────────────────────────────────────────────────────────────
 
-const NS = "mod_unifi_network";
+const NS = "mod_unifi-network";
 
 export default function UnifiNetworkApp({ apiBase, token }: ModuleComponentProps) {
   const { t } = useTranslation(NS);
