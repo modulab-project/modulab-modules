@@ -679,8 +679,20 @@ async function resolveNameDiscrepancy(
 
   const gatewayRows = await db.query<DeviceGatewayRow>(`SELECT * FROM device_gateways WHERE device_id = $1`, [deviceId]);
 
+  // Ergänzt 2026-07-01 (Bugfix): der ursprüngliche catch-Block verschluckte
+  // jeden Fehler beim Zurückschreiben komplett (catch { continue; }, kein
+  // Logging, keine Rückmeldung an den Aufrufer) — ein fehlgeschlagener Sync
+  // sah in der UI identisch aus wie ein erfolgreicher ({ok: true}), nur dass
+  // name_discrepancy beim nächsten Poll wieder auftauchte. Jetzt werden
+  // Ergebnisse pro Gateway gesammelt und mit zurückgegeben, damit ein
+  // Fehlschlag sichtbar wird statt nur "kam irgendwie nicht an".
+  const results: { gateway_id: string; status: "ok" | "skipped_no_user_alias" | "error"; error?: string }[] = [];
+
   for (const dg of gatewayRows) {
-    if (!dg.user_alias_id) continue;
+    if (!dg.user_alias_id) {
+      results.push({ gateway_id: dg.gateway_id, status: "skipped_no_user_alias" });
+      continue;
+    }
     const [gw] = await db.query<GatewayRow>(`SELECT * FROM gateways WHERE id = $1`, [dg.gateway_id]);
     if (!gw) continue;
 
@@ -695,13 +707,15 @@ async function resolveNameDiscrepancy(
         `UPDATE device_gateways SET name_discrepancy = false, gateway_alias_enc = $1 WHERE device_id = $2 AND gateway_id = $3`,
         [canonicalAliasEnc, deviceId, dg.gateway_id],
       );
-    } catch {
+      results.push({ gateway_id: dg.gateway_id, status: "ok" });
+    } catch (err) {
       // Entscheidungsvorlage 4.4: if the write fails for one gateway,
       // name_discrepancy stays true there and gets retried on the next cron poll.
+      results.push({ gateway_id: dg.gateway_id, status: "error", error: String(err) });
       continue;
     }
   }
 
   await audit(db, auth.userEmail, "device.resolve_name", "device", deviceId, canonical_name);
-  return ok({ ok: true });
+  return ok({ ok: true, results });
 }
