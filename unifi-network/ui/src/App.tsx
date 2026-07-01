@@ -509,7 +509,20 @@ const KNOWN_ERROR_CODES: Record<string, string> = {
 
 function translateApiError(err: unknown, t: (k: string) => string): string {
   const raw = err instanceof Error ? err.message : String(err);
-  const key = KNOWN_ERROR_CODES[raw.trim()];
+
+  // Backend-Fehler kommen als HTTP-Response-Body (JSON) durch useApi.mutate(),
+  // z. B. {"error":"device_mac_rejected"} — nicht als reiner Code-String.
+  // Bug gefunden 2026-07-01: der Lookup verglich raw direkt gegen die Codes
+  // und traf nie, weil raw tatsächlich das ganze JSON-Objekt als Text war.
+  let code = raw.trim();
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed.error === "string") code = parsed.error;
+  } catch {
+    // kein JSON (z. B. Netzwerkfehler, HTTP-Statustext) — raw bleibt wie es ist
+  }
+
+  const key = KNOWN_ERROR_CODES[code];
   return key ? t(key) : raw;
 }
 
@@ -732,7 +745,7 @@ function NameDiscrepancyDialog({
       });
       onResolved();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(translateApiError(err, t));
     } finally {
       setSubmitting(false);
     }
@@ -853,7 +866,7 @@ function EditDeviceDialog({
       });
       onSaved();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(translateApiError(err, t));
     } finally {
       setSubmitting(false);
     }
@@ -983,7 +996,7 @@ function PendingApprovalList({
       setRows((prev) => prev.filter((r) => r.id !== id));
       onChanged();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(translateApiError(err, t));
     } finally {
       setBusyId(null);
     }
@@ -997,7 +1010,7 @@ function PendingApprovalList({
       setRows((prev) => prev.filter((r) => r.id !== id));
       onChanged();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(translateApiError(err, t));
     } finally {
       setBusyId(null);
     }
@@ -1169,7 +1182,7 @@ function GatewaysView({ api }: { api: ReturnType<typeof useApi> }) {
       setShowForm(false);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(translateApiError(err, t));
     } finally {
       setSubmitting(false);
     }
