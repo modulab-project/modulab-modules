@@ -250,6 +250,8 @@ function OverviewView({ api }: { api: ReturnType<typeof useApi> }) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [nameDialogDeviceId, setNameDialogDeviceId] = useState<string | null>(null);
+  const [editDeviceId, setEditDeviceId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -288,6 +290,20 @@ function OverviewView({ api }: { api: ReturnType<typeof useApi> }) {
   );
 
   const hasDiscrepancy = (d: Device) => d.gateways.some((g) => g.name_discrepancy);
+
+  const removeDevice = useCallback(
+    async (device: Device) => {
+      if (!window.confirm(t("confirm_delete_device", { name: device.name }))) return;
+      setDeletingId(device.id);
+      try {
+        await api.mutate("DELETE", `/devices/${device.id}`);
+        await load();
+      } finally {
+        setDeletingId(null);
+      }
+    },
+    [api, load, t],
+  );
 
   return (
     <div>
@@ -369,6 +385,7 @@ function OverviewView({ api }: { api: ReturnType<typeof useApi> }) {
                   <th className="px-3 py-2 font-medium">{t("col_mac")}</th>
                   <th className="px-3 py-2 font-medium">{t("col_vlan")}</th>
                   <th className="px-3 py-2 font-medium">{t("col_last_seen")}</th>
+                  <th className="px-3 py-2 font-medium text-right">{t("col_actions")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -420,6 +437,27 @@ function OverviewView({ api }: { api: ReturnType<typeof useApi> }) {
                         ))}
                       </div>
                     </td>
+                    <td className="px-3 py-2">
+                      <div className="flex justify-end gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setEditDeviceId(d.id)}
+                          className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-50 hover:text-gray-600 dark:hover:bg-gray-800"
+                          title={t("btn_edit")}
+                        >
+                          <i className="ti ti-pencil text-[14px]" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeDevice(d)}
+                          disabled={deletingId === d.id}
+                          className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:hover:bg-red-950"
+                          title={t("btn_delete")}
+                        >
+                          <i className="ti ti-trash text-[14px]" />
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -435,6 +473,18 @@ function OverviewView({ api }: { api: ReturnType<typeof useApi> }) {
           onClose={() => setNameDialogDeviceId(null)}
           onResolved={() => {
             setNameDialogDeviceId(null);
+            load();
+          }}
+        />
+      )}
+
+      {editDeviceId && (
+        <EditDeviceDialog
+          api={api}
+          device={devices.find((d) => d.id === editDeviceId)!}
+          onClose={() => setEditDeviceId(null)}
+          onSaved={() => {
+            setEditDeviceId(null);
             load();
           }}
         />
@@ -728,6 +778,139 @@ function NameDiscrepancyDialog({
             className="rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50"
           >
             {submitting ? t("submitting") : t("btn_resolve_sync")}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Edit device dialog ─────────────────────────────────────────────────────────
+// Bearbeitet alias/note/target_vlan_name eines bereits aktiven Geräts über
+// PATCH /devices/:id. Namensdiskrepanz-Sync (NameDiscrepancyDialog) bleibt
+// ein separater, spezialisierter Flow — dieser Dialog ist die allgemeine
+// "Gerät bearbeiten"-Aktion aus der Übersichtstabelle.
+
+function EditDeviceDialog({
+  api,
+  device,
+  onClose,
+  onSaved,
+}: {
+  api: ReturnType<typeof useApi>;
+  device: Device;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { t } = useTranslation(NS);
+  const [alias, setAlias] = useState(device.name);
+  const [note, setNote] = useState(device.note);
+  const [targetVlanName, setTargetVlanName] = useState(device.target_vlan_name);
+  const [vlanOptions, setVlanOptions] = useState<string[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.get<string[]>("/vlans").then((rows) => setVlanOptions(Array.isArray(rows) ? rows : [])).catch(() => {});
+  }, [api]);
+
+  const submit = async () => {
+    if (!alias.trim()) {
+      setError(t("error_alias_required"));
+      return;
+    }
+    if (!note.trim()) {
+      setError(t("error_note_required"));
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      await api.mutate("PATCH", `/devices/${device.id}`, {
+        alias: alias.trim(),
+        note: note.trim(),
+        target_vlan_name: targetVlanName,
+      });
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+      <div className="w-full max-w-md rounded-2xl bg-white p-5 dark:bg-gray-900">
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100">{t("edit_device_heading")}</h3>
+          <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+            <i className="ti ti-x text-[16px]" />
+          </button>
+        </div>
+
+        {error && (
+          <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+            {error}
+          </div>
+        )}
+
+        <p className="mb-3 text-xs text-gray-500 dark:text-gray-400 font-mono">{device.mac}</p>
+
+        <label className="mb-3 block">
+          <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">{t("label_alias")}</span>
+          <input
+            type="text"
+            value={alias}
+            onChange={(e) => setAlias(e.target.value)}
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 dark:border-gray-700 dark:bg-gray-800"
+            style={{ fontSize: "16px" }}
+          />
+        </label>
+
+        <label className="mb-3 block">
+          <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
+            {t("label_note")} <span className="text-red-500">*</span>
+          </span>
+          <input
+            type="text"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 dark:border-gray-700 dark:bg-gray-800"
+            style={{ fontSize: "16px" }}
+          />
+        </label>
+
+        <label className="mb-4 block">
+          <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">{t("label_vlan")}</span>
+          <select
+            value={targetVlanName}
+            onChange={(e) => setTargetVlanName(e.target.value)}
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800"
+            style={{ fontSize: "16px" }}
+          >
+            <option value="">{t("select_vlan")}</option>
+            {vlanOptions.map((name) => (
+              <option key={name} value={name}>{name}</option>
+            ))}
+          </select>
+        </label>
+
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+          >
+            {t("btn_cancel")}
+          </button>
+          <button
+            type="button"
+            onClick={submit}
+            disabled={submitting}
+            className="rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50"
+          >
+            {submitting ? t("submitting") : t("btn_save")}
           </button>
         </div>
       </div>

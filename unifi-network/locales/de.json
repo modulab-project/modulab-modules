@@ -32,6 +32,7 @@
   "col_mac": "MAC-Adresse",
   "col_vlan": "VLAN",
   "col_last_seen": "Zuletzt gesehen",
+  "col_actions": "Aktionen",
   "name_discrepancy_hint": "Name weicht zwischen Gateways ab",
   "vlan_not_found": "VLAN nicht gefunden",
   "provisioning_error": "Fehler",
@@ -62,6 +63,9 @@
   "label_canonical_name": "Einheitlicher Name",
   "btn_cancel": "Abbrechen",
   "btn_resolve_sync": "Auflösen & synchronisieren",
+
+  "edit_device_heading": "Gerät bearbeiten",
+  "confirm_delete_device": "Gerät \"{{name}}\" wirklich überall löschen?",
 
   "no_pending": "Keine ausstehenden Freigaben.",
   "requested_by": "Angefragt von {{user}}",

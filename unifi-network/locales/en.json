@@ -32,6 +32,7 @@
   "col_mac": "MAC address",
   "col_vlan": "VLAN",
   "col_last_seen": "Last seen",
+  "col_actions": "Actions",
   "name_discrepancy_hint": "Name differs between gateways",
   "vlan_not_found": "VLAN not found",
   "provisioning_error": "Error",
@@ -62,6 +63,9 @@
   "label_canonical_name": "Canonical name",
   "btn_cancel": "Cancel",
   "btn_resolve_sync": "Resolve & sync",
+
+  "edit_device_heading": "Edit device",
+  "confirm_delete_device": "Really delete device \"{{name}}\" everywhere?",
 
   "no_pending": "No pending approvals.",
   "requested_by": "Requested by {{user}}",

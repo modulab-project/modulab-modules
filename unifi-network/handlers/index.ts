@@ -371,6 +371,15 @@ async function updateDevice(
 }
 
 async function deleteDevice(db: ModuleDbClient, auth: ModuleAuthContext, id: string): Promise<HandlerResponse> {
+  const [device] = await db.query<DeviceRow>(`SELECT * FROM devices WHERE id = $1`, [id]);
+  if (!device) return notFound();
+
+  // Entscheidungsvorlage 4.7 (ergänzt 2026-07-01): Löschen eines bereits
+  // aktiven Geräts verlangt Admin, analog zu updateDevice. Ein Nutzer darf
+  // weiterhin seine eigene, noch nicht freigegebene Einreichung zurückziehen.
+  if (device.status === "active" && !isAdmin(auth)) return forbidden();
+  if (device.status === "pending_approval" && device.created_by !== auth.userId && !isAdmin(auth)) return forbidden();
+
   const gatewayRows = await db.query<DeviceGatewayRow>(`SELECT * FROM device_gateways WHERE device_id = $1`, [id]);
 
   for (const dg of gatewayRows) {
