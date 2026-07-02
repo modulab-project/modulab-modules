@@ -262,15 +262,26 @@ async function updateGateway(
   const nameEnc = name ? await encrypt(encKey, name) : null;
   const baseUrlEnc = base_url ? await encrypt(encKey, base_url) : null;
 
+  // Reset the circuit breaker on every save. An admin editing a gateway's
+  // config (fixing a URL, rotating a key) is exactly the "operator
+  // intervention" the pause was waiting for — see status.go's CircuitBreaker
+  // comment and poll_gateways's `WHERE status != 'paused'` filter, which
+  // otherwise excludes a paused gateway from polling forever with no other
+  // way back in (found 2026-07-02: gateways paused during the sandbox
+  // rollout stayed paused after the underlying network issue was fixed,
+  // because nothing ever cleared status/consecutive_failures). This can
+  // reset a gateway that was paused for a still-unfixed reason too — the
+  // next poll will just re-fail and re-pause it after CIRCUIT_BREAKER_THRESHOLD
+  // more failures, so that's a wasted poll cycle at worst, not a new risk.
   if (api_key) {
     const apiKeyEnc = await encrypt(encKey, api_key);
     await db.query(
-      `UPDATE gateways SET name_enc = COALESCE($1, name_enc), base_url_enc = COALESCE($2, base_url_enc), api_key_enc = $3, updated_at = now() WHERE id = $4`,
+      `UPDATE gateways SET name_enc = COALESCE($1, name_enc), base_url_enc = COALESCE($2, base_url_enc), api_key_enc = $3, status = 'unknown', consecutive_failures = 0, updated_at = now() WHERE id = $4`,
       [nameEnc, baseUrlEnc, apiKeyEnc, id],
     );
   } else {
     await db.query(
-      `UPDATE gateways SET name_enc = COALESCE($1, name_enc), base_url_enc = COALESCE($2, base_url_enc), updated_at = now() WHERE id = $3`,
+      `UPDATE gateways SET name_enc = COALESCE($1, name_enc), base_url_enc = COALESCE($2, base_url_enc), status = 'unknown', consecutive_failures = 0, updated_at = now() WHERE id = $3`,
       [nameEnc, baseUrlEnc, id],
     );
   }
