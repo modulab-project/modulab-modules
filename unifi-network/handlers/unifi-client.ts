@@ -68,16 +68,21 @@ export function isDuplicateError(err: unknown): boolean {
 // Application-level check, NOT a real Deno sandbox boundary (Deno's
 // --allow-net has no CIDR matching). Prevents accidental/malicious
 // configuration of public hosts; a compromised handler could bypass this.
-// RFC1918 ranges + .local/mDNS hostnames are treated as private.
+// RFC1918 ranges + .local hostnames are treated as private.
 //
-// REVISED (2026-07-01): Real gateways use split-horizon DNS — a public FQDN
-// (needed for a CA-validated Let's Encrypt cert, see 4.2) that resolves to a
-// private IP only from inside the LAN/this container. A plain hostname
-// string-match (the original implementation) rejected every such FQDN
-// outright. This now does an actual DNS lookup and checks the resolved
-// IP(s) against RFC1918 — but the resolved IP is used ONLY for this check.
-// The actual fetch() call still connects via the hostname (see unifiFetch),
-// so TLS SNI/certificate hostname validation keeps working.
+// REVISED AGAIN (2026-07-02): gateways are now configured by private IP
+// directly (admin enters e.g. https://10.5.1.1, not a hostname) — see
+// unifiFetch's TLS comment for why the split-horizon-FQDN + CA-cert
+// approach from 2026-07-01 was dropped. The DNS-lookup fallback that used
+// to handle hostname entries was removed the same day: it depended on the
+// worker's Deno DNS-resolver grant (Core's deno.go, dnsResolver field,
+// hardcoded to Docker's embedded 127.0.0.11:53), which is itself brittle
+// across networking modes/deployments, and every gateway is IP-only now
+// regardless. A bare hostname passed to base_url will therefore fail this
+// check (isPrivateIPv4 returns false for anything that isn't a dotted
+// IPv4), which is the correct, fail-closed outcome for a config this
+// module no longer supports — see the Frontend gateway form, which now
+// only accepts an IP in that field.
 
 function isPrivateIPv4(ip: string): boolean {
   const parts = ip.split(".").map(Number);
@@ -99,24 +104,11 @@ export async function isPrivateHost(baseUrl: string): Promise<boolean> {
     return false;
   }
   if (host.endsWith(".local")) return true;
-  if (isPrivateIPv4(host)) return true; // already a literal IP
-
-  // Hostname (FQDN) — resolve and check the actual IP(s) it points to.
-  try {
-    const records = await Deno.resolveDns(host, "A");
-    return records.length > 0 && records.every((ip) => isPrivateIPv4(ip));
-  } catch (e) {
-    // Logged rather than silently swallowed: this used to catch-and-hide
-    // both "genuinely doesn't resolve" (NXDOMAIN, correct to reject) and
-    // "couldn't even attempt resolution" (missing --allow-net for this
-    // host, or no DNS resolver reachable from inside the container for
-    // this domain — both operational problems, not "reject this host on
-    // purpose"). Found 2026-07-02: gateways resolved fine from the host
-    // Mac but failed here, and the original silent `return false` gave no
-    // way to tell which case it was.
-    console.error(`[unifi-network] isPrivateHost: DNS resolution failed for ${JSON.stringify(host)}: ${e}`);
-    return false; // fail closed either way — a resolver problem must not be treated as "safe to connect"
-  }
+  // No DNS fallback (removed 2026-07-02): gateways are configured by
+  // private IP only, so this is the only check needed. A hostname here
+  // (other than .local above) fails closed rather than being resolved —
+  // see the doc comment above this function for why.
+  return isPrivateIPv4(host);
 }
 
 // ── Low-level request helper ────────────────────────────────────────────────
@@ -141,15 +133,31 @@ async function unifiFetch<T>(
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    // Entscheidungsvorlage 4.2 (revidiert 2026-07-01): kein Sonderfall für
-    // self-signed-Zertifikate mehr nötig. UniFi unterstützt inzwischen
-    // Let's-Encrypt-Zertifikate für den Controller; Voraussetzung für dieses
-    // Modul ist, dass jedes Gateway ein über eine öffentlich vertrauenswürdige
-    // CA validierbares Zertifikat nutzt (im Modul-README zu dokumentieren).
-    // Damit reicht normales fetch() mit Standard-Zertifikatsvalidierung — kein
-    // Deno.createHttpClient(), kein prozessweites --unsafely-ignore-*-Flag.
+    // REVISED (2026-07-02): back to accepting the controller's own
+    // certificate without CA validation. Gateways are now addressed by
+    // private IP (10.x/172.16-31.x/192.168.x), entered directly by the
+    // admin — see Frontend gateway form and computeEgressHosts() in
+    // index.ts. A UniFi controller reachable only by private IP has no
+    // public FQDN to hold a CA-issued cert against in the first place
+    // (Let's Encrypt requires a publicly resolvable domain for the ACME
+    // challenge), so the earlier 4.2 requirement ("gateway must have a
+    // CA-validated cert") is no longer satisfiable for an IP-only setup.
+    // isPrivateHost() below remains the actual security boundary: it is
+    // re-checked on every request and fails closed, so relaxing TLS here
+    // only removes cert-chain validation against the gateway's own
+    // (self-signed or private-CA) certificate — it does not widen which
+    // hosts this module will talk to.
+    const client = Deno.createHttpClient({
+      // Deno has no fetch()-level "ignore this one cert" option; the
+      // sanctioned way is a named HttpClient built with the process-wide
+      // --unsafely-ignore-certificate-errors flag scoped to specific
+      // hosts (see Core's deno.go, which passes exactly the configured
+      // gateway IPs, not a blanket "ignore everything"). This still prints
+      // Deno's own startup warning — intentional, not hidden.
+    });
     const res = await fetch(`${conn.baseUrl}${API_PREFIX}${path}`, {
       ...init,
+      client,
       signal: controller.signal,
       headers: {
         "X-API-KEY": conn.apiKey,

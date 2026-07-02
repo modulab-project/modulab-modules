@@ -58,7 +58,8 @@
   "error_note_required": "Note is required",
   "error_vlan_required": "Please select a VLAN",
   "error_gateway_required": "Please select at least one gateway",
-  "error_name_url_required": "Name and base URL are required",
+  "error_name_url_required": "Name and IP address are required",
+  "error_invalid_gateway_ip": "Please enter a valid private IP address (e.g. 10.5.1.1) — hostnames are no longer supported",
   "error_api_key_required": "API key is required",
   "error_device_mac_pending": "A device with this MAC address is already awaiting approval.",
   "error_device_mac_rejected": "A device with this MAC address was already rejected. Please edit the existing entry instead of creating a new one.",
@@ -88,7 +89,7 @@
   "new_gateway_heading": "New gateway",
   "edit_gateway_heading": "Edit gateway",
   "label_gateway_name": "Name",
-  "label_base_url": "IP address or hostname",
+  "label_base_url": "IP address (private network)",
   "label_api_key": "API key",
   "leave_blank_unchanged": "leave blank = unchanged",
   "btn_save": "Save"

@@ -1274,15 +1274,34 @@ function PendingApprovalList({
 //
 // Backend erwartet weiterhin eine vollständige URL in base_url (isPrivateHost()
 // macht new URL(baseUrl).hostname, siehe unifi-client.ts). Im UI wird aber nur
-// die IP/der FQDN ohne https:// abgefragt und angezeigt — das https:// wird
+// die IP-Adresse ohne https:// abgefragt und angezeigt — das https:// wird
 // hier ein-/ausgeblendet, nicht im Backend geändert.
+//
+// Seit 2026-07-02 nur noch IP, kein Hostname mehr: isPrivateHost() im
+// Backend hat den DNS-Auflösungspfad für Hostnamen entfernt (siehe
+// unifi-client.ts) — ein hier eingegebener Hostname würde dort ohnehin
+// fail-closed abgelehnt. isValidPrivateIPv4 spiegelt exakt die
+// Backend-Prüfung (isPrivateIPv4 in unifi-client.ts), damit der Fehler
+// direkt im Formular auftaucht statt erst nach dem Absenden.
 
 function stripHttps(url: string): string {
   return url.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
 }
 
-function toBaseUrl(hostOrFqdn: string): string {
-  return `https://${stripHttps(hostOrFqdn.trim())}`;
+function toBaseUrl(ip: string): string {
+  return `https://${stripHttps(ip.trim())}`;
+}
+
+function isValidPrivateIPv4(value: string): boolean {
+  const parts = value.trim().split(".");
+  if (parts.length !== 4) return false;
+  const nums = parts.map((p) => Number(p));
+  if (nums.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return false;
+  const [a, b] = nums;
+  if (a === 10) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  return false;
 }
 
 function GatewaysView({ api }: { api: ReturnType<typeof useApi> }) {
@@ -1332,6 +1351,10 @@ function GatewaysView({ api }: { api: ReturnType<typeof useApi> }) {
   const submit = async () => {
     if (!name.trim() || !host.trim()) {
       setError(t("error_name_url_required"));
+      return;
+    }
+    if (!isValidPrivateIPv4(host)) {
+      setError(t("error_invalid_gateway_ip"));
       return;
     }
     if (!editing && !apiKey.trim()) {
@@ -1461,9 +1484,10 @@ function GatewaysView({ api }: { api: ReturnType<typeof useApi> }) {
               <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">{t("label_base_url")}</span>
               <input
                 type="text"
+                inputMode="decimal"
                 value={host}
                 onChange={(e) => setHost(stripHttps(e.target.value))}
-                placeholder="udm.example.com"
+                placeholder="10.5.1.1"
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 dark:border-gray-700 dark:bg-gray-800"
                 style={{ fontSize: "16px" }}
               />

@@ -1,5 +1,5 @@
 name: "unifi-network"
-version: "0.3.2"
+version: "0.3.3"
 display_name:
   en: "UniFi Network"
   de: "UniFi Netzwerk"
@@ -50,6 +50,20 @@ storage:
 # liefern würde, verweigert der Handler selbst den Kontakt zu Nicht-privaten
 # Zielen. Siehe Entscheidungsvorlage Abschnitt 1.2.
 egress_allowlist: []
+
+# Gateways werden per privater IP konfiguriert, nicht per Hostname (Stand
+# 2026-07-02, siehe unifi-client.ts isPrivateHost()/unifiFetch()). Ein
+# Controller, der nur unter einer privaten IP erreichbar ist, hat keine
+# öffentliche Domain, gegen die ein CA-Zertifikat (z. B. Let's Encrypt)
+# ausgestellt werden könnte — sein eigenes (selbstsigniertes oder
+# private-CA-)Zertifikat besteht Denos Standard-TLS-Prüfung deshalb nie.
+# tls_skip_verify scoped Denos --unsafely-ignore-certificate-errors (Core,
+# deno.go) auf exakt dieselbe Host-Liste wie egress_allowlist/restartHosts —
+# kein prozessweites Abschalten der Zertifikatsprüfung, nur für Hosts, die
+# ohnehin schon per --allow-net freigegeben sind. isPrivateHost() bleibt die
+# eigentliche Schranke: sie wird bei jedem Request neu geprüft und
+# verweigert den Kontakt zu allem außerhalb privater IP-Bereiche.
+tls_skip_verify: true
 
 requested_scopes:
   - "Dieses Modul verbindet sich zu vom Nutzer konfigurierten UniFi-Gateways im lokalen Netzwerk. Der Netzzugriff wird bei jeder Gateway-Änderung neu auf genau die konfigurierten Gateway-Adressen beschränkt (durchgesetzt vom Betriebssystem, nicht nur durch Anwendungslogik)."
