@@ -73,7 +73,6 @@ type View =
   | { type: "detail"; id: string }
   | { type: "editor"; id?: string }
   | { type: "meal-plan" }
-  | { type: "import" }
   | { type: "categories" };
 
 // Common ingredient units shown in datalist
@@ -166,15 +165,6 @@ export default function RecipesApp({ apiBase, token }: ModuleComponentProps) {
         </button>
         <button
           type="button"
-          onClick={() => setView({ type: "import" })}
-          className={navCls(view.type === "import")}
-          title={t("nav_import")}
-        >
-          <i className="ti ti-link text-[15px]" />
-          <span className="hidden sm:inline">{t("nav_import")}</span>
-        </button>
-        <button
-          type="button"
           onClick={() => setView({ type: "categories" })}
           className={navCls(view.type === "categories")}
           title={t("nav_categories")}
@@ -214,9 +204,6 @@ export default function RecipesApp({ apiBase, token }: ModuleComponentProps) {
         />
       )}
       {view.type === "meal-plan" && <MealPlanView api={api} />}
-      {view.type === "import" && (
-        <UrlImport api={api} onImported={(id) => setView({ type: "editor", id })} />
-      )}
       {view.type === "categories" && <CategoriesView api={api} />}
     </div>
   );
@@ -1181,71 +1168,6 @@ function MealPlanView({ api }: { api: ReturnType<typeof useApi> }) {
           </tbody>
         </table>
       </div>
-    </div>
-  );
-}
-
-// ── UrlImport ─────────────────────────────────────────────────────────────────
-
-function UrlImport({
-  api,
-  onImported,
-}: {
-  api: ReturnType<typeof useApi>;
-  onImported: (id: string) => void;
-}) {
-  const { t } = useTranslation(NS);
-  const [url, setUrl] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function handleImport() {
-    if (!url.trim()) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const { draft } = await api.mutate<{ draft: { title: string }; source_url: string }>(
-        "POST", "/import/url", { url: url.trim() },
-      );
-      const created = await api.mutate<{ id: string }>("POST", "/recipes", {
-        title: draft.title || t("imported_recipe_title"),
-        source_url: url.trim(),
-      });
-      onImported(created.id);
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <div className="mx-auto max-w-lg">
-      <h2 className="mb-4 text-lg font-semibold">{t("import_title")}</h2>
-      <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">{t("import_description")}</p>
-      <div className="flex gap-2">
-        <input
-          type="url"
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          placeholder={t("import_placeholder")}
-          className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 dark:border-gray-700 dark:bg-gray-900"
-          style={{ fontSize: "16px" }}
-          onKeyDown={(e) => e.key === "Enter" && handleImport()}
-        />
-        <button
-          type="button"
-          onClick={handleImport}
-          disabled={loading || !url.trim()}
-          className="flex items-center gap-1.5 rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50"
-        >
-          {loading ? <i className="ti ti-loader-2 animate-spin text-[13px]" /> : <i className="ti ti-download text-[13px]" />}
-          {loading ? t("importing") : t("import_btn")}
-        </button>
-      </div>
-      {error && (
-        <p className="mt-3 text-sm text-red-600 dark:text-red-400">{error}</p>
-      )}
     </div>
   );
 }

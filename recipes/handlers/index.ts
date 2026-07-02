@@ -40,9 +40,6 @@
  * Portion calculator
  *   GET    /recipes/:id/nutrition?servings=N   recalculated per servings
  *
- * URL import
- *   POST   /import/url           { url } → scraped recipe draft
- *
  * Meal plan
  *   GET    /meal-plan?week=YYYY-MM-DD          get week (Monday date)
  *   PUT    /meal-plan/:weekStart/:day/:slot     set entry  (day=1-7, slot=breakfast|lunch|dinner|snack)
@@ -211,13 +208,6 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
     const params = new URL("http://x" + path).searchParams;
     const servings = parseInt(params.get("servings") ?? "1", 10);
     return calcNutrition(db, id, servings);
-  }
-
-  // ── URL import ────────────────────────────────────────────────────────────
-
-  if (route === "POST /import/url") {
-    const { url } = body as { url: string };
-    return importFromUrl(url);
   }
 
   // ── Meal plan ─────────────────────────────────────────────────────────────
@@ -561,99 +551,6 @@ async function calcNutrition(
   });
 }
 
-// ── URL import ────────────────────────────────────────────────────────────────
-
-async function importFromUrl(url: string): Promise<HandlerResponse> {
-  let html: string;
-  try {
-    const res = await fetch(url, {
-      headers: {
-        "User-Agent": "modulab-recipes/0.1 (homelab recipe import)",
-        "Accept": "text/html",
-      },
-      signal: AbortSignal.timeout(15_000),
-    });
-    if (!res.ok) return { status: 422, body: { error: `HTTP ${res.status} from ${url}` } };
-    html = await res.text();
-  } catch (e) {
-    return { status: 422, body: { error: `Fetch failed: ${String(e)}` } };
-  }
-
-  // Try JSON-LD first (schema.org/Recipe — most recipe sites support this)
-  const draft = extractJsonLd(html) ?? extractHeuristic(html, url);
-  return ok({ draft, source_url: url });
-}
-
-function extractJsonLd(html: string): RecipeDraft | null {
-  const matches = html.matchAll(/<script[^>]+type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi);
-  for (const match of matches) {
-    try {
-      const data = JSON.parse(match[1]);
-      const items = Array.isArray(data) ? data : data["@graph"] ? data["@graph"] : [data];
-      for (const item of items) {
-        if (item["@type"] === "Recipe") {
-          return {
-            title: item.name ?? "",
-            description: item.description ?? "",
-            servings: parseServings(item.recipeYield),
-            prep_time_min: parseDuration(item.prepTime),
-            cook_time_min: parseDuration(item.cookTime),
-            ingredients: (item.recipeIngredient ?? []).map((s: string) => parseIngredientLine(s)),
-            steps: (item.recipeInstructions ?? []).map((s: unknown, i: number) => ({
-              step_number: i + 1,
-              instruction: typeof s === "string" ? s : (s as Record<string, string>).text ?? "",
-            })),
-          };
-        }
-      }
-    } catch { /* malformed JSON-LD, try next */ }
-  }
-  return null;
-}
-
-function extractHeuristic(html: string, _url: string): RecipeDraft {
-  // Minimal fallback: grab <title> and return empty recipe draft for manual editing.
-  const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-  return {
-    title: titleMatch?.[1]?.trim() ?? "",
-    description: "",
-    servings: 4,
-    ingredients: [],
-    steps: [],
-  };
-}
-
-function parseServings(v: unknown): number {
-  if (typeof v === "number") return v;
-  if (typeof v === "string") {
-    const m = v.match(/\d+/);
-    if (m) return parseInt(m[0]);
-  }
-  if (Array.isArray(v) && v.length) return parseServings(v[0]);
-  return 4;
-}
-
-// ISO 8601 duration → minutes  (PT1H30M → 90)
-function parseDuration(v: unknown): number | null {
-  if (!v || typeof v !== "string") return null;
-  const m = v.match(/PT(?:(\d+)H)?(?:(\d+)M)?/);
-  if (!m) return null;
-  return (parseInt(m[1] ?? "0") * 60) + parseInt(m[2] ?? "0");
-}
-
-function parseIngredientLine(line: string): IngredientInput {
-  // Very naive: try to extract a leading number + unit, rest = name
-  const m = line.match(/^([\d.,/]+)\s*([a-zA-ZäöüÄÖÜg]+\.?)?\s+(.+)$/);
-  if (m) {
-    return {
-      name: m[3].trim(),
-      amount: parseFloat(m[1].replace(",", ".")),
-      unit: m[2]?.trim() || null,
-    };
-  }
-  return { name: line.trim(), amount: null, unit: null };
-}
-
 // ── Meal plan ─────────────────────────────────────────────────────────────────
 
 async function getMealPlan(db: ModuleDbClient, weekStart: string): Promise<HandlerResponse> {
@@ -770,14 +667,4 @@ interface RecipeNutrition {
 interface MealPlanInput {
   recipe_id?: string | null;
   note?: string | null;
-}
-
-interface RecipeDraft {
-  title: string;
-  description: string;
-  servings: number;
-  prep_time_min?: number | null;
-  cook_time_min?: number | null;
-  ingredients: IngredientInput[];
-  steps: Array<{ step_number: number; instruction: string }>;
 }

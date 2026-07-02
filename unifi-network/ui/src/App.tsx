@@ -248,6 +248,10 @@ function OverviewView({ api }: { api: ReturnType<typeof useApi> }) {
   const [search, setSearch] = useState("");
   const [filterVlan, setFilterVlan] = useState("");
   const [filterGatewayId, setFilterGatewayId] = useState("");
+  // Ergänzt 2026-07-01: Sortierung nach Notiz oder VLAN per Klick auf die
+  // Spaltenüberschrift (auf-/absteigend/zurücksetzen im Wechsel).
+  const [sortKey, setSortKey] = useState<"note" | "vlan" | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -299,6 +303,29 @@ function OverviewView({ api }: { api: ReturnType<typeof useApi> }) {
     if (filterGatewayId && !d.gateways.some((g) => g.gateway_id === filterGatewayId)) return false;
     return true;
   });
+
+  // Ergänzt 2026-07-01: Sortierung über Notiz/VLAN per Klick auf die
+  // Spaltenüberschrift — läuft nach dem Suche/Filter-Schritt auf der bereits
+  // gefilterten Liste, damit "sortiert nach gefiltert" konsistent bleibt.
+  const sortedDevices = [...filteredDevices].sort((a, b) => {
+    if (!sortKey) return 0;
+    const av = sortKey === "note" ? a.note : a.target_vlan_name;
+    const bv = sortKey === "note" ? b.note : b.target_vlan_name;
+    const cmp = av.localeCompare(bv, undefined, { sensitivity: "base" });
+    return sortDir === "asc" ? cmp : -cmp;
+  });
+
+  const toggleSort = (key: "note" | "vlan") => {
+    if (sortKey !== key) {
+      setSortKey(key);
+      setSortDir("asc");
+    } else if (sortDir === "asc") {
+      setSortDir("desc");
+    } else {
+      setSortKey(null);
+      setSortDir("asc");
+    }
+  };
 
   const removeDevice = useCallback(
     async (device: Device) => {
@@ -385,7 +412,26 @@ function OverviewView({ api }: { api: ReturnType<typeof useApi> }) {
                 wurde beim Purge entfernt — daher hier per Inline-Style
                 begrenzt statt per Utility-Klasse. */}
             <div className="relative flex-1" style={{ maxWidth: "20rem" }}>
-              <i className="ti ti-search pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[14px] text-gray-400" />
+              {/* Bugfix (2026-07-01): das ti-search-Icon aus dem Tabler-Font
+                  zeigte bei diesem Nutzer in Chrome UND Safari einen leeren
+                  Kreis statt des Lupen-Symbols — das schließt ein Browser-
+                  eigenes Overlay (z.B. Autofill) aus und deutet auf ein
+                  fehlendes/falsch geladenes Glyph im Icon-Font hin. Als Inline-
+                  SVG ersetzt, das ohne Font-Abhängigkeit überall gleich
+                  rendert (analog zum bekannten Tailwind-Whitelist-Problem bei
+                  Icon-/Utility-Klassen, die Module nicht selbst kompilieren). */}
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="pointer-events-none absolute left-2.5 top-1/2 h-[14px] w-[14px] -translate-y-1/2 text-gray-400"
+              >
+                <circle cx="11" cy="11" r="7" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
               <input
                 type="text"
                 name="unifi-network-device-search"
@@ -433,7 +479,20 @@ function OverviewView({ api }: { api: ReturnType<typeof useApi> }) {
 
         {devices.length > 0 && filteredDevices.length === 0 && (
           <div className="rounded-2xl border border-dashed border-gray-200 px-6 py-12 text-center dark:border-gray-800">
-            <i className="ti ti-filter-off text-[36px] text-gray-300 dark:text-gray-700" />
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="mx-auto h-9 w-9 text-gray-300 dark:text-gray-700"
+            >
+              <circle cx="10" cy="10" r="6" />
+              <line x1="19" y1="19" x2="14.65" y2="14.65" />
+              <line x1="7" y1="7" x2="13" y2="13" />
+              <line x1="13" y1="7" x2="7" y2="13" />
+            </svg>
             <p className="mt-3 text-sm text-gray-400">{t("no_devices_match_filter")}</p>
           </div>
         )}
@@ -443,15 +502,33 @@ function OverviewView({ api }: { api: ReturnType<typeof useApi> }) {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-200 bg-gray-50 text-left text-xs text-gray-500 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-400">
-                  <th className="px-3 py-2 font-medium">{t("col_note")}</th>
+                  <th className="px-3 py-2 font-medium">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort("note")}
+                      className="flex items-center gap-1 hover:text-gray-700 dark:hover:text-gray-200"
+                    >
+                      {t("col_note")}
+                      {sortKey === "note" && <span>{sortDir === "asc" ? "▲" : "▼"}</span>}
+                    </button>
+                  </th>
                   <th className="px-3 py-2 font-medium">{t("col_mac")}</th>
-                  <th className="px-3 py-2 font-medium">{t("col_vlan")}</th>
+                  <th className="px-3 py-2 font-medium">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort("vlan")}
+                      className="flex items-center gap-1 hover:text-gray-700 dark:hover:text-gray-200"
+                    >
+                      {t("col_vlan")}
+                      {sortKey === "vlan" && <span>{sortDir === "asc" ? "▲" : "▼"}</span>}
+                    </button>
+                  </th>
                   <th className="px-3 py-2 font-medium">{t("col_gateways_assigned")}</th>
                   <th className="px-3 py-2 font-medium text-right">{t("col_actions")}</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredDevices.map((d) => (
+                {sortedDevices.map((d) => (
                   <tr key={d.id} className="border-b border-gray-100 last:border-0 dark:border-gray-800/60">
                     <td className="px-3 py-2">
                       <div className="flex items-center gap-1.5">

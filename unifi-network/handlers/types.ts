@@ -22,6 +22,13 @@ export interface HandlerRequest {
 export interface HandlerResponse {
   status: number;
   body: unknown;
+  // restartHosts, when set, asks Core to restart this module's Deno worker
+  // with an updated --allow-net host list (Core: WorkerResponse.RestartHosts
+  // in backend/internal/modules/deno.go). unifi-network is the one module
+  // whose outbound targets (gateway base URLs) are only known at runtime —
+  // see requestEgressReload() in handlers/index.ts, called after
+  // createGateway/updateGateway/deleteGateway write to the gateways table.
+  restartHosts?: string[];
 }
 
 export interface ModuleDbClient {

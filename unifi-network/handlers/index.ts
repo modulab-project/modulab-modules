@@ -179,6 +179,42 @@ async function decryptGatewayForResponse(gw: GatewayRow, encKey: CryptoKey | nul
   };
 }
 
+// ── Egress reload (Core Deno sandbox hardening) ─────────────────────────────
+//
+// This module's worker is started with no --allow-net by default (see
+// Core's backend/internal/modules/deno.go, WorkerOptions/ReloadEgress).
+// Gateway base URLs are entered by an admin at runtime, so the concrete
+// hostnames the worker needs are not known at install time — a static
+// manifest egress_allowlist cannot express "whatever the admin configures".
+// Whenever a gateway is created, updated, or deleted, computeEgressHosts()
+// re-reads every gateway's decrypted base_url from the DB and the calling
+// handler attaches the resulting host list as HandlerResponse.restartHosts.
+// Core's ModuleProxyHandler (router.go) sees that field on the response and
+// restarts this worker with --allow-net scoped to exactly those hosts —
+// so the worker never has broader network access than "the gateways that
+// currently exist in the DB", and a deleted gateway's host is dropped from
+// the allowlist on the very next mutation.
+//
+// isPrivateHost() in unifi-client.ts remains a second, independent check
+// inside the handler itself (defense in depth): even if this list were
+// ever wrong, the handler still refuses to contact non-private hosts.
+async function computeEgressHosts(db: ModuleDbClient, encKey: CryptoKey | null): Promise<string[]> {
+  if (!encKey) return [];
+  const rows = await db.query<GatewayRow>(`SELECT base_url_enc FROM gateways`);
+  const hosts = new Set<string>();
+  for (const row of rows) {
+    try {
+      const baseUrl = await decrypt(encKey, row.base_url_enc);
+      hosts.add(new URL(baseUrl).hostname);
+    } catch {
+      // Skip rows that fail to decrypt/parse rather than failing the whole
+      // reload — a single bad row should not take every other gateway's
+      // network access down with it.
+    }
+  }
+  return [...hosts];
+}
+
 async function listGateways(db: ModuleDbClient): Promise<HandlerResponse> {
   const rows = await db.query<GatewayRow>(`SELECT * FROM gateways`);
   const encKey = await getEncKey();
@@ -206,7 +242,9 @@ async function createGateway(db: ModuleDbClient, auth: ModuleAuthContext, body: 
   );
 
   await audit(db, auth.userEmail, "gateway.create", "gateway", row.id, name);
-  return created(await decryptGatewayForResponse(row, encKey));
+  const resp = created(await decryptGatewayForResponse(row, encKey));
+  resp.restartHosts = await computeEgressHosts(db, encKey);
+  return resp;
 }
 
 async function updateGateway(
@@ -238,14 +276,22 @@ async function updateGateway(
   }
 
   await audit(db, auth.userEmail, "gateway.update", "gateway", id, name);
-  return ok({ ok: true });
+  const resp = ok({ ok: true });
+  // base_url may have changed — recompute even if only api_key/name changed,
+  // computeEgressHosts is cheap (one query + N decrypts for a homelab-sized
+  // gateway list) and staying correct here matters more than saving a reload.
+  resp.restartHosts = await computeEgressHosts(db, encKey);
+  return resp;
 }
 
 async function deleteGateway(db: ModuleDbClient, auth: ModuleAuthContext, id: string): Promise<HandlerResponse> {
   if (!isAdmin(auth)) return forbidden();
   await db.query(`DELETE FROM gateways WHERE id = $1`, [id]);
   await audit(db, auth.userEmail, "gateway.delete", "gateway", id);
-  return ok({ ok: true });
+  const encKey = await getEncKey();
+  const resp = ok({ ok: true });
+  resp.restartHosts = await computeEgressHosts(db, encKey);
+  return resp;
 }
 
 async function refreshGateway(db: ModuleDbClient, id: string): Promise<HandlerResponse> {

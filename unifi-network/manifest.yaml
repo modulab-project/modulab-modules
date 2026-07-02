@@ -1,5 +1,5 @@
 name: "unifi-network"
-version: "0.2.9"
+version: "0.3.0"
 display_name:
   en: "UniFi Network"
   de: "UniFi Netzwerk"
@@ -27,31 +27,32 @@ storage:
 # eigenen `gateways`-Tabelle verwaltet (AES-256-GCM verschlüsselt), nicht über
 # den Core-credentials-Mechanismus. Siehe Entscheidungsvorlage Abschnitt 2.
 
-# Offene Netzwerk-Erlaubnis: Gateway-URLs werden vom Nutzer zur Laufzeit
-# angelegt, eine statische egress_allowlist kann das nicht abbilden.
-# Der Handler validiert selbst, dass jede Base-URL auf eine private
-# IP-Range auflöst (siehe handlers/unifi-client.ts, isPrivateHost()).
-# Siehe Entscheidungsvorlage Abschnitt 1.2.
+# Dynamische Netzwerk-Erlaubnis: Gateway-URLs werden vom Nutzer zur Laufzeit
+# angelegt, eine statische egress_allowlist kann das zum Installationszeitpunkt
+# nicht abbilden — deshalb bleibt sie hier leer (= kein Netzzugriff, bis der
+# erste Gateway angelegt wird). Core unterstützt bewusst KEIN "*"-Sentinel
+# für "beliebiger Host": das würde die OS-Sandbox faktisch abschalten und nur
+# noch auf isPrivateHost() (Anwendungslogik im Handler, s.u.) als einzige
+# Schranke setzen — eine Kontrolle, die sich selbst absichern soll, ist keine
+# zweite Verteidigungslinie mehr.
 #
-# HINWEIS: Das reale recipes-Modul zeigt, dass egress_allowlist normalerweise
-# eine einfache Liste konkreter Hostnamen ist (z.B. "world.openfoodfacts.org"),
-# nicht host/port-Objekte wie zuvor hier angenommen. Für einen echten
-# Wildcard-Eintrag ("beliebiger Host im LAN") ist unklar, ob Core dafür ein
-# eigenes Format vorsieht (z.B. "*" als String-Eintrag) — das war in keinem
-# der bisher gesehenen Referenzmodule nötig, da sie feste Ziel-Domains haben.
-# Vor dem produktiven Einsatz mit Core-Doku/-Maintainer abgleichen, welches
-# Format für "beliebiger LAN-Host" tatsächlich unterstützt wird.
-egress_allowlist:
-  - "*"
+# Stattdessen ruft der Handler bei jedem Gateway-Create/Update/Delete
+# computeEgressHosts() auf (handlers/index.ts) und hängt das Ergebnis als
+# HandlerResponse.restartHosts an die Antwort. Core (router.go) sieht dieses
+# Feld nach dem Dispatch und startet den Worker mit --allow-net neu, scoped
+# auf genau die Hostnamen, die aktuell als Gateway in der DB stehen. Der
+# Worker hat also nie mehr Netzzugriff als "die Gateways, die gerade
+# existieren" — ein gelöschtes Gateway verliert seinen Netzzugriff mit dem
+# nächsten Reload wieder.
+#
+# isPrivateHost() in handlers/unifi-client.ts bleibt als zweite, unabhängige
+# Prüfung bestehen: selbst wenn computeEgressHosts() je einen falschen Host
+# liefern würde, verweigert der Handler selbst den Kontakt zu Nicht-privaten
+# Zielen. Siehe Entscheidungsvorlage Abschnitt 1.2.
+egress_allowlist: []
 
 requested_scopes:
-  - "Dieses Modul kann zu beliebigen Zielen im lokalen Netzwerk verbinden (auf vom Nutzer konfigurierte UniFi-Gateways beschränkt durch Anwendungslogik, nicht durch das Betriebssystem)"
-
-# Warnung, die bei der Installation im Klartext angezeigt wird
-# (siehe Core-Installations-Dialog, requested_scopes-Mechanismus):
-#   "Dieses Modul kann zu beliebigen Zielen im lokalen Netzwerk verbinden
-#    (auf vom Nutzer konfigurierte UniFi-Gateways beschränkt durch
-#    Anwendungslogik, nicht durch das Betriebssystem)."
+  - "Dieses Modul verbindet sich zu vom Nutzer konfigurierten UniFi-Gateways im lokalen Netzwerk. Der Netzzugriff wird bei jeder Gateway-Änderung neu auf genau die konfigurierten Gateway-Adressen beschränkt (durchgesetzt vom Betriebssystem, nicht nur durch Anwendungslogik)."
 
 jobs:
   - name: "poll_gateways"

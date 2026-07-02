@@ -1,9 +1,9 @@
 name: "recipes"
-version: "0.3.4"
+version: "0.3.5"
 display_name:
   en: "Recipes"
   de: "Rezepte"
-description: "Recipe collection with weekly meal plan, nutrition info, and URL import"
+description: "Recipe collection with weekly meal plan and nutrition info"
 icon: "ti-book-2"
 author: "modulab-project"
 license: "AGPL-3.0"
@@ -23,10 +23,15 @@ resources:
 storage:
   quota: "2g"
 
+# URL import (fetch(url) with a user-supplied URL) was removed 2026-07-02 as
+# part of the Core Deno sandbox hardening: an unrestricted-destination fetch
+# is incompatible with a scoped --allow-net egress_allowlist. Nutrition
+# lookup is the only remaining outbound call this module makes, to a fixed
+# host — see backend/internal/modules/deno.go (WorkerOptions) for how this
+# list becomes the worker's --allow-net grant.
 egress_allowlist:
   - "world.openfoodfacts.org"   # Nährwert-Lookup
   - "api.openfoodfacts.org"     # Nährwert-Lookup (alt. Endpoint)
 
 requested_scopes:
   - "Nutrition data is fetched from Open Food Facts (world.openfoodfacts.org)"
-  - "Recipe URLs are fetched during import (domain determined at runtime)"
