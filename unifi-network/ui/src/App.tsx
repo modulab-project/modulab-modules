@@ -146,7 +146,14 @@ export default function UnifiNetworkApp({ apiBase, token }: ModuleComponentProps
           <i className="ti ti-clock-hour-4 text-[15px]" />
           <span className="hidden sm:inline">{t("nav_pending")}</span>
           {pendingCount > 0 && (
-            <span className="ml-0.5 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-semibold text-white">
+            // min-w-[16px] ist eine Tailwind-Arbitrary-Value-Klasse, die wie
+            // h-[14px]/w-[14px] oben (2026-07-02) nicht im Core-Whitelist ist
+            // und beim Purge entfernt wird — per Inline-Style statt
+            // Utility-Klasse gesetzt.
+            <span
+              className="ml-0.5 inline-flex h-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-semibold text-white"
+              style={{ minWidth: "16px" }}
+            >
               {pendingCount}
             </span>
           )}
@@ -160,7 +167,9 @@ export default function UnifiNetworkApp({ apiBase, token }: ModuleComponentProps
           <i className="ti ti-server-2 text-[15px]" />
           <span className="hidden sm:inline">{t("nav_gateways")}</span>
         </button>
-        <div className="flex-1 min-w-[4px]" />
+        {/* min-w-[4px] ist ebenfalls eine Arbitrary-Value-Klasse, siehe
+            Kommentar beim pendingCount-Badge oben — per Inline-Style gesetzt. */}
+        <div className="flex-1" style={{ minWidth: "4px" }} />
         <button
           type="button"
           onClick={() => setView({ type: "onboard" })}
@@ -419,7 +428,17 @@ function OverviewView({ api }: { api: ReturnType<typeof useApi> }) {
                   fehlendes/falsch geladenes Glyph im Icon-Font hin. Als Inline-
                   SVG ersetzt, das ohne Font-Abhängigkeit überall gleich
                   rendert (analog zum bekannten Tailwind-Whitelist-Problem bei
-                  Icon-/Utility-Klassen, die Module nicht selbst kompilieren). */}
+                  Icon-/Utility-Klassen, die Module nicht selbst kompilieren).
+
+                  Bugfix (2026-07-02): der Ersatz selbst tappte in genau die
+                  Falle, die der obige Kommentar beschreibt — h-[14px]/w-[14px]
+                  sind Tailwind-Arbitrary-Value-Klassen, die (wie max-w-xs
+                  direkt darüber) nicht im Core-Whitelist sind und beim Purge
+                  entfernt wurden. Ohne Höhen-/Breitenbegrenzung rendert das
+                  SVG (viewBox 24x24, position: absolute) in seiner
+                  Default-Größe statt 14px — sichtbar als riesiges,
+                  fehlplatziertes Lupen-Icon über der Tabelle. Größe jetzt wie
+                  bei maxWidth oben per Inline-Style statt Utility-Klasse. */}
               <svg
                 viewBox="0 0 24 24"
                 fill="none"
@@ -427,7 +446,8 @@ function OverviewView({ api }: { api: ReturnType<typeof useApi> }) {
                 strokeWidth="2"
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                className="pointer-events-none absolute left-2.5 top-1/2 h-[14px] w-[14px] -translate-y-1/2 text-gray-400"
+                className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400"
+                style={{ height: "14px", width: "14px" }}
               >
                 <circle cx="11" cy="11" r="7" />
                 <line x1="21" y1="21" x2="16.65" y2="16.65" />
