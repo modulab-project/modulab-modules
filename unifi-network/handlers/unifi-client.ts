@@ -94,7 +94,8 @@ export async function isPrivateHost(baseUrl: string): Promise<boolean> {
   let host: string;
   try {
     host = new URL(baseUrl).hostname;
-  } catch {
+  } catch (e) {
+    console.error(`[unifi-network] isPrivateHost: could not parse base URL ${JSON.stringify(baseUrl)}: ${e}`);
     return false;
   }
   if (host.endsWith(".local")) return true;
@@ -104,8 +105,17 @@ export async function isPrivateHost(baseUrl: string): Promise<boolean> {
   try {
     const records = await Deno.resolveDns(host, "A");
     return records.length > 0 && records.every((ip) => isPrivateIPv4(ip));
-  } catch {
-    return false; // NXDOMAIN or resolver error — treat as not private
+  } catch (e) {
+    // Logged rather than silently swallowed: this used to catch-and-hide
+    // both "genuinely doesn't resolve" (NXDOMAIN, correct to reject) and
+    // "couldn't even attempt resolution" (missing --allow-net for this
+    // host, or no DNS resolver reachable from inside the container for
+    // this domain — both operational problems, not "reject this host on
+    // purpose"). Found 2026-07-02: gateways resolved fine from the host
+    // Mac but failed here, and the original silent `return false` gave no
+    // way to tell which case it was.
+    console.error(`[unifi-network] isPrivateHost: DNS resolution failed for ${JSON.stringify(host)}: ${e}`);
+    return false; // fail closed either way — a resolver problem must not be treated as "safe to connect"
   }
 }
 
