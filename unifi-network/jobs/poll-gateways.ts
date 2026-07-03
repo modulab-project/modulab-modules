@@ -66,21 +66,28 @@ const ADOPTED_NOTE_PLACEHOLDER = "(übernommen — bitte Notiz ergänzen)";
 // these events — see ModuleNotification's doc comment in handlers/types.ts
 // for why: adding/changing a notification must never require a Core change.
 const notificationText = {
-  deviceAutoAdopted: (gatewayName: string, mac: string): { de: string; en: string } => ({
-    de: `Neues Gerät auf Gateway ${gatewayName} automatisch übernommen (${mac}) — bitte Notiz ergänzen`,
-    en: `New device on gateway ${gatewayName} auto-adopted (${mac}) — please add a note`,
+  // Includes the resolved target_vlan_name (not just the MAC) since that's
+  // the other piece of information an admin needs before editing the
+  // placeholder note — without it they'd have to open the device just to
+  // see which VLAN it landed on.
+  deviceAutoAdopted: (gatewayName: string, mac: string, vlanName: string): { de: string; en: string } => ({
+    de: `Neues Gerät automatisch übernommen: ${mac} auf Gateway "${gatewayName}", VLAN "${vlanName || "?"}" — bitte Notiz ergänzen`,
+    en: `New device auto-adopted: ${mac} on gateway "${gatewayName}", VLAN "${vlanName || "?"}" — please add a note`,
   }),
-  gatewayPaused: (gatewayName: string, error: string): { de: string; en: string } => ({
-    de: `Gateway ${gatewayName} pausiert nach wiederholten Fehlern: ${error}`,
-    en: `Gateway ${gatewayName} paused after repeated failures: ${error}`,
+  // failureCount included so an admin sees immediately how many consecutive
+  // failures triggered the pause (matches CIRCUIT_BREAKER_THRESHOLD), not
+  // just the most recent error message.
+  gatewayPaused: (gatewayName: string, error: string, failureCount: number): { de: string; en: string } => ({
+    de: `Gateway "${gatewayName}" pausiert nach ${failureCount} wiederholten Fehlern. Letzter Fehler: ${error}`,
+    en: `Gateway "${gatewayName}" paused after ${failureCount} repeated failures. Last error: ${error}`,
   }),
   gatewayOnline: (gatewayName: string): { de: string; en: string } => ({
-    de: `Gateway ${gatewayName} ist wieder erreichbar`,
-    en: `Gateway ${gatewayName} is reachable again`,
+    de: `Gateway "${gatewayName}" ist wieder erreichbar und wurde automatisch reaktiviert`,
+    en: `Gateway "${gatewayName}" is reachable again and was automatically reactivated`,
   }),
   noteDiscrepanciesFound: (gatewayName: string, count: number): { de: string; en: string } => ({
-    de: `${count} abweichende Notiz(en) auf Gateway ${gatewayName} gefunden`,
-    en: `${count} note discrepancy(ies) found on gateway ${gatewayName}`,
+    de: `${count} abweichende Notiz(en) auf Gateway "${gatewayName}" gefunden — direkt im UniFi-WebIF geändert, weicht von ModuLab ab. Bitte prüfen und auflösen.`,
+    en: `${count} note discrepancy(ies) found on gateway "${gatewayName}" — changed directly in the UniFi web UI, differs from ModuLab. Please review and resolve.`,
   }),
 };
 
@@ -227,7 +234,7 @@ async function pollSingleGateway(ctx: JobContext, gw: GatewayRow, notifications:
         // is exactly the "something changed with no admin watching" case
         // notifications exist for.
         notifications.push({
-          message: notificationText.deviceAutoAdopted(gwName, sanitized),
+          message: notificationText.deviceAutoAdopted(gwName, sanitized, device.target_vlan_name),
           // Overview (default view, no ?view= needed) is where the adopted
           // device — and its ADOPTED_NOTE_PLACEHOLDER note — actually shows
           // up for editing.
@@ -414,7 +421,7 @@ async function markGatewayError(
     const [row] = await db.query<GatewayRow>(`SELECT name_enc FROM gateways WHERE id = $1`, [gatewayId]);
     const gwName = row && encKey ? await decrypt(encKey, row.name_enc).catch(() => "?") : "?";
     notifications.push({
-      message: notificationText.gatewayPaused(gwName, errorMessage),
+      message: notificationText.gatewayPaused(gwName, errorMessage, failures),
       actionPath: "/modules/unifi-network?view=gateways",
     });
   }

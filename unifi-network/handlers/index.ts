@@ -94,27 +94,124 @@ function notFound(): HandlerResponse {
 // shared, since handler code and job code are two different Deno entrypoints
 // with no shared module-local state; duplicating four short template
 // functions is simpler than introducing a shared import just for this.
+// Every text builder below includes: who did it (actor email), the device's
+// note (its human-readable identity — there's no name field, see the header
+// comment on ADOPTED_NOTE_PLACEHOLDER-style history), the MAC where
+// relevant, the VLAN where relevant, and a per-gateway breakdown wherever
+// more than one gateway could be involved — rather than just a count.
+// Reported 2026-07-04: prefer too much detail in a notification over too
+// little, since the admin reading it may not have the device list open at
+// the same time to cross-reference.
 const handlerNotificationText = {
-  deviceWaitingApproval: (note: string, mac: string): { de: string; en: string } => ({
-    de: `Neues Gerät wartet auf Freigabe: ${note} (${mac})`,
-    en: `New device waiting for approval: ${note} (${mac})`,
+  deviceWaitingApproval: (note: string, mac: string, vlanName: string, actor: string): { de: string; en: string } => ({
+    de: `Neues Gerät wartet auf Freigabe: ${note} (${mac}, VLAN "${vlanName || "?"}") — eingereicht von ${actor}`,
+    en: `New device waiting for approval: ${note} (${mac}, VLAN "${vlanName || "?"}") — submitted by ${actor}`,
   }),
-  deviceDeleted: (note: string): { de: string; en: string } => ({
-    de: `Gerät gelöscht: ${note}`,
-    en: `Device deleted: ${note}`,
+  deviceRejected: (note: string, mac: string, actor: string): { de: string; en: string } => ({
+    de: `Gerät abgelehnt: ${note} (${mac}) — von ${actor}`,
+    en: `Device rejected: ${note} (${mac}) — by ${actor}`,
   }),
-  deviceApproved: (note: string, results: GatewayProvisionResult[]): { de: string; en: string } => {
+  deviceDeleted: (note: string, mac: string, gatewayNames: string[], actor: string): { de: string; en: string } => {
+    const gwList = gatewayNames.length > 0 ? gatewayNames.join(", ") : (gatewayNames.length === 0 ? "-" : "?");
+    return {
+      de: `Gerät gelöscht: ${note} (${mac}) — von allen Gateways entfernt (${gwList}), von ${actor}`,
+      en: `Device deleted: ${note} (${mac}) — removed from all gateways (${gwList}), by ${actor}`,
+    };
+  },
+  deviceApproved: (note: string, mac: string, vlanName: string, results: GatewayProvisionResult[], actor: string): { de: string; en: string } => {
     const failed = results.filter((r) => r.status !== "ok");
+    const okNames = results.filter((r) => r.status === "ok").map((r) => r.gateway_name).join(", ") || "-";
     if (failed.length === 0) {
       return {
-        de: `Gerät freigegeben: ${note} (auf ${results.length} Gateway(s) erfolgreich eingerichtet)`,
-        en: `Device approved: ${note} (provisioned successfully on ${results.length} gateway(s))`,
+        de: `Gerät freigegeben: ${note} (${mac}, VLAN "${vlanName || "?"}") — erfolgreich eingerichtet auf: ${okNames}. Freigegeben von ${actor}`,
+        en: `Device approved: ${note} (${mac}, VLAN "${vlanName || "?"}") — provisioned successfully on: ${okNames}. Approved by ${actor}`,
       };
     }
-    const failedNames = failed.map((r) => r.gateway_name).join(", ");
+    const failedDetail = failed.map((r) => `${r.gateway_name} (${r.status}${r.error ? ": " + r.error : ""})`).join("; ");
     return {
-      de: `Gerät freigegeben: ${note} — Problem auf ${failed.length} Gateway(s): ${failedNames}`,
-      en: `Device approved: ${note} — issue on ${failed.length} gateway(s): ${failedNames}`,
+      de: `Gerät freigegeben: ${note} (${mac}, VLAN "${vlanName || "?"}") — erfolgreich auf: ${okNames}. Problem auf: ${failedDetail}. Freigegeben von ${actor}`,
+      en: `Device approved: ${note} (${mac}, VLAN "${vlanName || "?"}") — succeeded on: ${okNames}. Issue on: ${failedDetail}. Approved by ${actor}`,
+    };
+  },
+  deviceUpdated: (
+    note: string,
+    mac: string,
+    changedFields: string[],
+    syncResults: { gateway_id: string; status: "ok" | "skipped_no_user_alias" | "error"; error?: string }[],
+    gatewayNames: Map<string, string>,
+    actor: string,
+  ): { de: string; en: string } => {
+    const fieldsDe = changedFields.map((f) => (f === "note" ? "Notiz" : f === "target_vlan_name" ? "VLAN" : f)).join(", ");
+    const fieldsEn = changedFields.join(", ");
+    const failed = syncResults.filter((r) => r.status === "error");
+    let syncDe = "";
+    let syncEn = "";
+    if (syncResults.length > 0) {
+      if (failed.length === 0) {
+        syncDe = ` — auf allen ${syncResults.length} Gateway(s) synchronisiert`;
+        syncEn = ` — synced to all ${syncResults.length} gateway(s)`;
+      } else {
+        const failedNames = failed.map((r) => gatewayNames.get(r.gateway_id) ?? r.gateway_id).join(", ");
+        syncDe = ` — Problem beim Synchronisieren auf: ${failedNames}`;
+        syncEn = ` — issue syncing to: ${failedNames}`;
+      }
+    }
+    return {
+      de: `Gerät bearbeitet: ${note} (${mac}) — geändert: ${fieldsDe}${syncDe}. Von ${actor}`,
+      en: `Device edited: ${note} (${mac}) — changed: ${fieldsEn}${syncEn}. By ${actor}`,
+    };
+  },
+  deviceGatewaysChanged: (
+    note: string,
+    mac: string,
+    added: string[],
+    removed: string[],
+    failedAdds: { gateway_name: string; error?: string }[],
+    actor: string,
+  ): { de: string; en: string } => {
+    const parts: string[] = [];
+    const partsEn: string[] = [];
+    if (added.length > 0) {
+      parts.push(`hinzugefügt: ${added.join(", ")}`);
+      partsEn.push(`added: ${added.join(", ")}`);
+    }
+    if (removed.length > 0) {
+      parts.push(`entfernt: ${removed.join(", ")}`);
+      partsEn.push(`removed: ${removed.join(", ")}`);
+    }
+    if (failedAdds.length > 0) {
+      const failedDetail = failedAdds.map((f) => `${f.gateway_name}${f.error ? " (" + f.error + ")" : ""}`).join(", ");
+      parts.push(`Problem bei: ${failedDetail}`);
+      partsEn.push(`issue on: ${failedDetail}`);
+    }
+    return {
+      de: `Gateway-Zuordnung geändert für ${note} (${mac}) — ${parts.join("; ")}. Von ${actor}`,
+      en: `Gateway assignment changed for ${note} (${mac}) — ${partsEn.join("; ")}. By ${actor}`,
+    };
+  },
+  deviceRemovedFromGateway: (note: string, mac: string, gatewayName: string, actor: string): { de: string; en: string } => ({
+    de: `Gerät ${note} (${mac}) von Gateway "${gatewayName}" entfernt — von ${actor}`,
+    en: `Device ${note} (${mac}) removed from gateway "${gatewayName}" — by ${actor}`,
+  }),
+  noteDiscrepancyResolved: (
+    note: string,
+    canonicalNote: string,
+    results: { gateway_id: string; status: "ok" | "skipped_no_user_alias" | "error"; error?: string }[],
+    gatewayNames: Map<string, string>,
+    actor: string,
+  ): { de: string; en: string } => {
+    const failed = results.filter((r) => r.status === "error");
+    const okNames = results.filter((r) => r.status === "ok").map((r) => gatewayNames.get(r.gateway_id) ?? r.gateway_id).join(", ") || "-";
+    let detailDe = ` — übernommen auf: ${okNames}`;
+    let detailEn = ` — applied to: ${okNames}`;
+    if (failed.length > 0) {
+      const failedNames = failed.map((r) => gatewayNames.get(r.gateway_id) ?? r.gateway_id).join(", ");
+      detailDe += `. Problem bei: ${failedNames}`;
+      detailEn += `. Issue on: ${failedNames}`;
+    }
+    return {
+      de: `Notiz-Diskrepanz aufgelöst: ${note} — neue Notiz "${canonicalNote}"${detailDe}. Von ${actor}`,
+      en: `Note discrepancy resolved: ${note} — new note "${canonicalNote}"${detailEn}. By ${actor}`,
     };
   },
 };
@@ -495,7 +592,7 @@ async function createDevice(
   // invisible in "pending" until an admin happened to check the list.
   const resp = created({ id: row.id, status: "pending_approval" });
   resp.notifications = [{
-    message: handlerNotificationText.deviceWaitingApproval(input.note, sanitized),
+    message: handlerNotificationText.deviceWaitingApproval(input.note, sanitized, input.target_vlan_name, auth.userEmail),
     actionPath: "/modules/unifi-network?view=pending",
   }];
   return resp;
@@ -584,7 +681,30 @@ async function updateDevice(
   }
 
   await audit(db, auth.userEmail, "device.update", "device", id);
-  return ok({ ok: true, results: syncResults });
+
+  // Reported 2026-07-04: editing a device's note/VLAN produced no
+  // notification at all. Only fires if something actually changed (note
+  // and/or target_vlan_name present in the body) — a no-op PATCH shouldn't
+  // notify anyone.
+  const changedFields: string[] = [];
+  if (note !== undefined) changedFields.push("note");
+  if (target_vlan_name) changedFields.push("target_vlan_name");
+
+  const resp = ok({ ok: true, results: syncResults });
+  if (changedFields.length > 0 && encKey) {
+    const finalNote = note ?? (await decrypt(encKey, device.note_enc).catch(() => "?"));
+    const mac = await decrypt(encKey, device.mac_enc).catch(() => "?");
+    const gatewayNames = new Map<string, string>();
+    for (const r of syncResults) {
+      const [gw] = await db.query<GatewayRow>(`SELECT * FROM gateways WHERE id = $1`, [r.gateway_id]);
+      if (gw) gatewayNames.set(gw.id, await decrypt(encKey, gw.name_enc).catch(() => "???"));
+    }
+    resp.notifications = [{
+      message: handlerNotificationText.deviceUpdated(finalNote, mac, changedFields, syncResults, gatewayNames, auth.userEmail),
+      actionPath: "/modules/unifi-network",
+    }];
+  }
+  return resp;
 }
 
 // Ergänzt 2026-07-01: Ziel-Gateways eines bereits aktiven Geräts ändern —
@@ -650,7 +770,34 @@ async function updateDeviceGateways(
   }
 
   await audit(db, auth.userEmail, "device.gateways_update", "device", id);
-  return ok({ ok: true, results });
+
+  const resp = ok({ ok: true, results });
+  // Reported 2026-07-04: changing a device's target gateways produced no
+  // notification. Only meaningful (and only actually calls the gateway
+  // APIs) for already-active devices — a pending device's gateway checkbox
+  // change is just bookkeeping ahead of approval, nothing an admin needs
+  // to be told about live.
+  if (device.status === "active" && (toAdd.length > 0 || toRemove.length > 0)) {
+    const note = await decrypt(encKey, device.note_enc).catch(() => "?");
+    const mac = await decrypt(encKey, device.mac_enc).catch(() => "?");
+    const addedNames: string[] = [];
+    const failedAdds: { gateway_name: string; error?: string }[] = [];
+    for (const r of results) {
+      if (toAdd.includes(r.gateway_id)) {
+        if (r.status === "ok") addedNames.push(r.gateway_name);
+        else failedAdds.push({ gateway_name: r.gateway_name, error: r.error });
+      }
+    }
+    const removedNames = toRemove.map((dg) => {
+      const r = results.find((res) => res.gateway_id === dg.gateway_id);
+      return r?.gateway_name ?? dg.gateway_id;
+    });
+    resp.notifications = [{
+      message: handlerNotificationText.deviceGatewaysChanged(note, mac, addedNames, removedNames, failedAdds, auth.userEmail),
+      actionPath: "/modules/unifi-network",
+    }];
+  }
+  return resp;
 }
 
 async function deleteDevice(db: ModuleDbClient, auth: ModuleAuthContext, id: string): Promise<HandlerResponse> {
@@ -665,7 +812,17 @@ async function deleteDevice(db: ModuleDbClient, auth: ModuleAuthContext, id: str
 
   const gatewayRows = await db.query<DeviceGatewayRow>(`SELECT * FROM device_gateways WHERE device_id = $1`, [id]);
 
+  // Gateway names collected BEFORE the delete loop below — device_gateways
+  // rows disappear as part of that (queueOrExecuteDeletion / the delete
+  // itself), so this is the last point they're cheaply available for the
+  // notification text.
+  const encKeyForNotify = await getEncKey();
+  const deletedGatewayNames: string[] = [];
   for (const dg of gatewayRows) {
+    if (encKeyForNotify) {
+      const [gw] = await db.query<GatewayRow>(`SELECT * FROM gateways WHERE id = $1`, [dg.gateway_id]);
+      if (gw) deletedGatewayNames.push(await decrypt(encKeyForNotify, gw.name_enc).catch(() => "???"));
+    }
     await queueOrExecuteDeletion(db, id, dg.gateway_id, dg.radius_account_id, dg.user_alias_id);
   }
 
@@ -673,16 +830,18 @@ async function deleteDevice(db: ModuleDbClient, auth: ModuleAuthContext, id: str
   await audit(db, auth.userEmail, "device.delete", "device", id);
 
   // Reported 2026-07-04: deleting a device produced no notification at
-  // all, unlike creating/approving one. note is best-effort here — the row
-  // is already gone by this point, so a decrypt failure must not fail the
-  // whole delete, just fall back to a generic label.
-  const encKeyForNotify = await getEncKey();
+  // all, unlike creating/approving one. note/mac are best-effort here —
+  // the row is already gone by this point, so a decrypt failure must not
+  // fail the whole delete, just fall back to a generic label.
   const noteForNotify = encKeyForNotify
     ? await decrypt(encKeyForNotify, device.note_enc).catch(() => "?")
     : "?";
+  const macForNotify = encKeyForNotify
+    ? await decrypt(encKeyForNotify, device.mac_enc).catch(() => "?")
+    : "?";
   const resp = ok({ ok: true });
   resp.notifications = [{
-    message: handlerNotificationText.deviceDeleted(noteForNotify),
+    message: handlerNotificationText.deviceDeleted(noteForNotify, macForNotify, deletedGatewayNames, auth.userEmail),
     actionPath: "/modules/unifi-network",
   }];
   return resp;
@@ -704,7 +863,23 @@ async function deleteDeviceFromGateway(
 
   await queueOrExecuteDeletion(db, deviceId, gatewayId, dg.radius_account_id, dg.user_alias_id);
   await audit(db, auth.userEmail, "device.gateway_remove", "device", deviceId, gatewayId);
-  return ok({ ok: true });
+
+  // Reported 2026-07-04: removing a device from a single gateway (partial
+  // delete) produced no notification, unlike deleting it everywhere.
+  const encKey = await getEncKey();
+  const resp = ok({ ok: true });
+  if (encKey) {
+    const [device] = await db.query<DeviceRow>(`SELECT * FROM devices WHERE id = $1`, [deviceId]);
+    const [gw] = await db.query<GatewayRow>(`SELECT * FROM gateways WHERE id = $1`, [gatewayId]);
+    const note = device ? await decrypt(encKey, device.note_enc).catch(() => "?") : "?";
+    const mac = device ? await decrypt(encKey, device.mac_enc).catch(() => "?") : "?";
+    const gwName = gw ? await decrypt(encKey, gw.name_enc).catch(() => "???") : "?";
+    resp.notifications = [{
+      message: handlerNotificationText.deviceRemovedFromGateway(note, mac, gwName, auth.userEmail),
+      actionPath: "/modules/unifi-network",
+    }];
+  }
+  return resp;
 }
 
 async function queueOrExecuteDeletion(
@@ -838,7 +1013,7 @@ async function approveDevice(db: ModuleDbClient, auth: ModuleAuthContext, id: st
   // into this at all.
   const resp = ok({ status: "active", results });
   resp.notifications = [{
-    message: handlerNotificationText.deviceApproved(note ?? "?", results),
+    message: handlerNotificationText.deviceApproved(note ?? "?", mac, device.target_vlan_name, results, auth.userEmail),
     actionPath: "/modules/unifi-network",
   }];
   return resp;
@@ -954,10 +1129,27 @@ async function rejectDevice(db: ModuleDbClient, auth: ModuleAuthContext, id: str
   // Platzhalter-device_gateways-Zeilen aus createDevice()) wird jetzt
   // tatsächlich gelöscht. Der audit()-Eintrag bleibt als Nachweis bestehen,
   // dass die Ablehnung stattgefunden hat.
+  //
+  // Loaded BEFORE the delete so note/mac are available for the
+  // notification below (reported 2026-07-04 as another gap, alongside
+  // approve/delete — an admin rejecting a submission gave no live signal
+  // to other admins either).
+  const [device] = await db.query<DeviceRow>(`SELECT * FROM devices WHERE id = $1`, [id]);
+  if (!device) return notFound();
+
   await db.query(`DELETE FROM device_gateways WHERE device_id = $1`, [id]);
   await db.query(`DELETE FROM devices WHERE id = $1`, [id]);
   await audit(db, auth.userEmail, "device.reject", "device", id);
-  return ok({ status: "rejected" });
+
+  const encKey = await getEncKey();
+  const note = encKey ? await decrypt(encKey, device.note_enc).catch(() => "?") : "?";
+  const mac = encKey ? await decrypt(encKey, device.mac_enc).catch(() => "?") : "?";
+  const resp = ok({ status: "rejected" });
+  resp.notifications = [{
+    message: handlerNotificationText.deviceRejected(note, mac, auth.userEmail),
+    actionPath: "/modules/unifi-network?view=pending",
+  }];
+  return resp;
 }
 
 // Namensdiskrepanz-Mechanismus (Entscheidungsvorlage 4.4) komplett entfernt
@@ -978,6 +1170,13 @@ async function resolveNoteDiscrepancy(
 
   const encKey = await getEncKey();
   if (!encKey) return { status: 500, body: { error: "MODULAB_ENCRYPTION_KEY not configured on server" } };
+
+  // Loaded before the update so the notification below can mention the
+  // device's prior note, not just the new canonical one — helps an admin
+  // recognize which device this was about without needing to already have
+  // the device list open.
+  const [deviceBefore] = await db.query<DeviceRow>(`SELECT * FROM devices WHERE id = $1`, [deviceId]);
+  const priorNote = deviceBefore ? await decrypt(encKey, deviceBefore.note_enc).catch(() => "?") : "?";
 
   const noteEnc = await encrypt(encKey, canonical_note);
   await db.query(`UPDATE devices SET note_enc = $1, updated_at = now() WHERE id = $2`, [noteEnc, deviceId]);
@@ -1017,5 +1216,20 @@ async function resolveNoteDiscrepancy(
   }
 
   await audit(db, auth.userEmail, "device.resolve_note", "device", deviceId, canonical_note);
-  return ok({ ok: true, results });
+
+  // Reported 2026-07-04: resolving a note discrepancy produced no
+  // notification. Uses the device's PRIOR note (before this resolution) to
+  // identify it, since that's the note an admin browsing the device list
+  // would have recognized it by.
+  const gatewayNames = new Map<string, string>();
+  for (const r of results) {
+    const [gw] = await db.query<GatewayRow>(`SELECT * FROM gateways WHERE id = $1`, [r.gateway_id]);
+    if (gw) gatewayNames.set(gw.id, await decrypt(encKey, gw.name_enc).catch(() => "???"));
+  }
+  const resp = ok({ ok: true, results });
+  resp.notifications = [{
+    message: handlerNotificationText.noteDiscrepancyResolved(priorNote, canonical_note, results, gatewayNames, auth.userEmail),
+    actionPath: "/modules/unifi-network",
+  }];
+  return resp;
 }
