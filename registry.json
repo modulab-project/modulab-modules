@@ -1,9 +1,9 @@
 [
   {
     "name": "my-places",
-    "version": "0.1.5",
-    "release_url": "https://github.com/modulab-project/modulab-modules/releases/download/my-places-v0.1.5/my-places-v0.1.5.zip",
-    "sha256": "e1dab89ed2c89ca46b5b43cbf5d50272b0967e9914618f4de22a7d006d177809",
+    "version": "0.1.6",
+    "release_url": "https://github.com/modulab-project/modulab-modules/releases/download/my-places-v0.1.6/my-places-v0.1.6.zip",
+    "sha256": "5c6096bd409fdbd5cc4ad0501ba2ef5d01d9f30b8c7ac23674bc118f7975a8f4",
     "cosign_sig_url": "",
     "category": "lifestyle"
   },
