@@ -29,6 +29,27 @@ export interface HandlerResponse {
   // see requestEgressReload() in handlers/index.ts, called after
   // createGateway/updateGateway/deleteGateway write to the gateways table.
   restartHosts?: string[];
+  // notifications, when set, asks Core to publish each one to
+  // notify.AdminChannel() (Core: WorkerResponse.Notifications, deno.go) so
+  // every connected admin's SSE stream picks it up live. Not currently used
+  // from an HTTP handler in this module — an admin who just triggered a
+  // change (e.g. approving a device) already sees the result synchronously
+  // in that request's own response. Kept here for symmetry with
+  // restartHosts and in case a future handler needs it; the actual
+  // notification emitters today are poll-gateways.ts's job return value
+  // (see ModuleJobResult in jobs/poll-gateways.ts).
+  notifications?: ModuleNotification[];
+}
+
+// Mirrors Core's ModuleNotification (backend/internal/modules/deno.go).
+//
+// message carries the FULLY RENDERED text in every language ModuLab's UI
+// supports ({de: "...", en: "..."}) — not a type key + raw data for Core to
+// translate. Core has no locale entries for this module and must never
+// need any: the module owns its own strings (see localizeGatewayName-style
+// helpers in jobs/poll-gateways.ts) and hands Core the finished text.
+export interface ModuleNotification {
+  message: { de: string; en: string };
 }
 
 export interface ModuleDbClient {

@@ -37,7 +37,7 @@
 // source value available for pre-existing accounts, so a fixed placeholder
 // is used and surfaced in the UI so an admin can fill in a real note later.
 
-import type { JobContext, GatewayRow, DeviceRow } from "../handlers/types.ts";
+import type { JobContext, GatewayRow, DeviceRow, ModuleNotification } from "../handlers/types.ts";
 import { getEncKey, getMacHashKey, encrypt, decrypt, macHash, sanitizeMac } from "../handlers/crypto.ts";
 import {
   fetchVlans,
@@ -57,6 +57,33 @@ import {
 // exists). Surfaced as-is in the UI so an admin recognizes it needs editing.
 const ADOPTED_NOTE_PLACEHOLDER = "(übernommen — bitte Notiz ergänzen)";
 
+// Small, local {de, en} text builders for this job's four notification
+// events. Deno job code has no i18next runtime (that's a frontend/UI-side
+// concern — see the module's locales/de.json + en.json, loaded via
+// GET /v1/modules/{name}/locales/{lng}), so the module renders both language
+// variants itself, right here, and hands Core the already-finished text
+// (ModuleNotification.message). Core never sees a type key or raw data for
+// these events — see ModuleNotification's doc comment in handlers/types.ts
+// for why: adding/changing a notification must never require a Core change.
+const notificationText = {
+  deviceAutoAdopted: (gatewayName: string, mac: string): { de: string; en: string } => ({
+    de: `Neues Gerät auf Gateway ${gatewayName} automatisch übernommen (${mac}) — bitte Notiz ergänzen`,
+    en: `New device on gateway ${gatewayName} auto-adopted (${mac}) — please add a note`,
+  }),
+  gatewayPaused: (gatewayName: string, error: string): { de: string; en: string } => ({
+    de: `Gateway ${gatewayName} pausiert nach wiederholten Fehlern: ${error}`,
+    en: `Gateway ${gatewayName} paused after repeated failures: ${error}`,
+  }),
+  gatewayOnline: (gatewayName: string): { de: string; en: string } => ({
+    de: `Gateway ${gatewayName} ist wieder erreichbar`,
+    en: `Gateway ${gatewayName} is reachable again`,
+  }),
+  noteDiscrepanciesFound: (gatewayName: string, count: number): { de: string; en: string } => ({
+    de: `${count} abweichende Notiz(en) auf Gateway ${gatewayName} gefunden`,
+    en: `${count} note discrepancy(ies) found on gateway ${gatewayName}`,
+  }),
+};
+
 const CIRCUIT_BREAKER_THRESHOLD = 5; // consecutive failures before pausing a gateway (Entscheidungsvorlage 4.12)
 
 // includePaused: the scheduled cron job (default, includePaused=false) must
@@ -72,10 +99,19 @@ const CIRCUIT_BREAKER_THRESHOLD = 5; // consecutive failures before pausing a ga
 // successful poll, so a paused gateway that responds this time
 // automatically un-pauses; one that's still actually down stays paused
 // (just increments failures again, capped — see markGatewayError()).
+// ModuleJobResult is what a scheduled job can return instead of void to
+// additionally surface async notifications — see the Deno bootstrap script
+// in Core's deno.go for how `__notifications` is pulled out of this and
+// published to notify.AdminChannel(). Kept local (not in types.ts) since
+// only this job currently returns anything at all.
+interface ModuleJobResult {
+  __notifications: ModuleNotification[];
+}
+
 export default async function pollGateways(
   ctx: JobContext,
   opts: { includePaused?: boolean } = {},
-): Promise<void> {
+): Promise<ModuleJobResult | void> {
   const { db } = ctx;
 
   const gateways = await db.query<GatewayRow>(
@@ -84,16 +120,25 @@ export default async function pollGateways(
       : `SELECT * FROM gateways WHERE status != 'paused'`,
   );
 
-  await Promise.allSettled(gateways.map((gw) => pollSingleGateway(ctx, gw)));
+  // Collected across every gateway in this run and returned as one batch —
+  // see runUpdateCheck/RunUpdateChecks in Core's status.go for the
+  // equivalent pattern with module updates (one event per background pass,
+  // not one per individual finding, to avoid a notification storm when
+  // e.g. several devices get auto-adopted in the same minute).
+  const notifications: ModuleNotification[] = [];
+
+  await Promise.allSettled(gateways.map((gw) => pollSingleGateway(ctx, gw, notifications)));
   await processPendingDeletions(ctx);
+
+  return notifications.length > 0 ? { __notifications: notifications } : undefined;
 }
 
-async function pollSingleGateway(ctx: JobContext, gw: GatewayRow): Promise<void> {
+async function pollSingleGateway(ctx: JobContext, gw: GatewayRow, notifications: ModuleNotification[]): Promise<void> {
   const { db } = ctx;
   const encKey = await getEncKey();
 
   if (!encKey) {
-    await markGatewayError(db, gw.id, "MODULAB_ENCRYPTION_KEY not configured on server");
+    await markGatewayError(db, gw.id, "MODULAB_ENCRYPTION_KEY not configured on server", undefined, notifications);
     return;
   }
 
@@ -104,7 +149,7 @@ async function pollSingleGateway(ctx: JobContext, gw: GatewayRow): Promise<void>
     // Entscheidungsvorlage Abschnitt 2: a key that fails to decrypt must never
     // be sent to the UniFi API as a literal string — mark config_error and
     // skip the call entirely.
-    await markGatewayError(db, gw.id, "Failed to decrypt API key (config_error)", "config_error");
+    await markGatewayError(db, gw.id, "Failed to decrypt API key (config_error)", "config_error", notifications);
     return;
   }
 
@@ -114,11 +159,12 @@ async function pollSingleGateway(ctx: JobContext, gw: GatewayRow): Promise<void>
     gwName = await decrypt(encKey, gw.name_enc);
     baseUrl = await decrypt(encKey, gw.base_url_enc);
   } catch {
-    await markGatewayError(db, gw.id, "Failed to decrypt gateway name/base_url (config_error)", "config_error");
+    await markGatewayError(db, gw.id, "Failed to decrypt gateway name/base_url (config_error)", "config_error", notifications);
     return;
   }
 
   const conn: GatewayConn = { name: gwName, baseUrl, apiKey };
+  const wasOffline = gw.status === "offline" || gw.status === "paused";
 
   try {
     const [vlans, radiusAccounts, users, history] = await Promise.all([
@@ -146,6 +192,12 @@ async function pollSingleGateway(ctx: JobContext, gw: GatewayRow): Promise<void>
 
     const macHashKey = await getMacHashKey();
 
+    // Counts discrepancies found THIS run for a single bundled notification
+    // at the end of this gateway's loop, rather than one per device — a
+    // gateway where notes are actively edited outside ModuLab could
+    // otherwise generate a notification per device per poll (every minute).
+    let noteDiscrepancyCount = 0;
+
     for (const acc of radiusAccounts) {
       let sanitized: string;
       try {
@@ -169,6 +221,12 @@ async function pollSingleGateway(ctx: JobContext, gw: GatewayRow): Promise<void>
         // never created it (e.g. set up manually before this module existed).
         device = await adoptExistingRadiusAccount(db, encKey, activeMacHashKey, sanitized, hash, acc, user, gw.id);
         if (!device) continue; // adoption failed (e.g. encrypt error) — skip, will retry next poll
+        // Reported by the user 2026-07-04: previously this happened
+        // completely silently — an admin only found out by opening the
+        // device list and noticing the ADOPTED_NOTE_PLACEHOLDER text. This
+        // is exactly the "something changed with no admin watching" case
+        // notifications exist for.
+        notifications.push({ message: notificationText.deviceAutoAdopted(gwName, sanitized) });
       }
 
       // Note-Diskrepanz-Check: die tatsächlich auf diesem Gateway hinterlegte
@@ -185,6 +243,19 @@ async function pollSingleGateway(ctx: JobContext, gw: GatewayRow): Promise<void>
       const noteDiscrepancy = gatewayNote !== null && gatewayNote !== canonicalNote;
       const gatewayNoteEnc =
         gatewayNote !== null && encKeyForNote ? await encrypt(encKeyForNote, gatewayNote).catch(() => null) : null;
+
+      // Only count a discrepancy toward this run's notification if it's
+      // NEWLY found (wasn't already flagged before this poll) — otherwise
+      // an unresolved discrepancy would notify again every single minute
+      // until someone fixes it, which would train admins to ignore the
+      // notification entirely.
+      if (noteDiscrepancy) {
+        const [existingLink] = await db.query<{ note_discrepancy: boolean }>(
+          `SELECT note_discrepancy FROM device_gateways WHERE device_id = $1 AND gateway_id = $2`,
+          [device.id, gw.id],
+        );
+        if (!existingLink?.note_discrepancy) noteDiscrepancyCount++;
+      }
 
       // Upsert statt reinem UPDATE: ein bereits über ein anderes Gateway
       // bekanntes Gerät (device existiert) kann auf DIESEM Gateway trotzdem
@@ -208,19 +279,29 @@ async function pollSingleGateway(ctx: JobContext, gw: GatewayRow): Promise<void>
       );
     }
 
+    if (noteDiscrepancyCount > 0) {
+      notifications.push({ message: notificationText.noteDiscrepanciesFound(gwName, noteDiscrepancyCount) });
+    }
+
     await db.query(
       `UPDATE gateways
        SET status = 'online', consecutive_failures = 0, last_checked_at = now(), last_error = NULL
        WHERE id = $1`,
       [gw.id],
     );
+    if (wasOffline) {
+      // Mirror image of markGatewayError's paused/offline notification
+      // below — an admin who got notified about the outage should also
+      // hear when it resolves, without needing to keep checking manually.
+      notifications.push({ message: notificationText.gatewayOnline(gwName) });
+    }
   } catch (err) {
     // Include name + baseUrl in the log line (not just the DB row, which
     // only gets errorMessage) so a failure is diagnosable straight from
     // docker logs without a DB query — see markGatewayError's own logging
     // for why this matters (2026-07-03).
     console.error(`[unifi-network] poll_gateways: "${gwName}" (${baseUrl}) threw during poll:`, err);
-    await markGatewayError(ctx.db, gw.id, String(err));
+    await markGatewayError(ctx.db, gw.id, String(err), undefined, notifications);
   }
 }
 
@@ -284,8 +365,9 @@ async function markGatewayError(
   gatewayId: string,
   errorMessage: string,
   explicitStatus?: "config_error",
+  notifications?: ModuleNotification[],
 ): Promise<void> {
-  const [gw] = await db.query<GatewayRow>(`SELECT consecutive_failures FROM gateways WHERE id = $1`, [gatewayId]);
+  const [gw] = await db.query<GatewayRow>(`SELECT consecutive_failures, status FROM gateways WHERE id = $1`, [gatewayId]);
   const failures = (gw?.consecutive_failures ?? 0) + 1;
   const status = explicitStatus ?? (failures >= CIRCUIT_BREAKER_THRESHOLD ? "paused" : "offline");
 
@@ -307,6 +389,18 @@ async function markGatewayError(
      WHERE id = $4`,
     [status, failures, errorMessage, gatewayId],
   );
+
+  // Only notify on the actual transition INTO paused (2026-07-04, reported
+  // by the user after living through exactly this with three gateways at
+  // once) — not on every "offline" attempt leading up to it, which would
+  // otherwise fire up to CIRCUIT_BREAKER_THRESHOLD times per gateway before
+  // the real, actionable moment (an admin needs to check configuration).
+  if (status === "paused" && gw?.status !== "paused" && notifications) {
+    const encKey = await getEncKey();
+    const [row] = await db.query<GatewayRow>(`SELECT name_enc FROM gateways WHERE id = $1`, [gatewayId]);
+    const gwName = row && encKey ? await decrypt(encKey, row.name_enc).catch(() => "?") : "?";
+    notifications.push({ message: notificationText.gatewayPaused(gwName, errorMessage) });
+  }
 }
 
 // ── Pending deletions retry (Entscheidungsvorlage Abschnitt 4.3) ────────────
