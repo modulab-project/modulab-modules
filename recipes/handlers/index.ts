@@ -33,10 +33,6 @@
  *   PATCH  /categories/:id        update
  *   DELETE /categories/:id        delete
  *
- * Nutrition (Open Food Facts)
- *   GET    /nutrition/search?q=   search product
- *   GET    /nutrition/:offId      fetch by OFF id
- *
  * Portion calculator
  *   GET    /recipes/:id/nutrition?servings=N   recalculated per servings
  *
@@ -188,17 +184,6 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
   if (method === "DELETE" && pathname.match(/^\/categories\/[^/]+$/)) {
     await db.query(`DELETE FROM categories WHERE id = $1`, [segId(pathname)]);
     return noContent();
-  }
-
-  // ── Nutrition (Open Food Facts) ───────────────────────────────────────────
-
-  if (method === "GET" && pathname.startsWith("/nutrition/search")) {
-    const q = new URL("http://x" + path).searchParams.get("q") ?? "";
-    if (!q) return { status: 400, body: { error: "q parameter required" } };
-    return searchNutrition(q);
-  }
-  if (method === "GET" && pathname.match(/^\/nutrition\/[^/]+$/)) {
-    return fetchNutrition(segId(pathname));
   }
 
   // ── Portion calculator ────────────────────────────────────────────────────
@@ -489,40 +474,21 @@ async function recalcNutritionFromIngredients(db: ModuleDbClient, recipeId: stri
   }
 }
 
-// ── Nutrition / Open Food Facts ───────────────────────────────────────────────
-
-async function searchNutrition(query: string): Promise<HandlerResponse> {
-  const url =
-    `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(query)}&search_simple=1&action=process&json=1&page_size=10&fields=id,product_name,nutriments,serving_size`;
-  const res = await fetch(url, { headers: { "User-Agent": "modulab-recipes/0.1 (homelab)" } });
-  if (!res.ok) return { status: 502, body: { error: "OFF API error" } };
-  const data = await res.json();
-  const products = (data.products ?? []).map(mapOFFProduct);
-  return ok({ products });
-}
-
-async function fetchNutrition(offId: string): Promise<HandlerResponse> {
-  const url = `https://world.openfoodfacts.org/api/v0/product/${encodeURIComponent(offId)}.json?fields=product_name,nutriments,serving_size`;
-  const res = await fetch(url, { headers: { "User-Agent": "modulab-recipes/0.1 (homelab)" } });
-  if (!res.ok) return { status: 502, body: { error: "OFF API error" } };
-  const data = await res.json();
-  if (data.status !== 1) return notFound("product");
-  return ok(mapOFFProduct(data.product));
-}
-
-function mapOFFProduct(p: Record<string, unknown>): Record<string, unknown> {
-  const n = (p.nutriments ?? {}) as Record<string, number>;
-  return {
-    id: p.id ?? p._id,
-    name: p.product_name,
-    serving_size: p.serving_size,
-    kcal_per_100g:    n["energy-kcal_100g"] ?? null,
-    protein_per_100g: n["proteins_100g"] ?? null,
-    fat_per_100g:     n["fat_100g"] ?? null,
-    carbs_per_100g:   n["carbohydrates_100g"] ?? null,
-    fiber_per_100g:   n["fiber_100g"] ?? null,
-  };
-}
+// ── Open Food Facts nutrition lookup removed 2026-07-03 ─────────────────────
+//
+// searchNutrition()/fetchNutrition()/mapOFFProduct() used to call
+// world.openfoodfacts.org / api.openfoodfacts.org for product nutrition
+// data. Removed because the /nutrition/search and /nutrition/:offId routes
+// were never wired up to any UI component (no autocomplete/search field in
+// ui/src/App.tsx ever called them) — dead code making an outbound network
+// call for no reachable feature. The portion calculator below
+// (calcNutrition, /recipes/:id/nutrition) is unaffected: it only
+// recalculates from ingredient rows already stored in the DB, no external
+// call. The off_product_id column on ingredients and the 'off' value in
+// nutrition_source's CHECK constraint are left in place in the schema
+// (migrations aren't rewritten after the fact) but are now unreachable —
+// nothing in this handler ever sets off_product_id or nutrition_source='off'
+// again.
 
 async function calcNutrition(
   db: ModuleDbClient,
