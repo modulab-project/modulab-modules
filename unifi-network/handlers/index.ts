@@ -99,6 +99,10 @@ const handlerNotificationText = {
     de: `Neues Gerät wartet auf Freigabe: ${note} (${mac})`,
     en: `New device waiting for approval: ${note} (${mac})`,
   }),
+  deviceDeleted: (note: string): { de: string; en: string } => ({
+    de: `Gerät gelöscht: ${note}`,
+    en: `Device deleted: ${note}`,
+  }),
   deviceApproved: (note: string, results: GatewayProvisionResult[]): { de: string; en: string } => {
     const failed = results.filter((r) => r.status !== "ok");
     if (failed.length === 0) {
@@ -664,7 +668,18 @@ async function deleteDevice(db: ModuleDbClient, auth: ModuleAuthContext, id: str
 
   await db.query(`DELETE FROM devices WHERE id = $1`, [id]);
   await audit(db, auth.userEmail, "device.delete", "device", id);
-  return ok({ ok: true });
+
+  // Reported 2026-07-04: deleting a device produced no notification at
+  // all, unlike creating/approving one. note is best-effort here — the row
+  // is already gone by this point, so a decrypt failure must not fail the
+  // whole delete, just fall back to a generic label.
+  const encKeyForNotify = await getEncKey();
+  const noteForNotify = encKeyForNotify
+    ? await decrypt(encKeyForNotify, device.note_enc).catch(() => "?")
+    : "?";
+  const resp = ok({ ok: true });
+  resp.notifications = [{ message: handlerNotificationText.deviceDeleted(noteForNotify) }];
+  return resp;
 }
 
 async function deleteDeviceFromGateway(
