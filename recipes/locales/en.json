@@ -97,6 +97,7 @@
   "nav_info": "Info",
   "info_title": "About this module",
   "info_load_error": "Could not load module information",
+  "info_description": "Recipe collection with weekly meal plan",
   "info_version": "Version",
   "info_update_available": "Update available",
   "info_tier": "Tier",
@@ -106,5 +107,6 @@
   "info_network_access": "Network access",
   "info_no_network_access": "no network access",
   "info_installed_at": "Installed on",
-  "info_updated_at": "Last updated"
+  "info_updated_at": "Last updated",
+  "info_github_link": "Source code on GitHub"
 }

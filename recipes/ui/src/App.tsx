@@ -1399,9 +1399,11 @@ function ModuleInfoView({ moduleName, token }: { moduleName: string; token: stri
         <h2 className="text-lg font-semibold">{t("info_title")}</h2>
       </div>
       <div className="rounded-2xl border border-gray-200 p-4 dark:border-gray-800">
-        {manifest.description && (
-          <p className="mb-3 text-sm text-gray-600 dark:text-gray-300">{manifest.description}</p>
-        )}
+        {/* Localized description, not manifest.description from Core's API
+            (that field is a single hardcoded English string, not translated
+            — see de.json/en.json's info_description for the maintained,
+            localized text instead). */}
+        <p className="mb-3 text-sm text-gray-600 dark:text-gray-300">{t("info_description")}</p>
         <div className={rowCls}>
           <span className={labelCls}>{t("info_version")}</span>
           <span className={valueCls}>{info.version}</span>
@@ -1449,9 +1451,27 @@ function ModuleInfoView({ moduleName, token }: { moduleName: string; token: stri
           <span className={valueCls}>{new Date(info.updated_at).toLocaleDateString()}</span>
         </div>
       </div>
+      {/* Fixed constant, not fetched from the registry: source_repo lives in
+          the store/registry tables, not installed_modules, so GET
+          /v1/modules/{name} doesn't return it. Adding a Core API field just
+          for this one link wasn't worth it — the repo a module ships from
+          essentially never changes once installed. */}
+      <a
+        href={MODULE_SOURCE_REPO_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="mt-3 flex items-center justify-center gap-1.5 rounded-2xl border border-gray-200 p-3 text-sm text-gray-600 hover:bg-gray-50 dark:border-gray-800 dark:text-gray-300 dark:hover:bg-gray-800"
+      >
+        <i className="ti ti-brand-github" style={{ fontSize: "16px" }} />
+        {t("info_github_link")}
+      </a>
     </div>
   );
 }
+
+// Fixed source repo URL for this module — see the comment above where it's
+// used for why this isn't fetched from Core's API.
+const MODULE_SOURCE_REPO_URL = "https://github.com/modulab-project/modulab-modules";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

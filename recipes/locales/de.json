@@ -97,6 +97,7 @@
   "nav_info": "Info",
   "info_title": "Über dieses Modul",
   "info_load_error": "Modul-Informationen konnten nicht geladen werden",
+  "info_description": "Rezeptsammlung mit Wochenplan",
   "info_version": "Version",
   "info_update_available": "Update verfügbar",
   "info_tier": "Tier",
@@ -106,5 +107,6 @@
   "info_network_access": "Netzzugriff",
   "info_no_network_access": "kein Netzzugriff",
   "info_installed_at": "Installiert am",
-  "info_updated_at": "Zuletzt aktualisiert"
+  "info_updated_at": "Zuletzt aktualisiert",
+  "info_github_link": "Quellcode auf GitHub"
 }

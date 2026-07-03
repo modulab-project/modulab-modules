@@ -1,9 +1,9 @@
 name: "recipes"
-version: "0.3.7"
+version: "0.3.8"
 display_name:
   en: "Recipes"
   de: "Rezepte"
-description: "Recipe collection with weekly meal plan and nutrition info"
+description: "Recipe collection with weekly meal plan"
 icon: "ti-book-2"
 author: "modulab-project"
 license: "AGPL-3.0"
