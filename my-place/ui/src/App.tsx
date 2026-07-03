@@ -1297,10 +1297,24 @@ function ModuleInfoView({ moduleName, token }: { moduleName: string; token: stri
           </div>
         )}
         <div className={rowCls}>
-          <span className={labelCls}>{t("info_network_access")}</span>
+          <span className={labelCls}>{t("info_network_access_server")}</span>
           <span className={valueCls}>
             {egressHosts.length > 0 ? egressHosts.join(", ") : t("info_no_network_access")}
           </span>
+        </div>
+        {/* Fixed constant, not read from egress_allowlist: the map (MapView,
+            using maplibre-gl) fetches MapTiler's style.json and tiles
+            directly in the BROWSER, not through the Deno worker — so it
+            never appears in the server-side egress_allowlist above (which
+            is correctly empty; the handler itself makes no outbound calls).
+            Shown as a separate row so "kein Netzzugriff" above doesn't read
+            as "this module has no network access at all", which would be
+            misleading given the map obviously needs one — found 2026-07-03
+            when a user pointed out the info card said "no network access"
+            right next to a working map. */}
+        <div className={rowCls}>
+          <span className={labelCls}>{t("info_network_access_browser")}</span>
+          <span className={valueCls}>api.maptiler.com</span>
         </div>
         <div className={rowCls}>
           <span className={labelCls}>{t("info_installed_at")}</span>
