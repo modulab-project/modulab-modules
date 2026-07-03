@@ -88,6 +88,33 @@ function notFound(): HandlerResponse {
   return { status: 404, body: { error: "Not found" } };
 }
 
+// Small, local {de, en} text builders for the two HTTP-handler-triggered
+// notification events (onboarding submit + approval outcome). Mirrors
+// jobs/poll-gateways.ts's own notificationText — kept separate rather than
+// shared, since handler code and job code are two different Deno entrypoints
+// with no shared module-local state; duplicating four short template
+// functions is simpler than introducing a shared import just for this.
+const handlerNotificationText = {
+  deviceWaitingApproval: (note: string, mac: string): { de: string; en: string } => ({
+    de: `Neues Gerät wartet auf Freigabe: ${note} (${mac})`,
+    en: `New device waiting for approval: ${note} (${mac})`,
+  }),
+  deviceApproved: (note: string, results: GatewayProvisionResult[]): { de: string; en: string } => {
+    const failed = results.filter((r) => r.status !== "ok");
+    if (failed.length === 0) {
+      return {
+        de: `Gerät freigegeben: ${note} (auf ${results.length} Gateway(s) erfolgreich eingerichtet)`,
+        en: `Device approved: ${note} (provisioned successfully on ${results.length} gateway(s))`,
+      };
+    }
+    const failedNames = failed.map((r) => r.gateway_name).join(", ");
+    return {
+      de: `Gerät freigegeben: ${note} — Problem auf ${failed.length} Gateway(s): ${failedNames}`,
+      en: `Device approved: ${note} — issue on ${failed.length} gateway(s): ${failedNames}`,
+    };
+  },
+};
+
 async function audit(
   db: ModuleDbClient,
   actor: string,
@@ -457,7 +484,14 @@ async function createDevice(
   }
 
   await audit(db, auth.userEmail, "device.create", "device", row.id, input.note);
-  return created({ id: row.id, status: "pending_approval" });
+
+  // Notify admins live, the same way a new user account waiting for
+  // approval already does (Core: auth.EventsHandler/"user.pending") —
+  // reported 2026-07-04 as a gap: a submitted device previously sat
+  // invisible in "pending" until an admin happened to check the list.
+  const resp = created({ id: row.id, status: "pending_approval" });
+  resp.notifications = [{ message: handlerNotificationText.deviceWaitingApproval(input.note, sanitized) }];
+  return resp;
 }
 
 async function updateDevice(
@@ -774,7 +808,16 @@ async function approveDevice(db: ModuleDbClient, auth: ModuleAuthContext, id: st
   ]);
   await audit(db, auth.userEmail, "device.approve", "device", id, note);
 
-  return ok({ status: "active", results });
+  // Notify admins only now, after every gateway in the loop has actually
+  // responded (results is built from provisionOnGateway's return value per
+  // gateway, above) — reported 2026-07-04: an admin approving a device
+  // previously got no confirmation at all that it actually finished
+  // provisioning, only the synchronous HTTP response to their own request.
+  // Other admin sessions watching the notification panel had no visibility
+  // into this at all.
+  const resp = ok({ status: "active", results });
+  resp.notifications = [{ message: handlerNotificationText.deviceApproved(note ?? "?", results) }];
+  return resp;
 }
 
 async function provisionOnGateway(
