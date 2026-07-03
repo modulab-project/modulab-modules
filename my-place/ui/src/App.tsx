@@ -30,6 +30,7 @@ interface Spot {
   rating: number | null;
   trip_id: string | null;
   trip_name: string | null;
+  trip_year: number | null;
   category_id: string | null;
   category_name: string | null;
   category_color: string | null;
@@ -56,6 +57,14 @@ interface Trip {
 // year style already used in the trip list itself (TripsView).
 function tripLabel(tr: Trip): string {
   return tr.year ? `${tr.name} (${tr.year})` : tr.name;
+}
+
+// Same label format as tripLabel(), for the denormalized trip_name/trip_year
+// pair a spot carries directly (from the SQL join in listSpots/getSpot)
+// rather than a full Trip object — used in the spot list/detail views where
+// a spot only has its trip's name and year, not the whole Trip record.
+function spotTripLabel(name: string, year: number | null): string {
+  return year ? `${name} (${year})` : name;
 }
 
 interface Category {
@@ -559,7 +568,7 @@ function SpotsListView({ spots, trips, categories, onSpotClick, onNewSpot, t }: 
                       <div className="flex-1 min-w-0">
                         <div className="font-semibold text-sm text-gray-900 dark:text-gray-100 truncate">{spot.name}</div>
                         <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                          {spot.trip_name && <span className="text-xs text-gray-400"><i className="ti ti-route text-[10px] mr-0.5" />{spot.trip_name}</span>}
+                          {spot.trip_name && <span className="text-xs text-gray-400"><i className="ti ti-route text-[10px] mr-0.5" />{spotTripLabel(spot.trip_name, spot.trip_year)}</span>}
                           {spot.category_name && (
                             <span className="rounded-full px-1.5 py-0.5 text-[10px] font-medium" style={{ background: color + "22", color }}>
                               {spot.category_name}
@@ -687,7 +696,7 @@ function SpotDetail({ api, id, onBack, onEdit, onDeleted, t }: {
       {spot.note && <p className="mb-5 text-base text-gray-700 dark:text-gray-300 leading-relaxed">{spot.note}</p>}
 
       <div className="flex flex-wrap gap-4 text-sm text-gray-500 dark:text-gray-400 mb-6 pb-5 border-b border-gray-100 dark:border-gray-800">
-        {spot.trip_name && <span className="flex items-center gap-1.5"><i className="ti ti-route" />{spot.trip_name}</span>}
+        {spot.trip_name && <span className="flex items-center gap-1.5"><i className="ti ti-route" />{spotTripLabel(spot.trip_name, spot.trip_year)}</span>}
         <span className="flex items-center gap-1.5"><i className="ti ti-map-pin" />{spot.lat.toFixed(5)}, {spot.lng.toFixed(5)}</span>
         <span className="flex items-center gap-2">
           <a href={`maps://?q=${spot.lat},${spot.lng}`}

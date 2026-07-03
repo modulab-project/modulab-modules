@@ -257,6 +257,7 @@ async function listSpots(db: ModuleDbClient, path: string, encKey: CryptoKey | n
   const rows = await db.query<SpotRow>(
     `SELECT s.*,
             t.name  AS trip_name,
+            t.year  AS trip_year,
             c.name  AS category_name,
             c.color AS category_color,
             c.icon  AS category_icon,
@@ -270,7 +271,7 @@ async function listSpots(db: ModuleDbClient, path: string, encKey: CryptoKey | n
      LEFT JOIN categories c ON c.id = s.category_id
      LEFT JOIN spot_photos p ON p.spot_id = s.id
      ${where}
-     GROUP BY s.id, t.name, c.name, c.color, c.icon
+     GROUP BY s.id, t.name, t.year, c.name, c.color, c.icon
      ORDER BY s.created_at DESC`,
     args,
   );
@@ -282,6 +283,7 @@ async function getSpot(db: ModuleDbClient, id: string, encKey: CryptoKey | null)
   const [row] = await db.query<SpotRow>(
     `SELECT s.*,
             t.name  AS trip_name,
+            t.year  AS trip_year,
             c.name  AS category_name,
             c.color AS category_color,
             c.icon  AS category_icon,
@@ -297,7 +299,7 @@ async function getSpot(db: ModuleDbClient, id: string, encKey: CryptoKey | null)
      LEFT JOIN categories c ON c.id = s.category_id
      LEFT JOIN spot_photos p ON p.spot_id = s.id
      WHERE s.id = $1
-     GROUP BY s.id, t.name, c.name, c.color, c.icon`,
+     GROUP BY s.id, t.name, t.year, c.name, c.color, c.icon`,
     [id],
   );
   if (!row) return notFound("spot");

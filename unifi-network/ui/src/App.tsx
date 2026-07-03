@@ -431,37 +431,15 @@ function OverviewView({ api }: { api: ReturnType<typeof useApi> }) {
                 wurde beim Purge entfernt — daher hier per Inline-Style
                 begrenzt statt per Utility-Klasse. */}
             <div className="relative flex-1" style={{ maxWidth: "20rem" }}>
-              {/* Bugfix (2026-07-01): das ti-search-Icon aus dem Tabler-Font
-                  zeigte bei diesem Nutzer in Chrome UND Safari einen leeren
-                  Kreis statt des Lupen-Symbols — das schließt ein Browser-
-                  eigenes Overlay (z.B. Autofill) aus und deutet auf ein
-                  fehlendes/falsch geladenes Glyph im Icon-Font hin. Als Inline-
-                  SVG ersetzt, das ohne Font-Abhängigkeit überall gleich
-                  rendert (analog zum bekannten Tailwind-Whitelist-Problem bei
-                  Icon-/Utility-Klassen, die Module nicht selbst kompilieren).
-
-                  Bugfix (2026-07-02): der Ersatz selbst tappte in genau die
-                  Falle, die der obige Kommentar beschreibt — h-[14px]/w-[14px]
-                  sind Tailwind-Arbitrary-Value-Klassen, die (wie max-w-xs
-                  direkt darüber) nicht im Core-Whitelist sind und beim Purge
-                  entfernt wurden. Ohne Höhen-/Breitenbegrenzung rendert das
-                  SVG (viewBox 24x24, position: absolute) in seiner
-                  Default-Größe statt 14px — sichtbar als riesiges,
-                  fehlplatziertes Lupen-Icon über der Tabelle. Größe jetzt wie
-                  bei maxWidth oben per Inline-Style statt Utility-Klasse. */}
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400"
-                style={{ height: "14px", width: "14px" }}
-              >
-                <circle cx="11" cy="11" r="7" />
-                <line x1="21" y1="21" x2="16.65" y2="16.65" />
-              </svg>
+              {/* Search icon removed entirely per user request (2026-07-04) —
+                  previously a Tabler-font icon (rendered as an empty circle
+                  for this user, fixed 2026-07-01 with an inline SVG), then
+                  the inline SVG itself hit the Tailwind arbitrary-value
+                  purge bug (h-[14px]/w-[14px] not in Core's whitelist, fixed
+                  2026-07-02 with inline styles) — see git history on this
+                  file for both. Rather than carry that fragile icon forward,
+                  it's gone; pl-8 (which reserved space for it) is reverted
+                  to a plain pr-3-only padding to match. */}
               <input
                 type="text"
                 name="unifi-network-device-search"
@@ -471,7 +449,7 @@ function OverviewView({ api }: { api: ReturnType<typeof useApi> }) {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder={t("search_placeholder")}
-                className="w-full rounded-lg border border-gray-300 py-1.5 pl-8 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 dark:border-gray-700 dark:bg-gray-800"
+                className="w-full rounded-lg border border-gray-300 py-1.5 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 dark:border-gray-700 dark:bg-gray-800"
                 style={{ fontSize: "16px" }}
               />
             </div>

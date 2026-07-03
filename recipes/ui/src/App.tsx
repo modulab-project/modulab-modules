@@ -1049,19 +1049,10 @@ function MealPlanView({ api }: { api: ReturnType<typeof useApi> }) {
       .finally(() => setLoading(false));
   }, [api, weekStart]);
 
-  // Close picker when clicking outside
-  useEffect(() => {
-    if (!pickerCell) return;
-    function handleClick(e: MouseEvent) {
-      const target = e.target as HTMLElement;
-      if (!target.closest("[data-picker]")) {
-        setPickerCell(null);
-        setPickerSearch("");
-      }
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [pickerCell]);
+  // Picker is now a modal overlay (see render below) that closes via its own
+  // backdrop onClick + stopPropagation on the inner panel — no document-level
+  // click listener needed anymore (the old dropdown approach used one to
+  // detect clicks outside the table cell; not applicable to a fixed overlay).
 
   function entryFor(day: number, slot: string) {
     return entries.find((e) => e.day_of_week === day && e.meal_slot === slot);
@@ -1192,51 +1183,6 @@ function MealPlanView({ api }: { api: ReturnType<typeof useApi> }) {
                       >
                         {entry?.recipe_title ?? <span className="text-gray-300 dark:text-gray-700">+</span>}
                       </div>
-
-                      {/* Picker dropdown */}
-                      {isOpen && (
-                        <div
-                          data-picker
-                          className="absolute left-0 top-full z-20 mt-1 w-56 rounded-xl border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-900"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <div className="p-2 border-b border-gray-100 dark:border-gray-800">
-                            <input
-                              type="search"
-                              autoFocus
-                              placeholder={t("search_placeholder")}
-                              value={pickerSearch}
-                              onChange={(e) => setPickerSearch(e.target.value)}
-                              className="w-full rounded-lg border border-gray-200 px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-teal-500 dark:border-gray-700 dark:bg-gray-800"
-                              style={{ fontSize: "16px" }}
-                            />
-                          </div>
-                          <div className="max-h-52 overflow-y-auto p-1">
-                            {entry && (
-                              <button
-                                type="button"
-                                onClick={() => clearEntry(day, slot)}
-                                className="flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs text-red-600 hover:bg-red-50 dark:hover:bg-red-950"
-                              >
-                                <i className="ti ti-trash text-[12px]" /> {t("clear")}
-                              </button>
-                            )}
-                            {filteredRecipes.length === 0 && (
-                              <p className="px-2 py-3 text-center text-xs text-gray-400">{t("no_recipes")}</p>
-                            )}
-                            {filteredRecipes.map((r) => (
-                              <button
-                                key={r.id}
-                                type="button"
-                                onClick={() => setEntry(day, slot, r.id)}
-                                className="flex w-full items-center rounded-lg px-2 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-800 text-left"
-                              >
-                                {r.title}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      )}
                     </td>
                   );
                 })}
@@ -1245,6 +1191,79 @@ function MealPlanView({ api }: { api: ReturnType<typeof useApi> }) {
           </tbody>
         </table>
       </div>
+
+      {/* Recipe picker — rendered as a centered modal overlay instead of a
+          position: absolute dropdown anchored inside the table cell.
+          The previous dropdown approach caused the whole page to visibly
+          jump open (confirmed live in Chrome even after fixing the
+          min-w/min-h purge issue and the overflow-x-auto/overflow-y
+          interaction — see git history on this file). A modal rendered
+          here, outside the table/scroll-wrapper DOM entirely and
+          positioned with `fixed` relative to the viewport, cannot be
+          affected by any ancestor's overflow or box-size changes, so this
+          class of bug structurally cannot recur regardless of what's
+          above it in the tree. */}
+      {pickerCell && (() => {
+        const { day, slot } = pickerCell;
+        const entry = entryFor(day, slot);
+        return (
+          <div
+            className="fixed inset-0 z-30 flex items-center justify-center bg-black/40 p-4"
+            onClick={() => { setPickerCell(null); setPickerSearch(""); }}
+          >
+            <div
+              className="w-full max-w-sm rounded-2xl border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-900"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between gap-2 border-b border-gray-100 p-3 dark:border-gray-800">
+                <span className="text-sm font-medium">{t(DAY_KEYS[day - 1])} · {t(`slot_${slot}`)}</span>
+                <button
+                  type="button"
+                  onClick={() => { setPickerCell(null); setPickerSearch(""); }}
+                  className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800"
+                >
+                  <i className="ti ti-x" style={{ fontSize: "16px" }} />
+                </button>
+              </div>
+              <div className="p-3 border-b border-gray-100 dark:border-gray-800">
+                <input
+                  type="search"
+                  autoFocus
+                  placeholder={t("search_placeholder")}
+                  value={pickerSearch}
+                  onChange={(e) => setPickerSearch(e.target.value)}
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-teal-500 dark:border-gray-700 dark:bg-gray-800"
+                  style={{ fontSize: "16px" }}
+                />
+              </div>
+              <div className="max-h-80 overflow-y-auto p-1.5">
+                {entry && (
+                  <button
+                    type="button"
+                    onClick={() => clearEntry(day, slot)}
+                    className="flex w-full items-center gap-1.5 rounded-lg px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-950"
+                  >
+                    <i className="ti ti-trash" style={{ fontSize: "14px" }} /> {t("clear")}
+                  </button>
+                )}
+                {filteredRecipes.length === 0 && (
+                  <p className="px-3 py-4 text-center text-sm text-gray-400">{t("no_recipes")}</p>
+                )}
+                {filteredRecipes.map((r) => (
+                  <button
+                    key={r.id}
+                    type="button"
+                    onClick={() => setEntry(day, slot, r.id)}
+                    className="flex w-full items-center rounded-lg px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 text-left"
+                  >
+                    {r.title}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
