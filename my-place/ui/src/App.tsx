@@ -49,6 +49,15 @@ interface Trip {
   created_by: string;
 }
 
+// Label used everywhere a trip is shown as a single line of text (filter
+// dropdowns, spot-editor trip select) — "Karibik (2026)" instead of just
+// the name, so trips with the same name in different years (e.g. an annual
+// "Weihnachtsmarkt" trip) stay distinguishable. Matches the parenthesized
+// year style already used in the trip list itself (TripsView).
+function tripLabel(tr: Trip): string {
+  return tr.year ? `${tr.name} (${tr.year})` : tr.name;
+}
+
 interface Category {
   id: string;
   name: string;
@@ -440,7 +449,7 @@ function MapView({ spots, mapStyleUrl, mapConfigured, trips, categories, onSpotC
           <select value={filterTrip} onChange={(e) => { setFilterTrip(e.target.value); setFilterCategory(""); }}
             className="w-full rounded-lg border border-gray-300 px-2 py-2 text-sm dark:border-gray-700 dark:bg-gray-800" style={{ fontSize: "16px" }}>
             <option value="">{t("all_trips")}</option>
-            {trips.map((tr) => <option key={tr.id} value={tr.id}>{tr.name}</option>)}
+            {trips.map((tr) => <option key={tr.id} value={tr.id}>{tripLabel(tr)}</option>)}
           </select>
         </div>
         <div>
@@ -509,7 +518,7 @@ function SpotsListView({ spots, trips, categories, onSpotClick, onNewSpot, t }: 
         <select value={filterTrip} onChange={(e) => setFilterTrip(e.target.value)}
           className="rounded-lg border border-gray-300 px-2 py-2 text-sm dark:border-gray-700 dark:bg-gray-800" style={{ fontSize: "16px" }}>
           <option value="">{t("all_trips")}</option>
-          {trips.map((tr) => <option key={tr.id} value={tr.id}>{tr.name}</option>)}
+          {trips.map((tr) => <option key={tr.id} value={tr.id}>{tripLabel(tr)}</option>)}
         </select>
         <select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)}
           className="rounded-lg border border-gray-300 px-2 py-2 text-sm dark:border-gray-700 dark:bg-gray-800" style={{ fontSize: "16px" }}>
@@ -837,7 +846,7 @@ function SpotEditor({ api, id, trips, categories, onDone, onCancel, t }: {
               <label className={labelCls}>{t("spot_trip")}</label>
               <select value={tripId} onChange={(e) => setTripId(e.target.value)} className={inputCls} style={{ fontSize: "16px" }}>
                 <option value="">—</option>
-                {trips.map((tr) => <option key={tr.id} value={tr.id}>{tr.name}</option>)}
+                {trips.map((tr) => <option key={tr.id} value={tr.id}>{tripLabel(tr)}</option>)}
               </select>
             </div>
             <div>

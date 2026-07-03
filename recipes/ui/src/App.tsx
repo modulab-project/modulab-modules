@@ -1127,7 +1127,21 @@ function MealPlanView({ api }: { api: ReturnType<typeof useApi> }) {
 
       {loading && <p className="text-sm text-gray-400">{t("loading")}</p>}
 
-      <div className="overflow-x-auto">
+      {/* overflow-x-auto alone still constrains the vertical axis to
+          "clip" in some browsers (the CSS overflow spec resolves a
+          specified overflow-x together with a computed overflow-y: visible
+          into overflow-y: auto — see
+          https://www.w3.org/TR/css-overflow-3/#overflow-properties). That
+          silently turned this wrapper into a second, nested scroll
+          container: the picker dropdown below (position: absolute,
+          intentionally meant to overflow past the table) got clipped by/
+          added scrollable height to THIS div instead of overflowing onto
+          the page, and the resulting reflow of the wrapper's own height is
+          what caused the whole page to visibly jump when opening a picker.
+          overflowY: "visible" here overrides that implicit auto so the
+          dropdown escapes the horizontal scroll wrapper entirely, the same
+          way it already escapes the table. */}
+      <div className="overflow-x-auto" style={{ overflowY: "visible" }}>
         {/* min-w-[500px] as inline style: Tailwind arbitrary-value classes
             are purged in production (Core has no own Tailwind compiler,
             only classes Core itself uses survive purge — recurring issue in
@@ -1490,10 +1504,22 @@ function ModuleInfoView({ moduleName, token }: { moduleName: string; token: stri
           </div>
         )}
         <div className={rowCls}>
-          <span className={labelCls}>{t("info_network_access")}</span>
+          <span className={labelCls}>{t("info_network_access_core")}</span>
           <span className={valueCls}>
             {egressHosts.length > 0 ? egressHosts.join(", ") : t("info_no_network_access")}
           </span>
+        </div>
+        {/* This module's own UI code makes no frontend (browser-side)
+            network access of its own — verified: all fetch() calls in
+            App.tsx go to same-origin /v1/modules/... (Core). The Tabler
+            Icons stylesheet used by the "ti ti-*" icon classes throughout
+            this file is loaded once, globally, by Core's own
+            frontend/index.html (cdnjs.cloudflare.com) — that is Core's own
+            network access, not something this module's manifest or egress
+            config controls, so it is intentionally not listed here. */}
+        <div className={rowCls}>
+          <span className={labelCls}>{t("info_network_access_frontend")}</span>
+          <span className={valueCls}>{t("info_no_network_access")}</span>
         </div>
         <div className={rowCls}>
           <span className={labelCls}>{t("info_installed_at")}</span>

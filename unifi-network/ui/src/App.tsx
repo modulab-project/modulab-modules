@@ -1592,6 +1592,14 @@ interface InstalledModuleInfo {
 function ModuleInfoView({ moduleName, token }: { moduleName: string; token: string }) {
   const { t } = useTranslation(NS);
   const [info, setInfo] = useState<InstalledModuleInfo | null>(null);
+  // Runtime egress hosts (actual gateway IPs currently allowed), separate
+  // from info.manifest.egress_allowlist which is the static manifest value
+  // — deliberately empty for this module (see manifest.yaml's dynamic_egress
+  // comment) since real network access here is 100% admin-configured at
+  // runtime, not something a static manifest field can express. Without
+  // this, the info card showed "no network access" even with gateways
+  // configured and successfully polling — reported by the user 2026-07-04.
+  const [runtimeEgressHosts, setRuntimeEgressHosts] = useState<string[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -1601,12 +1609,24 @@ function ModuleInfoView({ moduleName, token }: { moduleName: string; token: stri
       setLoading(true);
       setError(null);
       try {
-        const r = await fetch(`/v1/modules/${encodeURIComponent(moduleName)}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const data = await r.json();
+        const [infoRes, egressRes] = await Promise.all([
+          fetch(`/v1/modules/${encodeURIComponent(moduleName)}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+          fetch(`/v1/modules/${encodeURIComponent(moduleName)}/egress-hosts`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+        ]);
+        if (!infoRes.ok) throw new Error(`HTTP ${infoRes.status}`);
+        const data = await infoRes.json();
         if (!cancelled) setInfo(data);
+        // Best-effort: if this fails for any reason, fall back to the
+        // static manifest.egress_allowlist further down rather than
+        // failing the whole info card over a secondary field.
+        if (egressRes.ok) {
+          const egressData = await egressRes.json();
+          if (!cancelled) setRuntimeEgressHosts(egressData.egress_hosts ?? []);
+        }
       } catch (e) {
         if (!cancelled) setError(String(e));
       } finally {
@@ -1631,7 +1651,12 @@ function ModuleInfoView({ moduleName, token }: { moduleName: string; token: stri
   }
 
   const manifest = info.manifest ?? {};
-  const egressHosts = manifest.egress_allowlist ?? [];
+  // Prefer the runtime-queried hosts (actual current gateway IPs) over the
+  // static manifest.egress_allowlist — see runtimeEgressHosts state comment
+  // above. runtimeEgressHosts is null only while that secondary fetch is
+  // still pending or failed; in that transient case fall back to the
+  // manifest value so the row never appears empty due to a timing gap.
+  const egressHosts = runtimeEgressHosts ?? manifest.egress_allowlist ?? [];
 
   return (
     <div className="mx-auto max-w-lg">
@@ -1678,10 +1703,21 @@ function ModuleInfoView({ moduleName, token }: { moduleName: string; token: stri
           </div>
         )}
         <div className={rowCls}>
-          <span className={labelCls}>{t("info_network_access")}</span>
+          <span className={labelCls}>{t("info_network_access_core")}</span>
           <span className={valueCls}>
             {egressHosts.length > 0 ? egressHosts.join(", ") : t("info_no_network_access")}
           </span>
+        </div>
+        {/* This module's UI never talks to gateways directly — all gateway
+            communication (RADIUS/VLAN/client-history polling, isPrivateHost()
+            enforcement, TLS handling) happens server-side in the Deno worker;
+            see unifi-client.ts's unifiFetch(). The browser only ever calls
+            same-origin /v1/modules/unifi-network/api/... (Core). Verified: no
+            fetch()/XHR to any gateway IP or external host exists in this
+            file. */}
+        <div className={rowCls}>
+          <span className={labelCls}>{t("info_network_access_frontend")}</span>
+          <span className={valueCls}>{t("info_no_network_access")}</span>
         </div>
         <div className={rowCls}>
           <span className={labelCls}>{t("info_installed_at")}</span>
