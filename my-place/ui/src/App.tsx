@@ -980,7 +980,12 @@ function TripsView({ trips, api, onReload, t }: {
             <div key={tr.id} className="flex items-center gap-3 rounded-xl border border-gray-200 px-4 py-3.5 dark:border-gray-800">
               <div className="flex-1 min-w-0">
                 <span className="font-medium">{tr.name}</span>
-                {tr.year && <span className="ml-2 text-sm text-gray-400">{tr.year}</span>}
+                {/* ml-2 is purged in production (Core never uses that
+                    class — see recurring Tailwind-arbitrary/unused-class
+                    purge issue in this project) — inline style instead,
+                    plus parentheses so name and year are visually
+                    separated even without the intended margin. */}
+                {tr.year && <span style={{ marginLeft: "8px" }} className="text-sm text-gray-400">({tr.year})</span>}
                 {tr.description && <p className="text-sm text-gray-500 truncate mt-0.5">{tr.description}</p>}
               </div>
               <button type="button" onClick={() => startEdit(tr)} className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800">

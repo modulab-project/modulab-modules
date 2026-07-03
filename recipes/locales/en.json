@@ -70,7 +70,7 @@
   "new_recipe": "New Recipe",
   "edit_recipe": "Edit Recipe",
 
-  "meal_plan_week": "Week of {{date}}",
+  "meal_plan_week": "Week {{week}}, {{from}}–{{to}}",
   "this_week": "This week",
   "day_mon": "Mon",
   "day_tue": "Tue",
@@ -104,7 +104,7 @@
   "info_category": "Category",
   "info_author": "Author",
   "info_license": "License",
-  "info_network_access": "Network access",
+  "info_network_access": "Network access (Core)",
   "info_no_network_access": "no network access",
   "info_installed_at": "Installed on",
   "info_updated_at": "Last updated",

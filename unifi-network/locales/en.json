@@ -104,7 +104,7 @@
   "info_category": "Category",
   "info_author": "Author",
   "info_license": "License",
-  "info_network_access": "Network access",
+  "info_network_access": "Network access (Core)",
   "info_no_network_access": "no network access",
   "info_installed_at": "Installed on",
   "info_updated_at": "Last updated",

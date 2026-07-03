@@ -54,11 +54,15 @@ CREATE TABLE IF NOT EXISTS spot_photos (
 
 CREATE INDEX IF NOT EXISTS spot_photos_spot_id_idx ON spot_photos(spot_id);
 
--- Seed default categories
-INSERT INTO categories (name, color, icon, sort_order, created_by) VALUES
-    ('Restaurant', '#D85A30', 'ti-tools-kitchen-2', 10, 'system'),
-    ('Beach',      '#1D9E75', 'ti-umbrella',         20, 'system'),
-    ('Sight',      '#7F77DD', 'ti-camera',           30, 'system'),
-    ('Hotel',      '#185FA5', 'ti-bed',              40, 'system'),
-    ('Other',      '#888780', 'ti-map-pin',          50, 'system')
-ON CONFLICT (name) DO NOTHING;
+-- Seed default categories — REMOVED 2026-07-03 (0003_remove_seed_categories.sql
+-- deletes them again for already-installed instances). Users build their own
+-- category list from scratch instead of starting from these five defaults.
+-- Left as a comment (not deleted outright) so the history of what a fresh
+-- 0001 install used to create is still visible in this file.
+-- INSERT INTO categories (name, color, icon, sort_order, created_by) VALUES
+--     ('Restaurant', '#D85A30', 'ti-tools-kitchen-2', 10, 'system'),
+--     ('Beach',      '#1D9E75', 'ti-umbrella',         20, 'system'),
+--     ('Sight',      '#7F77DD', 'ti-camera',           30, 'system'),
+--     ('Hotel',      '#185FA5', 'ti-bed',              40, 'system'),
+--     ('Other',      '#888780', 'ti-map-pin',          50, 'system')
+-- ON CONFLICT (name) DO NOTHING;

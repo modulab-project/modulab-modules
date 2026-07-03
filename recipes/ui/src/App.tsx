@@ -993,6 +993,37 @@ function mondayOfWeek(offset = 0): string {
   return d.toISOString().slice(0, 10);
 }
 
+// ISO-8601 week number (weeks start Monday, week 1 contains the year's first
+// Thursday — same definition as German "Kalenderwoche"). Takes the Monday
+// date string mondayOfWeek() already produces, so no extra day-of-week
+// normalization is needed here beyond what that function already does.
+function isoWeekNumber(mondayIso: string): number {
+  const d = new Date(mondayIso + "T00:00:00Z");
+  // Thursday of this week determines the ISO week's year (handles
+  // year-boundary weeks, e.g. Mon Dec 30 2025 belongs to week 1 of 2026).
+  const thursday = new Date(d);
+  thursday.setUTCDate(d.getUTCDate() + 3);
+  const yearStart = new Date(Date.UTC(thursday.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil(((thursday.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+  return weekNo;
+}
+
+// German-style "dd.mm." short date, used for the from/to range in the meal
+// plan week header. Locale-agnostic on purpose (matches how German users
+// write date ranges regardless of UI language) — this mirrors an existing
+// pattern of some labels being fixed rather than i18n'd where the format is
+// a deliberate stylistic choice, not user-facing translated text.
+function shortDate(iso: string): string {
+  const d = new Date(iso + "T00:00:00Z");
+  return `${String(d.getUTCDate()).padStart(2, "0")}.${String(d.getUTCMonth() + 1).padStart(2, "0")}.`;
+}
+
+function sundayOfWeek(mondayIso: string): string {
+  const d = new Date(mondayIso + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + 6);
+  return d.toISOString().slice(0, 10);
+}
+
 function MealPlanView({ api }: { api: ReturnType<typeof useApi> }) {
   const { t } = useTranslation(NS);
   const [weekOffset, setWeekOffset] = useState(0);
@@ -1079,7 +1110,13 @@ function MealPlanView({ api }: { api: ReturnType<typeof useApi> }) {
           className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900">
           <i className="ti ti-chevron-left" />
         </button>
-        <span className="text-sm font-medium">{t("meal_plan_week", { date: weekStart })}</span>
+        <span className="text-sm font-medium">
+          {t("meal_plan_week", {
+            week: isoWeekNumber(weekStart),
+            from: shortDate(weekStart),
+            to: shortDate(sundayOfWeek(weekStart)),
+          })}
+        </span>
         <button type="button" onClick={() => setWeekOffset((o) => o + 1)}
           className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900">
           <i className="ti ti-chevron-right" />
@@ -1091,7 +1128,14 @@ function MealPlanView({ api }: { api: ReturnType<typeof useApi> }) {
       {loading && <p className="text-sm text-gray-400">{t("loading")}</p>}
 
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[500px] border-collapse text-sm">
+        {/* min-w-[500px] as inline style: Tailwind arbitrary-value classes
+            are purged in production (Core has no own Tailwind compiler,
+            only classes Core itself uses survive purge — recurring issue in
+            this project). Without a fixed min-width the table could
+            collapse narrower than its 7-day grid needs, contributing to the
+            page-jump bug when the picker dropdown opens (see min-h-[48px]
+            fix below in the same table). */}
+        <table className="w-full border-collapse text-sm" style={{ minWidth: "500px" }}>
           <thead>
             <tr>
               <th className="w-20 py-2 text-left font-medium text-gray-500" />
@@ -1112,7 +1156,16 @@ function MealPlanView({ api }: { api: ReturnType<typeof useApi> }) {
                       {/* Cell: click opens picker */}
                       <div
                         data-picker
-                        className={`min-h-[48px] cursor-pointer rounded-xl border p-1.5 text-center text-xs transition ${
+                        // min-h-[48px] as inline style (see comment on the
+                        // table's min-w-[500px] above): without it the cell
+                        // collapses to its content height, and combined with
+                        // the picker dropdown below (position: absolute but
+                        // anchored to a now-shorter cell) this was causing
+                        // the whole page to jump when opening it — the
+                        // browser reflows the shorter row before the
+                        // dropdown repositions.
+                        style={{ minHeight: "48px" }}
+                        className={`cursor-pointer rounded-xl border p-1.5 text-center text-xs transition ${
                           entry
                             ? "border-teal-200 bg-teal-50 text-teal-800 dark:border-teal-800 dark:bg-teal-950 dark:text-teal-200"
                             : "border-gray-200 hover:border-gray-300 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-900"

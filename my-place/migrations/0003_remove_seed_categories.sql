@@ -1,0 +1,11 @@
+-- Remove the five system-seeded categories from 0001_initial.sql
+-- (Restaurant/Beach/Sight/Hotel/Other). User wants to build the category
+-- list themselves from scratch — these defaults were never meant to be
+-- permanent, just a starting point.
+--
+-- Only rows with created_by = 'system' are removed, so any category a user
+-- created themselves (even if coincidentally named e.g. "Restaurant") is
+-- left untouched. spots.category_id has ON DELETE SET NULL (0001_initial.sql),
+-- so any spot currently assigned to one of these categories keeps existing,
+-- just with its category unset instead of being deleted.
+DELETE FROM categories WHERE created_by = 'system';
