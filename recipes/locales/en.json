@@ -92,5 +92,19 @@
   "category_sort_order": "Sort order",
   "category_name_required": "Name is required",
   "category_saved": "Saved",
-  "category_delete_confirm": "Delete this category? Recipes in it will not be deleted."
+  "category_delete_confirm": "Delete this category? Recipes in it will not be deleted.",
+
+  "nav_info": "Info",
+  "info_title": "About this module",
+  "info_load_error": "Could not load module information",
+  "info_version": "Version",
+  "info_update_available": "Update available",
+  "info_tier": "Tier",
+  "info_category": "Category",
+  "info_author": "Author",
+  "info_license": "License",
+  "info_network_access": "Network access",
+  "info_no_network_access": "no network access",
+  "info_installed_at": "Installed on",
+  "info_updated_at": "Last updated"
 }

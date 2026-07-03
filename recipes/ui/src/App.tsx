@@ -73,7 +73,8 @@ type View =
   | { type: "detail"; id: string }
   | { type: "editor"; id?: string }
   | { type: "meal-plan" }
-  | { type: "categories" };
+  | { type: "categories" }
+  | { type: "info" };
 
 // Common ingredient units shown in datalist
 const UNITS = ["g", "kg", "ml", "l", "EL", "TL", "Stk", "Prise", "Bund", "Dose", "Pck", "Scheibe", "Zehe"];
@@ -135,7 +136,7 @@ function useApi(apiBase: string, token: string) {
 
 const NS = "mod_recipes";
 
-export default function RecipesApp({ apiBase, token }: ModuleComponentProps) {
+export default function RecipesApp({ moduleName, apiBase, token }: ModuleComponentProps) {
   const { t } = useTranslation(NS);
   const [view, setView] = useState<View>({ type: "list" });
   const api = useApi(apiBase, token);
@@ -172,14 +173,22 @@ export default function RecipesApp({ apiBase, token }: ModuleComponentProps) {
           <i className="ti ti-tag text-[15px]" />
           <span className="hidden sm:inline">{t("nav_categories")}</span>
         </button>
-        <div className="flex-1 min-w-[4px]" />
+        <div className="flex-1" style={{ minWidth: "4px" }} />
+        <button
+          type="button"
+          onClick={() => setView({ type: "info" })}
+          className={navCls(view.type === "info")}
+          title={t("nav_info")}
+        >
+          <i className="ti ti-info-circle" style={{ fontSize: "15px" }} />
+        </button>
         <button
           type="button"
           onClick={() => setView({ type: "editor" })}
           className="flex flex-none items-center gap-1.5 rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700"
           title={t("btn_new_recipe")}
         >
-          <i className="ti ti-plus text-[14px]" />
+          <i className="ti ti-plus" style={{ fontSize: "14px" }} />
           <span className="hidden sm:inline">{t("btn_new_recipe")}</span>
         </button>
       </div>
@@ -205,6 +214,7 @@ export default function RecipesApp({ apiBase, token }: ModuleComponentProps) {
       )}
       {view.type === "meal-plan" && <MealPlanView api={api} />}
       {view.type === "categories" && <CategoriesView api={api} />}
+      {view.type === "info" && <ModuleInfoView moduleName={moduleName} token={token} />}
     </div>
   );
 }
@@ -1298,6 +1308,146 @@ function CategoriesView({ api }: { api: ReturnType<typeof useApi> }) {
             </button>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+// ── ModuleInfoView ────────────────────────────────────────────────────────────
+//
+// Shows installed_modules metadata for this module (version, tier, author,
+// license, description, egress allowlist, install date, pending update).
+// Calls Core's GET /v1/modules/{name} directly — NOT this module's own
+// apiBase/api/ proxy — because that's Core's route, not something the
+// recipes handler (handlers/index.ts) exposes itself. Same-origin, so a
+// plain fetch() with the existing Bearer token works with no extra CORS
+// setup; ModulePage.tsx (Core's frontend) calls the exact same route the
+// exact same way.
+//
+// Deliberately written with no recipes-specific assumptions beyond
+// moduleName/token, so it can be lifted into a shared component later
+// (e.g. when @modulab/ui becomes a real package as part of the iframe
+// module-rendering migration — see Task #13) instead of being copy-pasted
+// into my-place/unifi-network as-is.
+
+interface InstalledModuleInfo {
+  name: string;
+  version: string;
+  tier: number;
+  scope: string;
+  status: string;
+  installed_at: string;
+  updated_at: string;
+  available_version?: string | null;
+  manifest?: {
+    description?: string;
+    author?: string;
+    license?: string;
+    category?: string;
+    egress_allowlist?: string[];
+  };
+}
+
+function ModuleInfoView({ moduleName, token }: { moduleName: string; token: string }) {
+  const { t } = useTranslation(NS);
+  const [info, setInfo] = useState<InstalledModuleInfo | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const r = await fetch(`/v1/modules/${encodeURIComponent(moduleName)}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const data = await r.json();
+        if (!cancelled) setInfo(data);
+      } catch (e) {
+        if (!cancelled) setError(String(e));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [moduleName, token]);
+
+  const rowCls = "flex items-center justify-between gap-4 border-b border-gray-100 py-2 text-sm last:border-0 dark:border-gray-800";
+  const labelCls = "text-gray-500 dark:text-gray-400";
+  const valueCls = "text-right font-medium text-gray-800 dark:text-gray-100";
+
+  if (loading) return <p className="text-sm text-gray-400">{t("loading")}</p>;
+  if (error || !info) {
+    return (
+      <div className="rounded-2xl border border-dashed border-gray-200 px-6 py-12 text-center dark:border-gray-800">
+        <i className="ti ti-alert-circle text-gray-300 dark:text-gray-700" style={{ fontSize: "36px" }} />
+        <p className="mt-3 text-sm text-gray-400">{t("info_load_error")}</p>
+      </div>
+    );
+  }
+
+  const manifest = info.manifest ?? {};
+  const egressHosts = manifest.egress_allowlist ?? [];
+
+  return (
+    <div className="mx-auto max-w-lg">
+      <div className="mb-4 flex items-center gap-2">
+        <i className="ti ti-info-circle text-teal-600" style={{ fontSize: "20px" }} />
+        <h2 className="text-lg font-semibold">{t("info_title")}</h2>
+      </div>
+      <div className="rounded-2xl border border-gray-200 p-4 dark:border-gray-800">
+        {manifest.description && (
+          <p className="mb-3 text-sm text-gray-600 dark:text-gray-300">{manifest.description}</p>
+        )}
+        <div className={rowCls}>
+          <span className={labelCls}>{t("info_version")}</span>
+          <span className={valueCls}>{info.version}</span>
+        </div>
+        {info.available_version && (
+          <div className={rowCls}>
+            <span className={labelCls}>{t("info_update_available")}</span>
+            <span className={valueCls} style={{ color: "#d97706" }}>{info.available_version}</span>
+          </div>
+        )}
+        <div className={rowCls}>
+          <span className={labelCls}>{t("info_tier")}</span>
+          <span className={valueCls}>{info.tier}</span>
+        </div>
+        {manifest.category && (
+          <div className={rowCls}>
+            <span className={labelCls}>{t("info_category")}</span>
+            <span className={valueCls}>{manifest.category}</span>
+          </div>
+        )}
+        {manifest.author && (
+          <div className={rowCls}>
+            <span className={labelCls}>{t("info_author")}</span>
+            <span className={valueCls}>{manifest.author}</span>
+          </div>
+        )}
+        {manifest.license && (
+          <div className={rowCls}>
+            <span className={labelCls}>{t("info_license")}</span>
+            <span className={valueCls}>{manifest.license}</span>
+          </div>
+        )}
+        <div className={rowCls}>
+          <span className={labelCls}>{t("info_network_access")}</span>
+          <span className={valueCls}>
+            {egressHosts.length > 0 ? egressHosts.join(", ") : t("info_no_network_access")}
+          </span>
+        </div>
+        <div className={rowCls}>
+          <span className={labelCls}>{t("info_installed_at")}</span>
+          <span className={valueCls}>{new Date(info.installed_at).toLocaleDateString()}</span>
+        </div>
+        <div className={rowCls}>
+          <span className={labelCls}>{t("info_updated_at")}</span>
+          <span className={valueCls}>{new Date(info.updated_at).toLocaleDateString()}</span>
+        </div>
       </div>
     </div>
   );

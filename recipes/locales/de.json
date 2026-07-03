@@ -92,5 +92,19 @@
   "category_sort_order": "Sortierreihenfolge",
   "category_name_required": "Name ist erforderlich",
   "category_saved": "Gespeichert",
-  "category_delete_confirm": "Diese Kategorie löschen? Rezepte darin werden nicht gelöscht."
+  "category_delete_confirm": "Diese Kategorie löschen? Rezepte darin werden nicht gelöscht.",
+
+  "nav_info": "Info",
+  "info_title": "Über dieses Modul",
+  "info_load_error": "Modul-Informationen konnten nicht geladen werden",
+  "info_version": "Version",
+  "info_update_available": "Update verfügbar",
+  "info_tier": "Tier",
+  "info_category": "Kategorie",
+  "info_author": "Autor",
+  "info_license": "Lizenz",
+  "info_network_access": "Netzzugriff",
+  "info_no_network_access": "kein Netzzugriff",
+  "info_installed_at": "Installiert am",
+  "info_updated_at": "Zuletzt aktualisiert"
 }
