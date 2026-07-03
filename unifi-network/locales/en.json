@@ -92,5 +92,21 @@
   "label_base_url": "IP address (private network)",
   "label_api_key": "API key",
   "leave_blank_unchanged": "leave blank = unchanged",
-  "btn_save": "Save"
+  "btn_save": "Save",
+
+  "nav_info": "Info",
+  "info_title": "About this module",
+  "info_load_error": "Could not load module information",
+  "info_description": "RADIUS-based MAC authentication and dynamic VLAN assignment across multiple UniFi gateways",
+  "info_version": "Version",
+  "info_update_available": "Update available",
+  "info_tier": "Tier",
+  "info_category": "Category",
+  "info_author": "Author",
+  "info_license": "License",
+  "info_network_access": "Network access",
+  "info_no_network_access": "no network access",
+  "info_installed_at": "Installed on",
+  "info_updated_at": "Last updated",
+  "info_github_link": "Source code on GitHub"
 }
