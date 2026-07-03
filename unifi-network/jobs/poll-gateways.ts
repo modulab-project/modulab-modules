@@ -197,6 +197,11 @@ async function pollSingleGateway(ctx: JobContext, gw: GatewayRow): Promise<void>
       [gw.id],
     );
   } catch (err) {
+    // Include name + baseUrl in the log line (not just the DB row, which
+    // only gets errorMessage) so a failure is diagnosable straight from
+    // docker logs without a DB query — see markGatewayError's own logging
+    // for why this matters (2026-07-03).
+    console.error(`[unifi-network] poll_gateways: "${gwName}" (${baseUrl}) threw during poll:`, err);
     await markGatewayError(ctx.db, gw.id, String(err));
   }
 }
@@ -265,6 +270,18 @@ async function markGatewayError(
   const [gw] = await db.query<GatewayRow>(`SELECT consecutive_failures FROM gateways WHERE id = $1`, [gatewayId]);
   const failures = (gw?.consecutive_failures ?? 0) + 1;
   const status = explicitStatus ?? (failures >= CIRCUIT_BREAKER_THRESHOLD ? "paused" : "offline");
+
+  // Added 2026-07-03: this was the only place a poll failure got recorded,
+  // and it only ever went into gateways.last_error (DB) -- never the
+  // container log. That made every "Pausiert nach wiederholten Fehlern" in
+  // the UI a dead end for diagnosis: the actual cause (network error, HTTP
+  // status, decrypt failure, etc.) was sitting in a DB column nobody was
+  // looking at, and docker logs showed nothing at all for the entire
+  // failure window. Logging it here surfaces the real error on every single
+  // failed attempt, not just once it's already paused.
+  console.error(
+    `[unifi-network] poll_gateways: gateway ${gatewayId} failed (attempt ${failures}/${CIRCUIT_BREAKER_THRESHOLD}, new status=${status}): ${errorMessage}`,
+  );
 
   await db.query(
     `UPDATE gateways
