@@ -59,11 +59,29 @@ const ADOPTED_NOTE_PLACEHOLDER = "(übernommen — bitte Notiz ergänzen)";
 
 const CIRCUIT_BREAKER_THRESHOLD = 5; // consecutive failures before pausing a gateway (Entscheidungsvorlage 4.12)
 
-export default async function pollGateways(ctx: JobContext): Promise<void> {
+// includePaused: the scheduled cron job (default, includePaused=false) must
+// keep skipping paused gateways — that's the whole point of the circuit
+// breaker (Entscheidungsvorlage 4.12), avoid hammering a gateway that's
+// known-broken every minute forever. But a manual "refresh all" click from
+// an admin (refreshAllGateways(), routed through refresh-all) is an
+// explicit, deliberate retry — most commonly used exactly to recover from a
+// transient outage (e.g. a Core restart resetting egress permissions, fixed
+// 2026-07-03 via egress_hosts_handler) without having to open and re-save
+// every paused gateway individually just to reset consecutive_failures.
+// pollSingleGateway() already resets consecutive_failures to 0 on any
+// successful poll, so a paused gateway that responds this time
+// automatically un-pauses; one that's still actually down stays paused
+// (just increments failures again, capped — see markGatewayError()).
+export default async function pollGateways(
+  ctx: JobContext,
+  opts: { includePaused?: boolean } = {},
+): Promise<void> {
   const { db } = ctx;
 
   const gateways = await db.query<GatewayRow>(
-    `SELECT * FROM gateways WHERE status != 'paused'`,
+    opts.includePaused
+      ? `SELECT * FROM gateways`
+      : `SELECT * FROM gateways WHERE status != 'paused'`,
   );
 
   await Promise.allSettled(gateways.map((gw) => pollSingleGateway(ctx, gw)));

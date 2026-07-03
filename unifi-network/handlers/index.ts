@@ -307,16 +307,27 @@ async function deleteGateway(db: ModuleDbClient, auth: ModuleAuthContext, id: st
 
 async function refreshGateway(db: ModuleDbClient, id: string): Promise<HandlerResponse> {
   // Delegates to the same poll logic used by the cron job (Entscheidungsvorlage 1.3).
+  // NOTE: this polls ALL gateways, not just `id` — pollGateways() has no
+  // single-gateway mode. Pre-existing behavior, left as-is here; the id
+  // lookup above only serves to 404 on an unknown id before doing so.
   const { default: pollGateways } = await import("../jobs/poll-gateways.ts");
   const [gw] = await db.query<GatewayRow>(`SELECT * FROM gateways WHERE id = $1`, [id]);
   if (!gw) return notFound();
-  await pollGateways({ db });
+  // includePaused: true — see refreshAllGateways() for why a manual refresh
+  // click should retry paused gateways instead of skipping them.
+  await pollGateways({ db }, { includePaused: true });
   return ok({ ok: true });
 }
 
 async function refreshAllGateways(db: ModuleDbClient): Promise<HandlerResponse> {
   const { default: pollGateways } = await import("../jobs/poll-gateways.ts");
-  await pollGateways({ db });
+  // includePaused: true — an explicit admin click on "refresh all" is a
+  // deliberate retry, unlike the every-minute cron tick which must keep
+  // skipping paused gateways (circuit breaker, Entscheidungsvorlage 4.12).
+  // A gateway that responds successfully this time un-pauses itself
+  // automatically (pollSingleGateway resets consecutive_failures on
+  // success) — no need to open and re-save each paused gateway by hand.
+  await pollGateways({ db }, { includePaused: true });
   return ok({ ok: true });
 }
 
