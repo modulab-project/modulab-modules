@@ -90,5 +90,21 @@
   "open_in_google_maps": "Google Maps",
 
   "spot_count_one": "place",
-  "spot_count_many": "places"
+  "spot_count_many": "places",
+
+  "nav_info": "Info",
+  "info_title": "About this module",
+  "info_load_error": "Could not load module information",
+  "info_description": "Save and explore your favourite places — restaurants, beaches, hotels, sights and more — on an interactive map",
+  "info_version": "Version",
+  "info_update_available": "Update available",
+  "info_tier": "Tier",
+  "info_category": "Category",
+  "info_author": "Author",
+  "info_license": "License",
+  "info_network_access": "Network access",
+  "info_no_network_access": "no network access",
+  "info_installed_at": "Installed on",
+  "info_updated_at": "Last updated",
+  "info_github_link": "Source code on GitHub"
 }

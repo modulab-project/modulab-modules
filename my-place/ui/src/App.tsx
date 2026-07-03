@@ -66,7 +66,8 @@ type View =
   | { type: "spot-detail"; id: string }
   | { type: "trips" }
   | { type: "categories" }
-  | { type: "settings" };
+  | { type: "settings" }
+  | { type: "info" };
 
 // ── Shared styles ──────────────────────────────────────────────────────────────
 
@@ -214,7 +215,7 @@ function PhotoGrid({ photos, uploading, uploadErr, onUpload, onDelete, fileInput
 
 // ── Root App ───────────────────────────────────────────────────────────────────
 
-export default function App({ apiBase, token }: ModuleComponentProps) {
+export default function App({ moduleName, apiBase, token }: ModuleComponentProps) {
   const { t } = useTranslation(NS);
   const api = useApi(apiBase, token);
   setStorageBase(apiBase, token);
@@ -270,10 +271,13 @@ export default function App({ apiBase, token }: ModuleComponentProps) {
           <i className="ti ti-settings text-[15px]" />
           <span className="hidden sm:inline">{t("nav_settings")}</span>
         </button>
-        <div className="flex-1 min-w-[4px]" />
+        <div className="flex-1" style={{ minWidth: "4px" }} />
+        <button type="button" onClick={() => setView({ type: "info" })} className={navCls(vt === "info")}>
+          <i className="ti ti-info-circle" style={{ fontSize: "15px" }} />
+        </button>
         <button type="button" onClick={() => setView({ type: "spot-new" })}
           className="flex flex-none items-center gap-1.5 rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700">
-          <i className="ti ti-plus text-[14px]" />
+          <i className="ti ti-plus" style={{ fontSize: "14px" }} />
           <span className="hidden sm:inline">{t("btn_new_spot")}</span>
         </button>
       </div>
@@ -309,6 +313,7 @@ export default function App({ apiBase, token }: ModuleComponentProps) {
           <SettingsView api={api}
             onSaved={(styleUrl) => { setMapStyleUrl(styleUrl); setMapConfigured(!!styleUrl); }} t={t} />
         )}
+        {vt === "info" && <ModuleInfoView moduleName={moduleName} token={token} />}
       </div>
     </div>
   );
@@ -1173,3 +1178,157 @@ function SettingsView({ api, onSaved, t }: {
     </div>
   );
 }
+
+// ── ModuleInfoView ────────────────────────────────────────────────────────────
+//
+// Same component as recipes/unifi-network's ModuleInfoView — see those
+// files' doc comments for the full rationale (calls Core's GET
+// /v1/modules/{name} directly, description is localized via
+// de.json/en.json rather than manifest.description, source repo link is a
+// fixed constant rather than fetched from the registry). Duplicated rather
+// than shared because @modulab/ui doesn't exist as a real package yet (see
+// Task #13, iframe module-rendering migration) — once it does, all three
+// copies should be consolidated into one component there.
+
+interface InstalledModuleInfo {
+  name: string;
+  version: string;
+  tier: number;
+  scope: string;
+  status: string;
+  installed_at: string;
+  updated_at: string;
+  available_version?: string | null;
+  manifest?: {
+    description?: string;
+    author?: string;
+    license?: string;
+    category?: string;
+    egress_allowlist?: string[];
+  };
+}
+
+function ModuleInfoView({ moduleName, token }: { moduleName: string; token: string }) {
+  const { t } = useTranslation(NS);
+  const [info, setInfo] = useState<InstalledModuleInfo | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const r = await fetch(`/v1/modules/${encodeURIComponent(moduleName)}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const data = await r.json();
+        if (!cancelled) setInfo(data);
+      } catch (e) {
+        if (!cancelled) setError(String(e));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [moduleName, token]);
+
+  const rowCls = "flex items-center justify-between gap-4 border-b border-gray-100 py-2 text-sm last:border-0 dark:border-gray-800";
+  const labelCls = "text-gray-500 dark:text-gray-400";
+  const valueCls = "text-right font-medium text-gray-800 dark:text-gray-100";
+
+  if (loading) return <p className="text-sm text-gray-400">{t("loading")}</p>;
+  if (error || !info) {
+    return (
+      <div className="rounded-2xl border border-dashed border-gray-200 px-6 py-12 text-center dark:border-gray-800">
+        <i className="ti ti-alert-circle text-gray-300 dark:text-gray-700" style={{ fontSize: "36px" }} />
+        <p className="mt-3 text-sm text-gray-400">{t("info_load_error")}</p>
+      </div>
+    );
+  }
+
+  const manifest = info.manifest ?? {};
+  const egressHosts = manifest.egress_allowlist ?? [];
+
+  return (
+    <div className="mx-auto max-w-lg p-4">
+      <div className="mb-4 flex items-center gap-2">
+        <i className="ti ti-info-circle text-teal-600" style={{ fontSize: "20px" }} />
+        <h2 className="text-lg font-semibold">{t("info_title")}</h2>
+      </div>
+      <div className="rounded-2xl border border-gray-200 p-4 dark:border-gray-800">
+        {/* Localized description, not manifest.description from Core's API
+            (that field is a single hardcoded English string, not translated
+            — see de.json/en.json's info_description for the maintained,
+            localized text instead). */}
+        <p className="mb-3 text-sm text-gray-600 dark:text-gray-300">{t("info_description")}</p>
+        <div className={rowCls}>
+          <span className={labelCls}>{t("info_version")}</span>
+          <span className={valueCls}>{info.version}</span>
+        </div>
+        {info.available_version && (
+          <div className={rowCls}>
+            <span className={labelCls}>{t("info_update_available")}</span>
+            <span className={valueCls} style={{ color: "#d97706" }}>{info.available_version}</span>
+          </div>
+        )}
+        <div className={rowCls}>
+          <span className={labelCls}>{t("info_tier")}</span>
+          <span className={valueCls}>{info.tier}</span>
+        </div>
+        {manifest.category && (
+          <div className={rowCls}>
+            <span className={labelCls}>{t("info_category")}</span>
+            <span className={valueCls}>{manifest.category}</span>
+          </div>
+        )}
+        {manifest.author && (
+          <div className={rowCls}>
+            <span className={labelCls}>{t("info_author")}</span>
+            <span className={valueCls}>{manifest.author}</span>
+          </div>
+        )}
+        {manifest.license && (
+          <div className={rowCls}>
+            <span className={labelCls}>{t("info_license")}</span>
+            <span className={valueCls}>{manifest.license}</span>
+          </div>
+        )}
+        <div className={rowCls}>
+          <span className={labelCls}>{t("info_network_access")}</span>
+          <span className={valueCls}>
+            {egressHosts.length > 0 ? egressHosts.join(", ") : t("info_no_network_access")}
+          </span>
+        </div>
+        <div className={rowCls}>
+          <span className={labelCls}>{t("info_installed_at")}</span>
+          <span className={valueCls}>{new Date(info.installed_at).toLocaleDateString()}</span>
+        </div>
+        <div className={rowCls}>
+          <span className={labelCls}>{t("info_updated_at")}</span>
+          <span className={valueCls}>{new Date(info.updated_at).toLocaleDateString()}</span>
+        </div>
+      </div>
+      {/* Fixed constant, not fetched from the registry: source_repo lives in
+          the store/registry tables, not installed_modules, so GET
+          /v1/modules/{name} doesn't return it. Adding a Core API field just
+          for this one link wasn't worth it — the repo a module ships from
+          essentially never changes once installed. */}
+      <a
+        href={MODULE_SOURCE_REPO_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="mt-3 flex items-center justify-center gap-1.5 rounded-2xl border border-gray-200 p-3 text-sm text-gray-600 hover:bg-gray-50 dark:border-gray-800 dark:text-gray-300 dark:hover:bg-gray-800"
+      >
+        <i className="ti ti-brand-github" style={{ fontSize: "16px" }} />
+        {t("info_github_link")}
+      </a>
+    </div>
+  );
+}
+
+// Fixed source repo URL for this module — see the comment above where it's
+// used for why this isn't fetched from Core's API.
+const MODULE_SOURCE_REPO_URL = "https://github.com/modulab-project/modulab-modules";

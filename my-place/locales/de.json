@@ -90,5 +90,21 @@
   "open_in_google_maps": "Google Maps",
 
   "spot_count_one": "Ort",
-  "spot_count_many": "Orte"
+  "spot_count_many": "Orte",
+
+  "nav_info": "Info",
+  "info_title": "Über dieses Modul",
+  "info_load_error": "Modul-Informationen konnten nicht geladen werden",
+  "info_description": "Lieblingsorte speichern und entdecken — Restaurants, Strände, Hotels, Sehenswürdigkeiten und mehr — auf einer interaktiven Karte",
+  "info_version": "Version",
+  "info_update_available": "Update verfügbar",
+  "info_tier": "Tier",
+  "info_category": "Kategorie",
+  "info_author": "Autor",
+  "info_license": "Lizenz",
+  "info_network_access": "Netzzugriff",
+  "info_no_network_access": "kein Netzzugriff",
+  "info_installed_at": "Installiert am",
+  "info_updated_at": "Zuletzt aktualisiert",
+  "info_github_link": "Quellcode auf GitHub"
 }
