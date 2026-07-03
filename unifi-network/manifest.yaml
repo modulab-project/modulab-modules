@@ -1,5 +1,5 @@
 name: "unifi-network"
-version: "0.3.7"
+version: "0.3.8"
 display_name:
   en: "UniFi Network"
   de: "UniFi Netzwerk"
@@ -50,6 +50,17 @@ storage:
 # liefern würde, verweigert der Handler selbst den Kontakt zu Nicht-privaten
 # Zielen. Siehe Entscheidungsvorlage Abschnitt 1.2.
 egress_allowlist: []
+
+# dynamic_egress: true weist Core an, bei einem Modul-Code-Update (nicht bei
+# ReloadEgress selbst) die aktuell laufenden Egress-Hosts des Workers zu
+# übernehmen statt sie auf egress_allowlist (bewusst leer, s.o.) zurückzusetzen
+# — sonst würde jedes Modul-Update alle konfigurierten Gateways bis zum
+# nächsten manuellen Speichern unerreichbar machen (gefunden 2026-07-02/03).
+# Ohne dieses Flag könnte Core nicht unterscheiden, ob vom Manifest
+# abweichende Runtime-Hosts absichtlich erhalten bleiben sollen (dieser Fall)
+# oder ob ein Manifest-Autor Hosts bewusst entfernt hat (recipes-Fall, s.
+# modulab-core backend/internal/modules/installer.go, Manifest.DynamicEgress).
+dynamic_egress: true
 
 # Gateways werden per privater IP konfiguriert, nicht per Hostname (Stand
 # 2026-07-02, siehe unifi-client.ts isPrivateHost()/unifiFetch()). Ein
