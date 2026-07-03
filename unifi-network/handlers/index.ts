@@ -198,7 +198,7 @@ async function decryptGatewayForResponse(gw: GatewayRow, encKey: CryptoKey | nul
 // isPrivateHost() in unifi-client.ts remains a second, independent check
 // inside the handler itself (defense in depth): even if this list were
 // ever wrong, the handler still refuses to contact non-private hosts.
-async function computeEgressHosts(db: ModuleDbClient, encKey: CryptoKey | null): Promise<string[]> {
+export async function computeEgressHosts(db: ModuleDbClient, encKey: CryptoKey | null): Promise<string[]> {
   if (!encKey) return [];
   const rows = await db.query<GatewayRow>(`SELECT base_url_enc FROM gateways`);
   const hosts = new Set<string>();

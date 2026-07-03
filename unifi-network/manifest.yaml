@@ -1,5 +1,5 @@
 name: "unifi-network"
-version: "0.3.8"
+version: "0.3.9"
 display_name:
   en: "UniFi Network"
   de: "UniFi Netzwerk"
@@ -61,6 +61,25 @@ egress_allowlist: []
 # oder ob ein Manifest-Autor Hosts bewusst entfernt hat (recipes-Fall, s.
 # modulab-core backend/internal/modules/installer.go, Manifest.DynamicEgress).
 dynamic_egress: true
+
+# egress_hosts_handler schließt eine Lücke, die dynamic_egress allein NICHT
+# abdeckt: dynamic_egress hilft nur, wenn beim Neustart bereits ein
+# laufender Worker existiert, dessen aktuelle Hosts Core übernehmen kann
+# (Modul-Update-Fall). Bei einem Core-eigenen Prozess-Neustart (z. B. durch
+# das Nutzer-Skript update_build) gibt es keinen laufenden Worker zu fragen —
+# Core startete den Worker bislang in diesem Fall immer nur mit
+# egress_allowlist (bewusst leer, s. o.), wodurch alle konfigurierten
+# Gateways bis zum nächsten manuellen Speichern unerreichbar wurden
+# (NotCapable-Fehler in poll_gateways, gefunden 2026-07-03).
+#
+# Mit egress_hosts_handler ruft Core den hier referenzierten Job
+# (jobs/compute-egress-hosts.ts) unmittelbar nach jedem Worker-Start auf
+# (Install, Update UND Core-Neustart) und lädt die Egress-Liste mit dem
+# Ergebnis neu — das Modul beantwortet also selbst "welche Hosts brauche ich
+# gerade", direkt aus seiner eigenen DB (gateways-Tabelle), statt dass Core
+# einen zuletzt-bekannten Stand zwischenspeichern müsste, der veralten
+# könnte.
+egress_hosts_handler: "jobs/compute-egress-hosts.ts"
 
 # Gateways werden per privater IP konfiguriert, nicht per Hostname (Stand
 # 2026-07-02, siehe unifi-client.ts isPrivateHost()/unifiFetch()). Ein
