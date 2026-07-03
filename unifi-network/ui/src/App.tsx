@@ -108,9 +108,31 @@ function useApi(apiBase: string, token: string) {
 
 const NS = "mod_unifi-network";
 
-export default function UnifiNetworkApp({ moduleName, apiBase, token }: ModuleComponentProps) {
+// Maps the ?view= query param (see initialQuery on ModuleComponentProps) to
+// a View. Only accepts known View.type values — anything else (missing
+// param, typo, future param this version doesn't recognize yet) falls back
+// to "overview", the same default as before this deep-link mechanism
+// existed. Kept as an explicit allowlist rather than `{ type: raw } as View`
+// so an unrecognized value can never produce an invalid View at runtime.
+function viewFromQuery(query: URLSearchParams | undefined): View {
+  const raw = query?.get("view");
+  if (raw === "pending" || raw === "onboard" || raw === "gateways" || raw === "info") {
+    return { type: raw };
+  }
+  return { type: "overview" };
+}
+
+export default function UnifiNetworkApp({ moduleName, apiBase, token, initialQuery }: ModuleComponentProps) {
   const { t } = useTranslation(NS);
-  const [view, setView] = useState<View>({ type: "overview" });
+  // Deep-link support (added 2026-07-04): a notification's actionPath (e.g.
+  // "/modules/unifi-network?view=pending") should open directly on the
+  // relevant tab instead of always landing on the overview — reported as a
+  // gap where clicking "review" on a device-approval notification never
+  // even reached this module, let alone the right tab inside it. Only reads
+  // initialQuery once, on mount (useState initializer) — the query string
+  // is a one-time entry point, not something this component should keep
+  // re-syncing to if the admin then navigates within the module themselves.
+  const [view, setView] = useState<View>(() => viewFromQuery(initialQuery));
   const api = useApi(apiBase, token);
   const [pendingCount, setPendingCount] = useState(0);
 

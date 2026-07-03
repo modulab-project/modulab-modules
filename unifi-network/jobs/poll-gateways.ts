@@ -226,7 +226,13 @@ async function pollSingleGateway(ctx: JobContext, gw: GatewayRow, notifications:
         // device list and noticing the ADOPTED_NOTE_PLACEHOLDER text. This
         // is exactly the "something changed with no admin watching" case
         // notifications exist for.
-        notifications.push({ message: notificationText.deviceAutoAdopted(gwName, sanitized) });
+        notifications.push({
+          message: notificationText.deviceAutoAdopted(gwName, sanitized),
+          // Overview (default view, no ?view= needed) is where the adopted
+          // device — and its ADOPTED_NOTE_PLACEHOLDER note — actually shows
+          // up for editing.
+          actionPath: "/modules/unifi-network",
+        });
       }
 
       // Note-Diskrepanz-Check: die tatsächlich auf diesem Gateway hinterlegte
@@ -280,7 +286,12 @@ async function pollSingleGateway(ctx: JobContext, gw: GatewayRow, notifications:
     }
 
     if (noteDiscrepancyCount > 0) {
-      notifications.push({ message: notificationText.noteDiscrepanciesFound(gwName, noteDiscrepancyCount) });
+      notifications.push({
+        message: notificationText.noteDiscrepanciesFound(gwName, noteDiscrepancyCount),
+        // Discrepancies show up on the device list (overview), same as
+        // auto-adopted devices — resolve-note is triggered from there.
+        actionPath: "/modules/unifi-network",
+      });
     }
 
     await db.query(
@@ -293,7 +304,10 @@ async function pollSingleGateway(ctx: JobContext, gw: GatewayRow, notifications:
       // Mirror image of markGatewayError's paused/offline notification
       // below — an admin who got notified about the outage should also
       // hear when it resolves, without needing to keep checking manually.
-      notifications.push({ message: notificationText.gatewayOnline(gwName) });
+      notifications.push({
+        message: notificationText.gatewayOnline(gwName),
+        actionPath: "/modules/unifi-network?view=gateways",
+      });
     }
   } catch (err) {
     // Include name + baseUrl in the log line (not just the DB row, which
@@ -399,7 +413,10 @@ async function markGatewayError(
     const encKey = await getEncKey();
     const [row] = await db.query<GatewayRow>(`SELECT name_enc FROM gateways WHERE id = $1`, [gatewayId]);
     const gwName = row && encKey ? await decrypt(encKey, row.name_enc).catch(() => "?") : "?";
-    notifications.push({ message: notificationText.gatewayPaused(gwName, errorMessage) });
+    notifications.push({
+      message: notificationText.gatewayPaused(gwName, errorMessage),
+      actionPath: "/modules/unifi-network?view=gateways",
+    });
   }
 }
 

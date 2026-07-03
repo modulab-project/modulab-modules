@@ -494,7 +494,10 @@ async function createDevice(
   // reported 2026-07-04 as a gap: a submitted device previously sat
   // invisible in "pending" until an admin happened to check the list.
   const resp = created({ id: row.id, status: "pending_approval" });
-  resp.notifications = [{ message: handlerNotificationText.deviceWaitingApproval(input.note, sanitized) }];
+  resp.notifications = [{
+    message: handlerNotificationText.deviceWaitingApproval(input.note, sanitized),
+    actionPath: "/modules/unifi-network?view=pending",
+  }];
   return resp;
 }
 
@@ -678,7 +681,10 @@ async function deleteDevice(db: ModuleDbClient, auth: ModuleAuthContext, id: str
     ? await decrypt(encKeyForNotify, device.note_enc).catch(() => "?")
     : "?";
   const resp = ok({ ok: true });
-  resp.notifications = [{ message: handlerNotificationText.deviceDeleted(noteForNotify) }];
+  resp.notifications = [{
+    message: handlerNotificationText.deviceDeleted(noteForNotify),
+    actionPath: "/modules/unifi-network",
+  }];
   return resp;
 }
 
@@ -831,7 +837,10 @@ async function approveDevice(db: ModuleDbClient, auth: ModuleAuthContext, id: st
   // Other admin sessions watching the notification panel had no visibility
   // into this at all.
   const resp = ok({ status: "active", results });
-  resp.notifications = [{ message: handlerNotificationText.deviceApproved(note ?? "?", results) }];
+  resp.notifications = [{
+    message: handlerNotificationText.deviceApproved(note ?? "?", results),
+    actionPath: "/modules/unifi-network",
+  }];
   return resp;
 }
 

@@ -50,6 +50,13 @@ export interface HandlerResponse {
 // helpers in jobs/poll-gateways.ts) and hands Core the finished text.
 export interface ModuleNotification {
   message: { de: string; en: string };
+  // actionPath, when set, is where Core navigates to if the admin clicks
+  // this notification (e.g. "/modules/unifi-network?view=pending"). Core
+  // has no route table for this module, so it cannot derive a sensible
+  // destination on its own — it previously hardcoded every module
+  // notification's click target to the installed-modules list, which is
+  // rarely where an admin needs to go to act on it (reported 2026-07-04).
+  actionPath?: string;
 }
 
 export interface ModuleDbClient {
