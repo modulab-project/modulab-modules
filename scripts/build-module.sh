@@ -28,9 +28,10 @@
 #   2. Baut die React-UI  (falls ui/package.json vorhanden)
 #   3. Erstellt dist/<module>-v<version>.zip  (nur Release-relevante Dateien)
 #   4. Berechnet SHA256
-#   5. Signiert die ZIP mit cosign sign-blob (cosign.key)
+#   5. Signiert die ZIP mit cosign sign-blob im neuen Sigstore-Bundle-Format
+#      (--bundle; JSON-Datei mit Signatur + Verifikationsmaterial, cosign.key)
 #   6. Erstellt einen GitHub Release (Tag: <module>-v<version>)
-#   7. Lädt .zip + .zip.sha256 + .zip.sig als Release-Assets hoch
+#   7. Lädt .zip + .zip.sha256 + .zip.cosign.bundle als Release-Assets hoch
 #   8. Aktualisiert registry.json (inkl. cosign_sig_url) und committet + pusht
 
 set -euo pipefail
@@ -138,15 +139,20 @@ echo "$SHA256" > "$ZIP_PATH.sha256"
 ok "$SHA256"
 
 # ── Cosign signature ──────────────────────────────────────────────────────────
+# Uses the new Sigstore bundle format (--bundle) rather than the deprecated
+# --output-signature, per cosign's own guidance (docs.sigstore.dev/cosign/signing/signing_with_blobs).
+# The bundle is a JSON file containing the signature plus verification material;
+# Core's VerifyCosign (backend/internal/modules/verifier.go) verifies it with
+# `cosign verify-blob --key <pubkey> --bundle <bundle-file>`.
 step "Signing $ZIP_NAME with cosign..."
-SIG_PATH="$ZIP_PATH.sig"
-rm -f "$SIG_PATH"
+BUNDLE_PATH="$ZIP_PATH.cosign.bundle"
+rm -f "$BUNDLE_PATH"
 COSIGN_PASSWORD="$COSIGN_PASSWORD" cosign sign-blob \
   --key "$COSIGN_KEY_PATH" \
-  --output-signature "$SIG_PATH" \
+  --bundle "$BUNDLE_PATH" \
   --yes \
   "$ZIP_PATH" > /dev/null || die "cosign sign-blob failed"
-ok "$SIG_PATH"
+ok "$BUNDLE_PATH"
 
 # ── GitHub Release ────────────────────────────────────────────────────────────
 step "Creating GitHub Release $TAG..."
@@ -223,14 +229,14 @@ for a in assets:
 
 upload_asset "$ZIP_PATH"
 upload_asset "$ZIP_PATH.sha256"
-upload_asset "$SIG_PATH"
+upload_asset "$BUNDLE_PATH"
 
 # ── Update registry.json ──────────────────────────────────────────────────────
 step "Updating registry.json..."
 
 REGISTRY="$REPO_ROOT/registry.json"
 RELEASE_URL="https://github.com/$GITHUB_REPO/releases/download/$TAG/$ZIP_NAME"
-SIG_URL="https://github.com/$GITHUB_REPO/releases/download/$TAG/$ZIP_NAME.sig"
+SIG_URL="https://github.com/$GITHUB_REPO/releases/download/$TAG/$ZIP_NAME.cosign.bundle"
 
 # Build the new entry
 NEW_ENTRY=$(python3 -c "
