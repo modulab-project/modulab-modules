@@ -97,6 +97,12 @@ export interface GatewayRow {
 
 export type DeviceStatus = "pending_approval" | "active" | "rejected";
 
+// PendingAction is set on an active device when a non-Admin has requested a
+// change that needs Admin approval (Migration 0006). Null on every device
+// with no outstanding request, including all pending_approval/rejected
+// devices — this mechanism only ever applies to already-active devices.
+export type PendingAction = "edit" | "delete" | "gateway_change" | null;
+
 export interface DeviceRow {
   id: string;
   mac_enc: string;
@@ -112,6 +118,15 @@ export interface DeviceRow {
   approved_at: string | null;
   created_at: string;
   updated_at: string;
+  // pending_* (Migration 0006): a change request awaiting Admin approval,
+  // only ever set on an active device. See PendingAction's doc comment and
+  // the migration's own header comment for the full mechanism.
+  pending_action: PendingAction;
+  pending_note_enc: string | null;
+  pending_target_vlan_name: string | null;
+  pending_target_gateway_ids: string[] | null;
+  pending_requested_by: string | null;
+  pending_requested_at: string | null;
 }
 
 export type ProvisioningStatus = "ok" | "vlan_not_found" | "error";
@@ -180,4 +195,32 @@ export interface GatewayProvisionResult {
   gateway_name: string;
   status: ProvisioningStatus;
   error?: string;
+}
+
+// Input shape for requesting a change to a device's note/VLAN
+// (PATCH /devices/:id) — same body as the direct-edit path; whether it is
+// applied immediately or turned into a pending request depends on the
+// caller's role and the device's current status (see updateDevice()).
+export interface DeviceEditInput {
+  note?: string;
+  target_vlan_name?: string;
+}
+
+// One row of GET /devices/pending-changes (Admin only) — a device with a
+// non-null pending_action, decrypted and shaped for the review UI.
+export interface PendingDeviceChange {
+  id: string;
+  note: string;
+  mac: string;
+  pending_action: Exclude<PendingAction, null>;
+  // Populated only when pending_action = 'edit' and that field was part of
+  // the request (undefined otherwise, not an empty string, so the UI can
+  // tell "no change requested here" apart from "change requested to blank").
+  pending_note?: string;
+  pending_target_vlan_name?: string;
+  // Populated only when pending_action = 'gateway_change' - the proposed
+  // full new set of gateway names (already resolved from ids for display).
+  pending_target_gateway_names?: string[];
+  requested_by: string;
+  requested_at: string;
 }

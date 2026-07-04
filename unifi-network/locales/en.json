@@ -1,6 +1,7 @@
 {
   "nav_overview": "Overview",
   "nav_pending": "Pending",
+  "nav_pending_changes": "Pending changes",
   "nav_gateways": "Gateways",
   "btn_new_device": "New device",
 
@@ -75,11 +76,20 @@
 
   "edit_device_heading": "Edit device",
   "confirm_delete_device": "Really delete device \"{{name}}\" everywhere?",
+  "pending_change_hint": "A change to this device is awaiting admin approval",
+  "change_requested_edit": "Change to \"{{name}}\" submitted, awaiting admin approval.",
+  "change_requested_delete": "Deletion of \"{{name}}\" submitted, awaiting admin approval.",
 
   "no_pending": "No pending approvals.",
   "requested_by": "Requested by {{user}}",
   "btn_approve": "Approve",
   "btn_reject": "Reject",
+
+  "no_pending_changes": "No pending change requests.",
+  "pending_changes_admin_only": "Only admins can review pending change requests.",
+  "pending_change_edit": "Edit",
+  "pending_change_delete": "Delete",
+  "pending_change_gateway_change": "Gateway change",
 
   "btn_new_gateway": "New gateway",
   "created_by_label": "Created by {{user}}",

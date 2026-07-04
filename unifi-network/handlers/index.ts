@@ -8,25 +8,39 @@
  *   POST   /gateways                       create
  *   PATCH  /gateways/:id                   update (name, base_url, api_key)
  *   DELETE /gateways/:id                   delete
- *   POST   /gateways/:id/refresh           manual poll for a single gateway
- *   POST   /gateways/refresh-all           manual poll for all gateways
+ *   POST   /gateways/:id/refresh           manual poll for a single gateway (Admin only)
+ *   POST   /gateways/refresh-all           manual poll for all gateways (Admin only)
  *
  * VLANs (read-only, from vlan_cache)
  *   GET    /vlans                          distinct VLAN names across all gateways (onboarding form dropdown)
  *   GET    /gateways/:id/vlans             VLAN names known on a single gateway
  *
- * Devices (RADIUS table)
+ * Devices (RADIUS table) — every authenticated user may view; edit/delete of
+ * an ACTIVE device is Admin-only immediate, non-Admin submits a pending
+ * change request instead (Nutzerentscheidung 2026-07-05, see "Change
+ * requests" below). A user may still directly amend/withdraw their own
+ * still-pending_approval submission (Entscheidungsvorlage 4.7, unchanged).
  *   GET    /devices                        list all (global RADIUS table, joined view)
  *   POST   /devices                        onboarding form submit -> pending_approval
- *   PATCH  /devices/:id                    edit note/VLAN (own pending devices, or Admin for active ones)
- *   PATCH  /devices/:id/gateways           change target gateways of an already-active device (checkbox UI, like onboarding)
- *   DELETE /devices/:id                    delete everywhere it's provisioned
- *   DELETE /devices/:id/gateways/:gatewayId  partial delete (remove from a single gateway)
+ *   PATCH  /devices/:id                    edit note/VLAN (own pending devices immediately; Admin immediately for active; non-Admin on active -> pending change request)
+ *   PATCH  /devices/:id/gateways           change target gateways of an already-active device (checkbox UI, like onboarding; non-Admin -> pending change request)
+ *   DELETE /devices/:id                    delete everywhere it's provisioned (non-Admin on active -> pending change request)
+ *   DELETE /devices/:id/gateways/:gatewayId  partial delete (remove from a single gateway; non-Admin on active -> pending change request)
  *
  * Onboarding approval (Super-Admin / Org-Admin only)
  *   GET    /devices/pending                list devices awaiting approval
  *   POST   /devices/:id/approve            approve -> run gateway provisioning loop
  *   POST   /devices/:id/reject             reject -> discard, no API calls ever made
+ *
+ * Change requests on active devices (Super-Admin / Org-Admin only —
+ * Nutzerentscheidung 2026-07-05, Migration 0006): a non-Admin's edit/delete/
+ * gateway-change against an already-active device is stored as a pending_*
+ * request on the device row instead of applied. Approving applies it exactly
+ * as if an Admin had made the change directly; rejecting clears the pending_*
+ * columns and leaves the device exactly as it was — never partially applied.
+ *   GET    /devices/pending-changes        list devices with an outstanding change request
+ *   POST   /devices/:id/approve-change     apply the pending request
+ *   POST   /devices/:id/reject-change      discard the pending request, device unchanged
  *
  * Note discrepancy resolution
  *   POST   /devices/:id/resolve-note       set canonical note, sync to all gateways
@@ -47,6 +61,9 @@ import type {
   DeviceGatewayRow,
   DeviceInput,
   DeviceGatewaysInput,
+  DeviceEditInput,
+  PendingAction,
+  PendingDeviceChange,
   GatewayProvisionResult,
 } from "./types.ts";
 import { getEncKey, getMacHashKey, encrypt, decrypt, macHash, sanitizeMac, InvalidMacError } from "./crypto.ts";
@@ -193,6 +210,47 @@ const handlerNotificationText = {
     de: `Gerät ${note} (${mac}) von Gateway "${gatewayName}" entfernt — von ${actor}`,
     en: `Device ${note} (${mac}) removed from gateway "${gatewayName}" — by ${actor}`,
   }),
+  deviceChangeRequested: (
+    note: string,
+    mac: string,
+    action: Exclude<PendingAction, null>,
+    actor: string,
+  ): { de: string; en: string } => {
+    const actionDe = action === "edit" ? "Bearbeitung" : action === "delete" ? "Löschung" : "Gateway-Änderung";
+    const actionEn = action === "edit" ? "edit" : action === "delete" ? "deletion" : "gateway change";
+    return {
+      de: `Änderung angefragt: ${note} (${mac}) — ${actionDe} wartet auf Freigabe — von ${actor}`,
+      en: `Change requested: ${note} (${mac}) — ${actionEn} awaiting approval — requested by ${actor}`,
+    };
+  },
+  deviceChangeApproved: (
+    note: string,
+    mac: string,
+    action: Exclude<PendingAction, null>,
+    requestedBy: string,
+    actor: string,
+  ): { de: string; en: string } => {
+    const actionDe = action === "edit" ? "Bearbeitung" : action === "delete" ? "Löschung" : "Gateway-Änderung";
+    const actionEn = action === "edit" ? "edit" : action === "delete" ? "deletion" : "gateway change";
+    return {
+      de: `Änderung freigegeben: ${note} (${mac}) — ${actionDe} angewendet (angefragt von ${requestedBy}), freigegeben von ${actor}`,
+      en: `Change approved: ${note} (${mac}) — ${actionEn} applied (requested by ${requestedBy}), approved by ${actor}`,
+    };
+  },
+  deviceChangeRejected: (
+    note: string,
+    mac: string,
+    action: Exclude<PendingAction, null>,
+    requestedBy: string,
+    actor: string,
+  ): { de: string; en: string } => {
+    const actionDe = action === "edit" ? "Bearbeitung" : action === "delete" ? "Löschung" : "Gateway-Änderung";
+    const actionEn = action === "edit" ? "edit" : action === "delete" ? "deletion" : "gateway change";
+    return {
+      de: `Änderung abgelehnt: ${note} (${mac}) — ${actionDe} verworfen, Gerät unverändert (angefragt von ${requestedBy}), abgelehnt von ${actor}`,
+      en: `Change rejected: ${note} (${mac}) — ${actionEn} discarded, device unchanged (requested by ${requestedBy}), rejected by ${actor}`,
+    };
+  },
   noteDiscrepancyResolved: (
     note: string,
     canonicalNote: string,
@@ -246,8 +304,8 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
   if (method === "DELETE" && pathname.match(/^\/gateways\/[^/]+$/))
     return deleteGateway(db, auth, segId(pathname));
   if (method === "POST" && pathname.match(/^\/gateways\/[^/]+\/refresh$/))
-    return refreshGateway(db, segId(pathname, -2));
-  if (route === "POST /gateways/refresh-all") return refreshAllGateways(db);
+    return refreshGateway(db, auth, segId(pathname, -2));
+  if (route === "POST /gateways/refresh-all") return refreshAllGateways(db, auth);
 
   // ── VLANs (Dropdown-Datengrundlage fürs Onboarding-Formular) ─────────────
 
@@ -275,6 +333,14 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
     return approveDevice(db, auth, segId(pathname, -2));
   if (method === "POST" && pathname.match(/^\/devices\/[^/]+\/reject$/))
     return rejectDevice(db, auth, segId(pathname, -2));
+
+  // ── Change requests on active devices (Admin only, Nutzerentscheidung 2026-07-05) ─
+
+  if (route === "GET /devices/pending-changes") return listPendingDeviceChanges(db, auth);
+  if (method === "POST" && pathname.match(/^\/devices\/[^/]+\/approve-change$/))
+    return approveDeviceChange(db, auth, segId(pathname, -2));
+  if (method === "POST" && pathname.match(/^\/devices\/[^/]+\/reject-change$/))
+    return rejectDeviceChange(db, auth, segId(pathname, -2));
 
   // ── Note discrepancy resolution ──────────────────────────────────────────
 
@@ -433,7 +499,14 @@ async function deleteGateway(db: ModuleDbClient, auth: ModuleAuthContext, id: st
   return resp;
 }
 
-async function refreshGateway(db: ModuleDbClient, id: string): Promise<HandlerResponse> {
+async function refreshGateway(db: ModuleDbClient, auth: ModuleAuthContext, id: string): Promise<HandlerResponse> {
+  // Bugfix (2026-07-05): this handler took no `auth` at all and performed no
+  // check — any authenticated user could trigger a manual poll. It's a
+  // diagnostic/re-provisioning trigger, not a data mutation a user requests
+  // approval for, so it simply requires Admin like every other gateway
+  // handler (Entscheidungsvorlage 4.7), rather than going through the new
+  // pending-change mechanism.
+  if (!isAdmin(auth)) return forbidden();
   // Delegates to the same poll logic used by the cron job (Entscheidungsvorlage 1.3).
   // NOTE: this polls ALL gateways, not just `id` — pollGateways() has no
   // single-gateway mode. Pre-existing behavior, left as-is here; the id
@@ -447,7 +520,9 @@ async function refreshGateway(db: ModuleDbClient, id: string): Promise<HandlerRe
   return ok({ ok: true });
 }
 
-async function refreshAllGateways(db: ModuleDbClient): Promise<HandlerResponse> {
+async function refreshAllGateways(db: ModuleDbClient, auth: ModuleAuthContext): Promise<HandlerResponse> {
+  // Bugfix (2026-07-05): same missing check as refreshGateway() above.
+  if (!isAdmin(auth)) return forbidden();
   const { default: pollGateways } = await import("../jobs/poll-gateways.ts");
   // includePaused: true — an explicit admin click on "refresh all" is a
   // deliberate retry, unlike the every-minute cron tick which must keep
@@ -497,6 +572,12 @@ async function listDevices(db: ModuleDbClient): Promise<HandlerResponse> {
       note: encKey ? await decrypt(encKey, d.note_enc).catch(() => "") : "",
       mac: encKey ? await decrypt(encKey, d.mac_enc).catch(() => "???") : "???",
       target_vlan_name: d.target_vlan_name,
+      // pending_action (Migration 0006, ergänzt 2026-07-05): so the device
+      // list itself can show "change awaiting approval" without a separate
+      // lookup — every user sees the full list anyway (see header comment),
+      // so a non-Admin can already tell their own or someone else's request
+      // is in flight, not just Admins reviewing /devices/pending-changes.
+      pending_action: d.pending_action,
       gateways: await Promise.all(
         gatewayRows.map(async (g) => ({
           gateway_id: g.gateway_id,
@@ -598,6 +679,12 @@ async function createDevice(
   return resp;
 }
 
+// Ergänzt 2026-07-05 (Nutzerentscheidung): editing an already-active device
+// used to be Admin-only, full stop (Entscheidungsvorlage 4.7) — a regular
+// user hit a 403 with no path forward. Now a non-Admin's edit against an
+// active device is stored as a pending change request instead (see
+// requestDeviceChange()); a user can still directly amend their own
+// not-yet-approved submission, unchanged from 4.7.
 async function updateDevice(
   db: ModuleDbClient,
   auth: ModuleAuthContext,
@@ -607,13 +694,28 @@ async function updateDevice(
   const [device] = await db.query<DeviceRow>(`SELECT * FROM devices WHERE id = $1`, [id]);
   if (!device) return notFound();
 
-  // Entscheidungsvorlage 4.7: editing an already-approved device requires
-  // Admin; a user can still amend their own not-yet-approved submission.
-  if (device.status === "active" && !isAdmin(auth)) return forbidden();
-  if (device.status === "pending_approval" && device.created_by !== auth.userEmail && !isAdmin(auth)) return forbidden();
+  const admin = isAdmin(auth);
+  const input = body as DeviceEditInput;
 
+  if (device.status === "active" && !admin) {
+    return requestDeviceChange(db, auth, device, "edit", input);
+  }
+  if (device.status === "pending_approval" && device.created_by !== auth.userEmail && !admin) {
+    return forbidden();
+  }
+
+  return applyDeviceEdit(db, auth, device, input);
+}
+
+async function applyDeviceEdit(
+  db: ModuleDbClient,
+  auth: ModuleAuthContext,
+  device: DeviceRow,
+  input: DeviceEditInput,
+): Promise<HandlerResponse> {
+  const id = device.id;
   // "alias" entfernt (2026-07-01): note ist das einzige Freitextfeld.
-  const { note, target_vlan_name } = body as { note?: string; target_vlan_name?: string };
+  const { note, target_vlan_name } = input;
 
   // note ist Pflichtfeld — darf beim Bearbeiten nicht auf leer gesetzt werden
   // (Entscheidungsvorlage 4.13). Ein explizit übergebenes, aber leeres note
@@ -722,11 +824,27 @@ async function updateDeviceGateways(
   const [device] = await db.query<DeviceRow>(`SELECT * FROM devices WHERE id = $1`, [id]);
   if (!device) return notFound();
 
-  // Gleiche Berechtigungslogik wie updateDevice()/deleteDevice() (→ 4.7):
-  // Ändern der Provisionierung eines aktiven Geräts erfordert Admin.
-  if (device.status === "active" && !isAdmin(auth)) return forbidden();
-  if (device.status === "pending_approval" && device.created_by !== auth.userEmail && !isAdmin(auth)) return forbidden();
+  // Gleiche Berechtigungslogik wie updateDevice()/deleteDevice() (→ 4.7,
+  // erweitert 2026-07-05): ein aktives Gerät umzuprovisionieren löst für
+  // Nicht-Admins jetzt eine Freigabe-Anfrage aus statt direkt 403.
+  const admin = isAdmin(auth);
+  if (device.status === "active" && !admin) {
+    return requestDeviceChange(db, auth, device, "gateway_change", input.target_gateway_ids);
+  }
+  if (device.status === "pending_approval" && device.created_by !== auth.userEmail && !admin) {
+    return forbidden();
+  }
 
+  return applyDeviceGatewayChange(db, auth, device, input);
+}
+
+async function applyDeviceGatewayChange(
+  db: ModuleDbClient,
+  auth: ModuleAuthContext,
+  device: DeviceRow,
+  input: DeviceGatewaysInput,
+): Promise<HandlerResponse> {
+  const id = device.id;
   const encKey = await getEncKey();
   if (!encKey) return { status: 500, body: { error: "MODULAB_ENCRYPTION_KEY not configured on server" } };
 
@@ -804,12 +922,27 @@ async function deleteDevice(db: ModuleDbClient, auth: ModuleAuthContext, id: str
   const [device] = await db.query<DeviceRow>(`SELECT * FROM devices WHERE id = $1`, [id]);
   if (!device) return notFound();
 
-  // Entscheidungsvorlage 4.7 (ergänzt 2026-07-01): Löschen eines bereits
-  // aktiven Geräts verlangt Admin, analog zu updateDevice. Ein Nutzer darf
-  // weiterhin seine eigene, noch nicht freigegebene Einreichung zurückziehen.
-  if (device.status === "active" && !isAdmin(auth)) return forbidden();
-  if (device.status === "pending_approval" && device.created_by !== auth.userEmail && !isAdmin(auth)) return forbidden();
+  // Entscheidungsvorlage 4.7 (ergänzt 2026-07-01, erweitert 2026-07-05):
+  // deleting an already-active device now creates a pending change request
+  // for non-Admins instead of a flat 403. A user may still withdraw their
+  // own not-yet-approved submission directly, unchanged.
+  const admin = isAdmin(auth);
+  if (device.status === "active" && !admin) {
+    return requestDeviceChange(db, auth, device, "delete", null);
+  }
+  if (device.status === "pending_approval" && device.created_by !== auth.userEmail && !admin) {
+    return forbidden();
+  }
 
+  return applyDeviceDeletion(db, auth, device);
+}
+
+async function applyDeviceDeletion(
+  db: ModuleDbClient,
+  auth: ModuleAuthContext,
+  device: DeviceRow,
+): Promise<HandlerResponse> {
+  const id = device.id;
   const gatewayRows = await db.query<DeviceGatewayRow>(`SELECT * FROM device_gateways WHERE device_id = $1`, [id]);
 
   // Gateway names collected BEFORE the delete loop below — device_gateways
@@ -855,6 +988,31 @@ async function deleteDeviceFromGateway(
 ): Promise<HandlerResponse> {
   // Entscheidungsvorlage 4.6: partial delete, same workflow as full delete but
   // scoped to a single gateway.
+  //
+  // Bugfix (2026-07-05): this handler already took `auth` in its signature
+  // but never checked anything with it — any authenticated user could
+  // remove any device from any gateway. Now uses the same permission logic
+  // as deleteDevice()/updateDevice(): a non-Admin acting on an active device
+  // gets a pending change request instead, expressed as a "gateway_change"
+  // to the device's current gateway set minus this one (so approveDeviceChange
+  // only ever needs the one gateway_change code path, not a separate
+  // single-gateway-removal one).
+  const [device] = await db.query<DeviceRow>(`SELECT * FROM devices WHERE id = $1`, [deviceId]);
+  if (!device) return notFound();
+
+  const admin = isAdmin(auth);
+  if (device.status === "active" && !admin) {
+    const currentRows = await db.query<DeviceGatewayRow>(
+      `SELECT gateway_id FROM device_gateways WHERE device_id = $1`,
+      [deviceId],
+    );
+    const proposedIds = currentRows.map((r) => r.gateway_id).filter((gid) => gid !== gatewayId);
+    return requestDeviceChange(db, auth, device, "gateway_change", proposedIds);
+  }
+  if (device.status === "pending_approval" && device.created_by !== auth.userEmail && !admin) {
+    return forbidden();
+  }
+
   const [dg] = await db.query<DeviceGatewayRow>(
     `SELECT * FROM device_gateways WHERE device_id = $1 AND gateway_id = $2`,
     [deviceId, gatewayId],
@@ -933,6 +1091,222 @@ async function queueOrExecuteDeletion(
       [deviceId, gatewayId, radiusAccountId, userAliasId, String(err)],
     );
   }
+}
+
+// ── Change requests on active devices (Nutzerentscheidung 2026-07-05) ───────
+//
+// requestDeviceChange() stores a non-Admin's requested edit/delete/gateway
+// change against an ALREADY ACTIVE device as pending_* columns on the
+// device row itself, instead of applying it (Migration 0006). Only one
+// pending change per device at a time: a device that already has
+// pending_action set rejects a second request outright rather than silently
+// replacing or merging it — discarding a first still-outstanding request
+// because a second one arrived would be surprising for whichever user filed
+// it first, and merging two different requested edits has no obviously
+// correct semantics. Admin then reviews via listPendingDeviceChanges() and
+// applies one of approveDeviceChange()/rejectDeviceChange().
+
+async function requestDeviceChange(
+  db: ModuleDbClient,
+  auth: ModuleAuthContext,
+  device: DeviceRow,
+  action: Exclude<PendingAction, null>,
+  payload: DeviceEditInput | string[] | null,
+): Promise<HandlerResponse> {
+  if (device.pending_action) {
+    return badRequest("A change is already pending approval for this device.");
+  }
+
+  let noteEnc: string | null = null;
+  let targetVlanName: string | null = null;
+  let targetGatewayIds: string[] | null = null;
+
+  if (action === "edit") {
+    const input = payload as DeviceEditInput;
+    if (input.note !== undefined) {
+      if (input.note.trim().length === 0) return badRequest("note cannot be empty");
+      const encKey = await getEncKey();
+      if (!encKey) return { status: 500, body: { error: "MODULAB_ENCRYPTION_KEY not configured on server" } };
+      noteEnc = await encrypt(encKey, input.note);
+    }
+    if (input.target_vlan_name) targetVlanName = input.target_vlan_name;
+    if (noteEnc === null && targetVlanName === null) {
+      return badRequest("Nothing to change.");
+    }
+  } else if (action === "gateway_change") {
+    targetGatewayIds = payload as string[];
+  }
+  // action === "delete": no further payload needed.
+
+  await db.query(
+    `UPDATE devices
+     SET pending_action = $1,
+         pending_note_enc = $2,
+         pending_target_vlan_name = $3,
+         pending_target_gateway_ids = $4,
+         pending_requested_by = $5,
+         pending_requested_at = now(),
+         updated_at = now()
+     WHERE id = $6`,
+    [
+      action,
+      noteEnc,
+      targetVlanName,
+      targetGatewayIds ? JSON.stringify(targetGatewayIds) : null,
+      auth.userEmail,
+      device.id,
+    ],
+  );
+
+  await audit(db, auth.userEmail, `device.change_requested.${action}`, "device", device.id);
+
+  const encKeyForNotify = await getEncKey();
+  const note = encKeyForNotify ? await decrypt(encKeyForNotify, device.note_enc).catch(() => "?") : "?";
+  const mac = encKeyForNotify ? await decrypt(encKeyForNotify, device.mac_enc).catch(() => "?") : "?";
+
+  const resp = ok({ ok: true, pending_action: action });
+  resp.notifications = [{
+    message: handlerNotificationText.deviceChangeRequested(note, mac, action, auth.userEmail),
+    actionPath: "/modules/unifi-network?view=pending-changes",
+  }];
+  return resp;
+}
+
+async function listPendingDeviceChanges(db: ModuleDbClient, auth: ModuleAuthContext): Promise<HandlerResponse> {
+  if (!isAdmin(auth)) return forbidden();
+  const rows = await db.query<DeviceRow>(
+    `SELECT * FROM devices WHERE pending_action IS NOT NULL ORDER BY pending_requested_at`,
+  );
+  const encKey = await getEncKey();
+
+  const result: PendingDeviceChange[] = [];
+  for (const d of rows) {
+    const entry: PendingDeviceChange = {
+      id: d.id,
+      note: encKey ? await decrypt(encKey, d.note_enc).catch(() => "") : "",
+      mac: encKey ? await decrypt(encKey, d.mac_enc).catch(() => "???") : "???",
+      pending_action: d.pending_action as Exclude<PendingAction, null>,
+      requested_by: d.pending_requested_by ?? "?",
+      requested_at: d.pending_requested_at ?? "",
+    };
+    if (d.pending_action === "edit") {
+      if (d.pending_note_enc && encKey) {
+        entry.pending_note = await decrypt(encKey, d.pending_note_enc).catch(() => "?");
+      }
+      if (d.pending_target_vlan_name) entry.pending_target_vlan_name = d.pending_target_vlan_name;
+    }
+    if (d.pending_action === "gateway_change" && d.pending_target_gateway_ids) {
+      const names: string[] = [];
+      for (const gid of d.pending_target_gateway_ids) {
+        const [gw] = await db.query<GatewayRow>(`SELECT * FROM gateways WHERE id = $1`, [gid]);
+        names.push(gw && encKey ? await decrypt(encKey, gw.name_enc).catch(() => "???") : "???");
+      }
+      entry.pending_target_gateway_names = names;
+    }
+    result.push(entry);
+  }
+  return ok(result);
+}
+
+// approveDeviceChange applies the pending request exactly as if an Admin had
+// made the change directly — it just delegates to the same apply* functions
+// updateDevice()/deleteDevice()/updateDeviceGateways() use for the immediate
+// Admin path, so there is exactly one code path per action kind that ever
+// touches RADIUS/UniFi, whether an Admin acted directly or approved a
+// request.
+async function approveDeviceChange(db: ModuleDbClient, auth: ModuleAuthContext, id: string): Promise<HandlerResponse> {
+  if (!isAdmin(auth)) return forbidden();
+  const [device] = await db.query<DeviceRow>(`SELECT * FROM devices WHERE id = $1`, [id]);
+  if (!device) return notFound();
+  if (!device.pending_action) return badRequest("No pending change for this device.");
+
+  const action = device.pending_action;
+  const requestedBy = device.pending_requested_by ?? "?";
+
+  const encKey = await getEncKey();
+  const noteForNotify = encKey ? await decrypt(encKey, device.note_enc).catch(() => "?") : "?";
+  const macForNotify = encKey ? await decrypt(encKey, device.mac_enc).catch(() => "?") : "?";
+
+  // Clear pending_* first — the apply* functions below re-read note_enc etc.
+  // fresh from the DB where relevant, and this guarantees a device is never
+  // left with stale pending_* pointing at a request that's already been
+  // (or is about to be) applied, even if the apply step itself throws.
+  const clearedDevice: DeviceRow = {
+    ...device,
+    pending_action: null,
+    pending_note_enc: null,
+    pending_target_vlan_name: null,
+    pending_target_gateway_ids: null,
+    pending_requested_by: null,
+    pending_requested_at: null,
+  };
+  await db.query(
+    `UPDATE devices SET pending_action = NULL, pending_note_enc = NULL, pending_target_vlan_name = NULL,
+       pending_target_gateway_ids = NULL, pending_requested_by = NULL, pending_requested_at = NULL, updated_at = now()
+     WHERE id = $1`,
+    [id],
+  );
+
+  let applyResp: HandlerResponse;
+  if (action === "edit") {
+    const input: DeviceEditInput = {
+      note: device.pending_note_enc && encKey ? await decrypt(encKey, device.pending_note_enc).catch(() => undefined) : undefined,
+      target_vlan_name: device.pending_target_vlan_name ?? undefined,
+    };
+    applyResp = await applyDeviceEdit(db, auth, clearedDevice, input);
+  } else if (action === "delete") {
+    applyResp = await applyDeviceDeletion(db, auth, clearedDevice);
+  } else {
+    applyResp = await applyDeviceGatewayChange(db, auth, clearedDevice, {
+      target_gateway_ids: device.pending_target_gateway_ids ?? [],
+    });
+  }
+
+  await audit(db, auth.userEmail, `device.change_approved.${action}`, "device", id, requestedBy);
+
+  // The apply* function's own notification (deviceUpdated/deviceDeleted/
+  // deviceGatewaysChanged) already covers what changed — add a second,
+  // change-request-specific one so the requester's name and the approval
+  // itself are visible, not just "device edited by <admin>".
+  const notifications = [...(applyResp.notifications ?? []), {
+    message: handlerNotificationText.deviceChangeApproved(noteForNotify, macForNotify, action, requestedBy, auth.userEmail),
+    actionPath: "/modules/unifi-network",
+  }];
+
+  return { ...applyResp, notifications };
+}
+
+async function rejectDeviceChange(db: ModuleDbClient, auth: ModuleAuthContext, id: string): Promise<HandlerResponse> {
+  if (!isAdmin(auth)) return forbidden();
+  const [device] = await db.query<DeviceRow>(`SELECT * FROM devices WHERE id = $1`, [id]);
+  if (!device) return notFound();
+  if (!device.pending_action) return badRequest("No pending change for this device.");
+
+  const action = device.pending_action;
+  const requestedBy = device.pending_requested_by ?? "?";
+
+  // Rejecting just clears the pending_* columns — the device row itself was
+  // never touched by requestDeviceChange(), so it is already exactly as it
+  // was before the request. Nothing to roll back.
+  await db.query(
+    `UPDATE devices SET pending_action = NULL, pending_note_enc = NULL, pending_target_vlan_name = NULL,
+       pending_target_gateway_ids = NULL, pending_requested_by = NULL, pending_requested_at = NULL, updated_at = now()
+     WHERE id = $1`,
+    [id],
+  );
+
+  await audit(db, auth.userEmail, `device.change_rejected.${action}`, "device", id, requestedBy);
+
+  const encKey = await getEncKey();
+  const note = encKey ? await decrypt(encKey, device.note_enc).catch(() => "?") : "?";
+  const mac = encKey ? await decrypt(encKey, device.mac_enc).catch(() => "?") : "?";
+
+  const resp = ok({ ok: true });
+  resp.notifications = [{
+    message: handlerNotificationText.deviceChangeRejected(note, mac, action, requestedBy, auth.userEmail),
+    actionPath: "/modules/unifi-network",
+  }];
+  return resp;
 }
 
 // ── Onboarding approval (Entscheidungsvorlage 4.7) ──────────────────────────

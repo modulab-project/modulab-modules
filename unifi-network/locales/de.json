@@ -1,6 +1,7 @@
 {
   "nav_overview": "Übersicht",
   "nav_pending": "Ausstehend",
+  "nav_pending_changes": "Änderungsanfragen",
   "nav_gateways": "Gateways",
   "btn_new_device": "Neues Gerät",
 
@@ -75,11 +76,20 @@
 
   "edit_device_heading": "Gerät bearbeiten",
   "confirm_delete_device": "Gerät \"{{name}}\" wirklich überall löschen?",
+  "pending_change_hint": "Für dieses Gerät wartet eine Änderung auf Admin-Freigabe",
+  "change_requested_edit": "Änderung an \"{{name}}\" eingereicht, wartet auf Admin-Freigabe.",
+  "change_requested_delete": "Löschung von \"{{name}}\" eingereicht, wartet auf Admin-Freigabe.",
 
   "no_pending": "Keine ausstehenden Freigaben.",
   "requested_by": "Angefragt von {{user}}",
   "btn_approve": "Freigeben",
   "btn_reject": "Ablehnen",
+
+  "no_pending_changes": "Keine ausstehenden Änderungsanfragen.",
+  "pending_changes_admin_only": "Nur Admins können Änderungsanfragen prüfen.",
+  "pending_change_edit": "Bearbeitung",
+  "pending_change_delete": "Löschung",
+  "pending_change_gateway_change": "Gateway-Änderung",
 
   "btn_new_gateway": "Neues Gateway",
   "created_by_label": "Angelegt von {{user}}",

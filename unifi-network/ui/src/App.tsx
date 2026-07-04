@@ -39,12 +39,18 @@ interface DeviceGatewayView {
   provisioning_error: string | null;
 }
 
+// Set on an active device when a non-Admin has requested an edit/delete/
+// gateway change that needs Admin approval (Nutzerentscheidung 2026-07-05,
+// Migration 0006). Null while no request is outstanding.
+type PendingAction = "edit" | "delete" | "gateway_change" | null;
+
 interface Device {
   id: string;
   note: string;
   mac: string;
   target_vlan_name: string;
   gateways: DeviceGatewayView[];
+  pending_action: PendingAction;
 }
 
 interface PendingDevice {
@@ -57,6 +63,19 @@ interface PendingDevice {
   created_at: string;
 }
 
+// One row of GET /devices/pending-changes (Admin only).
+interface PendingDeviceChange {
+  id: string;
+  note: string;
+  mac: string;
+  pending_action: Exclude<PendingAction, null>;
+  pending_note?: string;
+  pending_target_vlan_name?: string;
+  pending_target_gateway_names?: string[];
+  requested_by: string;
+  requested_at: string;
+}
+
 interface VlanOption {
   vlan_name: string;
 }
@@ -65,6 +84,7 @@ type View =
   | { type: "overview" }
   | { type: "onboard" }
   | { type: "pending" }
+  | { type: "pending-changes" }
   | { type: "gateways" }
   | { type: "info" };
 
@@ -116,7 +136,13 @@ const NS = "mod_unifi-network";
 // so an unrecognized value can never produce an invalid View at runtime.
 function viewFromQuery(query: URLSearchParams | undefined): View {
   const raw = query?.get("view");
-  if (raw === "pending" || raw === "onboard" || raw === "gateways" || raw === "info") {
+  if (
+    raw === "pending" ||
+    raw === "pending-changes" ||
+    raw === "onboard" ||
+    raw === "gateways" ||
+    raw === "info"
+  ) {
     return { type: raw };
   }
   return { type: "overview" };
@@ -135,6 +161,13 @@ export default function UnifiNetworkApp({ moduleName, apiBase, token, initialQue
   const [view, setView] = useState<View>(() => viewFromQuery(initialQuery));
   const api = useApi(apiBase, token);
   const [pendingCount, setPendingCount] = useState(0);
+  // pendingChangesCount (ergänzt 2026-07-05): /devices/pending-changes is
+  // Admin-only (403 for everyone else) — same as /gateways, this module's
+  // frontend has no way to know the caller's role up front (see
+  // ModuleComponentProps, no roles field), so it just tries the call and
+  // silently keeps the badge at 0 on failure, exactly like refreshPendingCount
+  // above already does. A non-Admin simply never sees this badge.
+  const [pendingChangesCount, setPendingChangesCount] = useState(0);
 
   const refreshPendingCount = useCallback(() => {
     api
@@ -143,9 +176,17 @@ export default function UnifiNetworkApp({ moduleName, apiBase, token, initialQue
       .catch(() => {});
   }, [api]);
 
+  const refreshPendingChangesCount = useCallback(() => {
+    api
+      .get<PendingDeviceChange[]>("/devices/pending-changes")
+      .then((rows) => setPendingChangesCount(Array.isArray(rows) ? rows.length : 0))
+      .catch(() => {});
+  }, [api]);
+
   useEffect(() => {
     refreshPendingCount();
-  }, [refreshPendingCount]);
+    refreshPendingChangesCount();
+  }, [refreshPendingCount, refreshPendingChangesCount]);
 
   return (
     <div className="unifi-network-module">
@@ -178,6 +219,23 @@ export default function UnifiNetworkApp({ moduleName, apiBase, token, initialQue
               style={{ minWidth: "16px" }}
             >
               {pendingCount}
+            </span>
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={() => setView({ type: "pending-changes" })}
+          className={navCls(view.type === "pending-changes") + " relative"}
+          title={t("nav_pending_changes")}
+        >
+          <i className="ti ti-git-pull-request text-[15px]" />
+          <span className="hidden sm:inline">{t("nav_pending_changes")}</span>
+          {pendingChangesCount > 0 && (
+            <span
+              className="ml-0.5 inline-flex h-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-semibold text-white"
+              style={{ minWidth: "16px" }}
+            >
+              {pendingChangesCount}
             </span>
           )}
         </button>
@@ -218,6 +276,9 @@ export default function UnifiNetworkApp({ moduleName, apiBase, token, initialQue
       )}
       {view.type === "pending" && (
         <PendingApprovalList api={api} onChanged={refreshPendingCount} />
+      )}
+      {view.type === "pending-changes" && (
+        <PendingChangesList api={api} onChanged={refreshPendingChangesCount} />
       )}
       {view.type === "gateways" && <GatewaysView api={api} />}
       {view.type === "info" && <ModuleInfoView moduleName={moduleName} token={token} />}
@@ -283,6 +344,12 @@ function OverviewView({ api }: { api: ReturnType<typeof useApi> }) {
   const [noteDialogDeviceId, setNoteDialogDeviceId] = useState<string | null>(null);
   const [editDeviceId, setEditDeviceId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  // infoMessage (ergänzt 2026-07-05): a non-Admin's edit/delete/gateway-change
+  // against an active device is now stored as a pending request instead of
+  // applied (see requestDeviceChange() in handlers/index.ts) — the mutation
+  // still returns 200, so without this the UI would silently look like the
+  // change went through. Shown once, teal (not red — nothing failed).
+  const [infoMessage, setInfoMessage] = useState<string | null>(null);
   // Ergänzt 2026-07-01: Suche (Notiz, MAC) + Filter (VLAN, zugewiesenes
   // Gateway) über die bereits geladene devices-Liste — rein clientseitig,
   // da listDevices() ohnehin schon alle entschlüsselten Felder liefert.
@@ -372,8 +439,15 @@ function OverviewView({ api }: { api: ReturnType<typeof useApi> }) {
     async (device: Device) => {
       if (!window.confirm(t("confirm_delete_device", { name: device.note }))) return;
       setDeletingId(device.id);
+      setInfoMessage(null);
       try {
-        await api.mutate("DELETE", `/devices/${device.id}`);
+        const result = await api.mutate<{ ok: boolean; pending_action?: string }>(
+          "DELETE",
+          `/devices/${device.id}`,
+        );
+        if (result?.pending_action) {
+          setInfoMessage(t("change_requested_delete", { name: device.note }));
+        }
         await load();
       } finally {
         setDeletingId(null);
@@ -444,6 +518,11 @@ function OverviewView({ api }: { api: ReturnType<typeof useApi> }) {
 
       {/* Global RADIUS table */}
       <div>
+        {infoMessage && (
+          <div className="mb-3 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-xs text-teal-700 dark:border-teal-800 dark:bg-teal-950 dark:text-teal-300">
+            {infoMessage}
+          </div>
+        )}
         <h2 className="mb-2 text-sm font-semibold text-gray-700 dark:text-gray-300">{t("devices_heading")}</h2>
 
         {devices.length > 0 && (
@@ -563,6 +642,14 @@ function OverviewView({ api }: { api: ReturnType<typeof useApi> }) {
                     <td className="px-3 py-2">
                       <div className="flex items-center gap-1.5">
                         <span className="font-medium text-gray-800 dark:text-gray-100">{d.note}</span>
+                        {d.pending_action && (
+                          <span
+                            className="flex h-5 w-5 items-center justify-center rounded-full text-amber-500"
+                            title={t("pending_change_hint")}
+                          >
+                            <i className="ti ti-clock-hour-4 text-[13px]" />
+                          </span>
+                        )}
                         {hasNoteDiscrepancy(d) && (
                           <button
                             type="button"
@@ -646,8 +733,14 @@ function OverviewView({ api }: { api: ReturnType<typeof useApi> }) {
           api={api}
           device={devices.find((d) => d.id === editDeviceId)!}
           onClose={() => setEditDeviceId(null)}
-          onSaved={() => {
+          onSaved={(pendingRequested) => {
             setEditDeviceId(null);
+            if (pendingRequested) {
+              const d = devices.find((d) => d.id === editDeviceId);
+              setInfoMessage(t("change_requested_edit", { name: d?.note ?? "" }));
+            } else {
+              setInfoMessage(null);
+            }
             load();
           }}
         />
@@ -996,7 +1089,11 @@ function EditDeviceDialog({
   api: ReturnType<typeof useApi>;
   device: Device;
   onClose: () => void;
-  onSaved: () => void;
+  // onSaved(pendingRequested): true if either PATCH call came back as a
+  // pending change request rather than an applied edit (Nutzerentscheidung
+  // 2026-07-05) — a non-Admin acting on an active device — so the caller
+  // can show "awaiting approval" instead of assuming the change is live.
+  onSaved: (pendingRequested: boolean) => void;
 }) {
   const { t } = useTranslation(NS);
   const [note, setNote] = useState(device.note);
@@ -1026,10 +1123,13 @@ function EditDeviceDialog({
     setSubmitting(true);
     setError(null);
     try {
-      await api.mutate("PATCH", `/devices/${device.id}`, {
-        note: note.trim(),
-        target_vlan_name: targetVlanName,
-      });
+      const noteResult = await api.mutate<{ ok: boolean; pending_action?: string }>(
+        "PATCH",
+        `/devices/${device.id}`,
+        { note: note.trim(), target_vlan_name: targetVlanName },
+      );
+      let pendingRequested = Boolean(noteResult?.pending_action);
+
       // Ziel-Gateways nur mit anfragen, wenn sich die Auswahl gegenüber dem
       // aktuellen Stand tatsächlich geändert hat — vermeidet einen
       // unnötigen Provisionierungs-/Löschdurchlauf bei reinem Notiz-Edit.
@@ -1038,11 +1138,14 @@ function EditDeviceDialog({
       const changed =
         currentIds.size !== newIds.size || [...currentIds].some((id) => !newIds.has(id));
       if (changed) {
-        await api.mutate("PATCH", `/devices/${device.id}/gateways`, {
-          target_gateway_ids: selectedGatewayIds,
-        });
+        const gwResult = await api.mutate<{ ok: boolean; pending_action?: string }>(
+          "PATCH",
+          `/devices/${device.id}/gateways`,
+          { target_gateway_ids: selectedGatewayIds },
+        );
+        pendingRequested = pendingRequested || Boolean(gwResult?.pending_action);
       }
-      onSaved();
+      onSaved(pendingRequested);
     } catch (err) {
       setError(translateApiError(err, t));
     } finally {
@@ -1293,6 +1396,192 @@ function PendingApprovalList({
                 ))}
               </div>
             )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Pending change requests (Admin only, Nutzerentscheidung 2026-07-05) ─────
+// Mirrors PendingApprovalList's structure above (same load/approve/reject
+// pattern), but for edit/delete/gateway-change requests against already-
+// active devices (Migration 0006) rather than brand-new device submissions.
+// Approving applies the request exactly as if an Admin had made the change
+// directly; rejecting discards it, leaving the device untouched.
+
+function actionLabel(action: PendingDeviceChange["pending_action"], t: (k: string) => string): string {
+  if (action === "edit") return t("pending_change_edit");
+  if (action === "delete") return t("pending_change_delete");
+  return t("pending_change_gateway_change");
+}
+
+function PendingChangesList({
+  api,
+  onChanged,
+}: {
+  api: ReturnType<typeof useApi>;
+  onChanged: () => void;
+}) {
+  const { t } = useTranslation(NS);
+  const [rows, setRows] = useState<PendingDeviceChange[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  // forbidden (ergänzt 2026-07-05): this view has no client-side Admin check
+  // (see nav button comment on pendingChangesCount) — a non-Admin who
+  // navigates here directly gets a 403 on load, shown as a plain hint
+  // instead of the usual red error banner, since it's an expected outcome
+  // for this role, not a failure.
+  const [forbidden, setForbidden] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setForbidden(false);
+    try {
+      const rows = await api.get<PendingDeviceChange[]>("/devices/pending-changes");
+      setRows(Array.isArray(rows) ? rows : []);
+    } catch (err) {
+      if (err instanceof Error && /403/.test(err.message)) {
+        setForbidden(true);
+      } else {
+        setError(translateApiError(err, t));
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [api, t]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const approve = async (id: string) => {
+    setBusyId(id);
+    setError(null);
+    try {
+      await api.mutate("POST", `/devices/${id}/approve-change`);
+      setRows((prev) => prev.filter((r) => r.id !== id));
+      onChanged();
+    } catch (err) {
+      setError(translateApiError(err, t));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const reject = async (id: string) => {
+    setBusyId(id);
+    setError(null);
+    try {
+      await api.mutate("POST", `/devices/${id}/reject-change`);
+      setRows((prev) => prev.filter((r) => r.id !== id));
+      onChanged();
+    } catch (err) {
+      setError(translateApiError(err, t));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  if (forbidden) {
+    return (
+      <div className="rounded-2xl border border-dashed border-gray-200 px-6 py-12 text-center dark:border-gray-800">
+        <i className="ti ti-lock text-[36px] text-gray-300 dark:text-gray-700" />
+        <p className="mt-3 text-sm text-gray-400">{t("pending_changes_admin_only")}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <h2 className="mb-2 text-sm font-semibold text-gray-700 dark:text-gray-300">{t("nav_pending_changes")}</h2>
+
+      {error && (
+        <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+          {error}
+        </div>
+      )}
+
+      {loading && <p className="text-sm text-gray-400">{t("loading")}</p>}
+
+      {!loading && rows.length === 0 && (
+        <div className="rounded-2xl border border-dashed border-gray-200 px-6 py-12 text-center dark:border-gray-800">
+          <i className="ti ti-git-pull-request text-[36px] text-gray-300 dark:text-gray-700" />
+          <p className="mt-3 text-sm text-gray-400">{t("no_pending_changes")}</p>
+        </div>
+      )}
+
+      <div className="flex flex-col gap-3">
+        {rows.map((r) => (
+          <div key={r.id} className="rounded-2xl border border-gray-200 p-3 dark:border-gray-800">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <p className="text-sm font-medium text-gray-800 dark:text-gray-100">{r.note}</p>
+                  <span className="inline-block rounded-full bg-amber-50 px-2 py-0.5 text-[11px] text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+                    {actionLabel(r.pending_action, t)}
+                  </span>
+                </div>
+                <p className="mt-1 font-mono text-xs text-gray-500 dark:text-gray-400">{r.mac}</p>
+                <p className="mt-1 text-[11px] text-gray-400">
+                  {t("requested_by", { user: r.requested_by })}
+                </p>
+
+                {r.pending_action === "edit" && (
+                  <p className="mt-1.5 text-xs text-gray-600 dark:text-gray-300">
+                    {r.pending_note !== undefined && (
+                      <>
+                        {t("label_note")}: <span className="font-medium">{r.pending_note}</span>
+                        {r.pending_target_vlan_name && " · "}
+                      </>
+                    )}
+                    {r.pending_target_vlan_name && (
+                      <>
+                        {t("label_vlan")}: <span className="font-medium">{r.pending_target_vlan_name}</span>
+                      </>
+                    )}
+                  </p>
+                )}
+
+                {r.pending_action === "gateway_change" && r.pending_target_gateway_names && (
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                    <span className="text-[11px] text-gray-400">{t("label_target_gateways")}:</span>
+                    {r.pending_target_gateway_names.length === 0 && (
+                      <span className="text-[11px] text-gray-400">—</span>
+                    )}
+                    {r.pending_target_gateway_names.map((name, i) => (
+                      <span
+                        key={`${name}-${i}`}
+                        className="inline-block rounded-full bg-gray-100 px-2 py-0.5 text-[11px] text-gray-600 dark:bg-gray-800 dark:text-gray-300"
+                      >
+                        {name}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="flex flex-none gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => approve(r.id)}
+                  disabled={busyId === r.id}
+                  className="flex items-center gap-1 rounded-lg bg-teal-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-teal-700 disabled:opacity-50"
+                >
+                  <i className="ti ti-check text-[13px]" />
+                  {t("btn_approve")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => reject(r.id)}
+                  disabled={busyId === r.id}
+                  className="flex items-center gap-1 rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+                >
+                  <i className="ti ti-x text-[13px]" />
+                  {t("btn_reject")}
+                </button>
+              </div>
+            </div>
           </div>
         ))}
       </div>
