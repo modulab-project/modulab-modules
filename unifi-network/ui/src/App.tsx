@@ -168,6 +168,20 @@ export default function UnifiNetworkApp({ moduleName, apiBase, token, initialQue
   // silently keeps the badge at 0 on failure, exactly like refreshPendingCount
   // above already does. A non-Admin simply never sees this badge.
   const [pendingChangesCount, setPendingChangesCount] = useState(0);
+  // isAdmin (ergänzt 2026-07-05, Nutzerentscheidung): the Gateways tab and
+  // Pending-changes tab must be fully hidden from non-Admins, not just have
+  // their mutating actions rejected server-side. Since ModuleComponentProps
+  // carries no role information, admin status is inferred client-side from
+  // whether the Admin-only /devices/pending-changes probe succeeds — the
+  // same call refreshPendingChangesCount() already makes for the badge.
+  // null = not yet known (probe still in flight); both tabs stay hidden
+  // during that brief window rather than flashing visible for everyone.
+  // A transient network error also resolves to false (hidden) rather than
+  // true — for a UI-only visibility gate (the backend enforces the real
+  // permission check regardless), that is the safer default: it can at
+  // worst hide an Admin's own tabs until they reload, never show them to a
+  // non-Admin.
+  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
 
   const refreshPendingCount = useCallback(() => {
     api
@@ -179,14 +193,28 @@ export default function UnifiNetworkApp({ moduleName, apiBase, token, initialQue
   const refreshPendingChangesCount = useCallback(() => {
     api
       .get<PendingDeviceChange[]>("/devices/pending-changes")
-      .then((rows) => setPendingChangesCount(Array.isArray(rows) ? rows.length : 0))
-      .catch(() => {});
+      .then((rows) => {
+        setPendingChangesCount(Array.isArray(rows) ? rows.length : 0);
+        setIsAdmin(true);
+      })
+      .catch(() => setIsAdmin(false));
   }, [api]);
 
   useEffect(() => {
     refreshPendingCount();
     refreshPendingChangesCount();
   }, [refreshPendingCount, refreshPendingChangesCount]);
+
+  // Guards against a stale deep-link (e.g. an old notification's actionPath,
+  // or a bookmarked ?view=gateways URL) landing a non-Admin on a tab that's
+  // about to disappear from the nav — bounces back to overview once the
+  // Admin probe above resolves to false. Does nothing while isAdmin is still
+  // null (probe in flight) or true (nothing to guard against).
+  useEffect(() => {
+    if (isAdmin === false && (view.type === "gateways" || view.type === "pending-changes")) {
+      setView({ type: "overview" });
+    }
+  }, [isAdmin, view.type]);
 
   return (
     <div className="unifi-network-module">
@@ -222,32 +250,36 @@ export default function UnifiNetworkApp({ moduleName, apiBase, token, initialQue
             </span>
           )}
         </button>
-        <button
-          type="button"
-          onClick={() => setView({ type: "pending-changes" })}
-          className={navCls(view.type === "pending-changes") + " relative"}
-          title={t("nav_pending_changes")}
-        >
-          <i className="ti ti-git-pull-request text-[15px]" />
-          <span className="hidden sm:inline">{t("nav_pending_changes")}</span>
-          {pendingChangesCount > 0 && (
-            <span
-              className="ml-0.5 inline-flex h-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-semibold text-white"
-              style={{ minWidth: "16px" }}
-            >
-              {pendingChangesCount}
-            </span>
-          )}
-        </button>
-        <button
-          type="button"
-          onClick={() => setView({ type: "gateways" })}
-          className={navCls(view.type === "gateways")}
-          title={t("nav_gateways")}
-        >
-          <i className="ti ti-server-2 text-[15px]" />
-          <span className="hidden sm:inline">{t("nav_gateways")}</span>
-        </button>
+        {isAdmin && (
+          <button
+            type="button"
+            onClick={() => setView({ type: "pending-changes" })}
+            className={navCls(view.type === "pending-changes") + " relative"}
+            title={t("nav_pending_changes")}
+          >
+            <i className="ti ti-git-pull-request text-[15px]" />
+            <span className="hidden sm:inline">{t("nav_pending_changes")}</span>
+            {pendingChangesCount > 0 && (
+              <span
+                className="ml-0.5 inline-flex h-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-semibold text-white"
+                style={{ minWidth: "16px" }}
+              >
+                {pendingChangesCount}
+              </span>
+            )}
+          </button>
+        )}
+        {isAdmin && (
+          <button
+            type="button"
+            onClick={() => setView({ type: "gateways" })}
+            className={navCls(view.type === "gateways")}
+            title={t("nav_gateways")}
+          >
+            <i className="ti ti-server-2 text-[15px]" />
+            <span className="hidden sm:inline">{t("nav_gateways")}</span>
+          </button>
+        )}
         {/* min-w-[4px] ist ebenfalls eine Arbitrary-Value-Klasse, siehe
             Kommentar beim pendingCount-Badge oben — per Inline-Style gesetzt. */}
         <div className="flex-1" style={{ minWidth: "4px" }} />
@@ -277,10 +309,10 @@ export default function UnifiNetworkApp({ moduleName, apiBase, token, initialQue
       {view.type === "pending" && (
         <PendingApprovalList api={api} onChanged={refreshPendingCount} />
       )}
-      {view.type === "pending-changes" && (
+      {view.type === "pending-changes" && isAdmin && (
         <PendingChangesList api={api} onChanged={refreshPendingChangesCount} />
       )}
-      {view.type === "gateways" && <GatewaysView api={api} />}
+      {view.type === "gateways" && isAdmin && <GatewaysView api={api} />}
       {view.type === "info" && <ModuleInfoView moduleName={moduleName} token={token} />}
     </div>
   );
