@@ -211,7 +211,10 @@ export default function UnifiNetworkApp({ moduleName, apiBase, token, initialQue
   // Admin probe above resolves to false. Does nothing while isAdmin is still
   // null (probe in flight) or true (nothing to guard against).
   useEffect(() => {
-    if (isAdmin === false && (view.type === "gateways" || view.type === "pending-changes")) {
+    if (
+      isAdmin === false &&
+      (view.type === "gateways" || view.type === "pending-changes" || view.type === "pending")
+    ) {
       setView({ type: "overview" });
     }
   }, [isAdmin, view.type]);
@@ -229,27 +232,34 @@ export default function UnifiNetworkApp({ moduleName, apiBase, token, initialQue
           <i className="ti ti-router text-[15px]" />
           <span className="hidden sm:inline">{t("nav_overview")}</span>
         </button>
-        <button
-          type="button"
-          onClick={() => setView({ type: "pending" })}
-          className={navCls(view.type === "pending") + " relative"}
-          title={t("nav_pending")}
-        >
-          <i className="ti ti-clock-hour-4 text-[15px]" />
-          <span className="hidden sm:inline">{t("nav_pending")}</span>
-          {pendingCount > 0 && (
-            // min-w-[16px] ist eine Tailwind-Arbitrary-Value-Klasse, die wie
-            // h-[14px]/w-[14px] oben (2026-07-02) nicht im Core-Whitelist ist
-            // und beim Purge entfernt wird — per Inline-Style statt
-            // Utility-Klasse gesetzt.
-            <span
-              className="ml-0.5 inline-flex h-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-semibold text-white"
-              style={{ minWidth: "16px" }}
-            >
-              {pendingCount}
-            </span>
-          )}
-        </button>
+        {/* Bugfix (2026-07-05): listPendingDevices() has always been
+            Admin-only server-side (Entscheidungsvorlage 4.7, "if
+            (!isAdmin(auth)) return forbidden();") — this tab was just never
+            hidden client-side, the same gap Gateways/Pending-changes had
+            until earlier today. Gated on isAdmin exactly like those two. */}
+        {isAdmin && (
+          <button
+            type="button"
+            onClick={() => setView({ type: "pending" })}
+            className={navCls(view.type === "pending") + " relative"}
+            title={t("nav_pending")}
+          >
+            <i className="ti ti-clock-hour-4 text-[15px]" />
+            <span className="hidden sm:inline">{t("nav_pending")}</span>
+            {pendingCount > 0 && (
+              // min-w-[16px] ist eine Tailwind-Arbitrary-Value-Klasse, die wie
+              // h-[14px]/w-[14px] oben (2026-07-02) nicht im Core-Whitelist ist
+              // und beim Purge entfernt wird — per Inline-Style statt
+              // Utility-Klasse gesetzt.
+              <span
+                className="ml-0.5 inline-flex h-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-semibold text-white"
+                style={{ minWidth: "16px" }}
+              >
+                {pendingCount}
+              </span>
+            )}
+          </button>
+        )}
         {isAdmin && (
           <button
             type="button"
@@ -306,7 +316,7 @@ export default function UnifiNetworkApp({ moduleName, apiBase, token, initialQue
       {view.type === "onboard" && (
         <OnboardingForm api={api} onDone={() => setView({ type: "overview" })} />
       )}
-      {view.type === "pending" && (
+      {view.type === "pending" && isAdmin && (
         <PendingApprovalList api={api} onChanged={refreshPendingCount} />
       )}
       {view.type === "pending-changes" && isAdmin && (
