@@ -1,38 +1,47 @@
 #!/usr/bin/env bash
-# build-module.sh — vollautomatischer Build + GitHub Release für ein ModuLab-Modul.
+# build-module.sh — fully automated build + GitHub release for a ModuLab module.
 #
 # Usage:
 #   ./scripts/build-module.sh <module-name>
 #
-# Voraussetzungen:
-#   - GITHUB_TOKEN    env-Variable mit einem Personal Access Token (repo-Scope)
-#   - COSIGN_PASSWORD env-Variable mit dem Passwort des Cosign-Schlüssels
-#   - cosign.key      im Repo-Root - der private Cosign-Schlüssel (siehe unten,
-#                      niemals committen, steht deswegen in .gitignore)
-#   - npm             (für den UI-Build)
+# Requirements:
+#   - GITHUB_TOKEN    env var with a Personal Access Token (repo scope)
+#   - COSIGN_PASSWORD env var with the password for the cosign key
+#   - cosign.key      in the repo root - the private cosign key (see below,
+#                      never commit it, hence it's in .gitignore)
+#   - npm             (for the UI build)
 #   - curl, zip, jq, cosign
 #
-# Einmalige Einrichtung des Signier-Schlüssels (nur beim allerersten Release):
-#   1. cosign generate-key-pair
-#      → erzeugt cosign.key (privat, passwortgeschützt) und cosign.pub im
-#        aktuellen Verzeichnis. Im Repo-Root ausführen.
-#   2. Den Inhalt von cosign.pub 1:1 in modulab-core einfügen:
-#      backend/internal/modules/cosign_pubkey.pem
-#      (siehe den Kommentar dort - solange die Datei keinen echten PEM-Header
-#      enthält, überspringt Core die Signaturprüfung für alle offiziellen Module.)
-#   3. cosign.key sicher aufbewahren (Passwort-Manager) - wer diesen Schlüssel
-#      hat, kann sich als "offizielles ModuLab-Modul" ausgeben.
+# Optional:
+#   - KEEP_RELEASES   env var (integer) - if set, deletes older GitHub
+#                      releases for THIS module after a successful release,
+#                      keeping only the newest N (including the one just
+#                      created). Unset/0 = disabled, nothing is pruned
+#                      (default, safe by default). See step 9 below.
 #
-# Was das Skript macht:
-#   1. Liest name/version/category aus <module>/manifest.yaml
-#   2. Baut die React-UI  (falls ui/package.json vorhanden)
-#   3. Erstellt dist/<module>-v<version>.zip  (nur Release-relevante Dateien)
-#   4. Berechnet SHA256
-#   5. Signiert die ZIP mit cosign sign-blob im neuen Sigstore-Bundle-Format
-#      (--bundle; JSON-Datei mit Signatur + Verifikationsmaterial, cosign.key)
-#   6. Erstellt einen GitHub Release (Tag: <module>-v<version>)
-#   7. Lädt .zip + .zip.sha256 + .zip.cosign.bundle als Release-Assets hoch
-#   8. Aktualisiert registry.json (inkl. cosign_sig_url) und committet + pusht
+# One-time setup of the signing key (only for the very first release):
+#   1. cosign generate-key-pair
+#      → creates cosign.key (private, password-protected) and cosign.pub in
+#        the current directory. Run this in the repo root.
+#   2. Paste the contents of cosign.pub as-is into modulab-core:
+#      backend/internal/modules/cosign_pubkey.pem
+#      (see the comment there - as long as that file has no real PEM header,
+#      Core skips the signature check for all official modules.)
+#   3. Keep cosign.key somewhere safe (password manager) - whoever has this
+#      key can impersonate an "official ModuLab module".
+#
+# What this script does:
+#   1. Reads name/version/category from <module>/manifest.yaml
+#   2. Builds the React UI (if ui/package.json exists)
+#   3. Creates dist/<module>-v<version>.zip (release-relevant files only)
+#   4. Computes SHA256
+#   5. Signs the zip with cosign sign-blob using the new Sigstore bundle
+#      format (--bundle; a JSON file with the signature + verification
+#      material, cosign.key)
+#   6. Creates a GitHub Release (tag: <module>-v<version>)
+#   7. Uploads .zip + .zip.sha256 + .zip.cosign.bundle as release assets
+#   8. Updates registry.json (incl. cosign_sig_url) and commits + pushes
+#   9. Optionally prunes older releases for this module (see KEEP_RELEASES above)
 
 set -euo pipefail
 
@@ -289,6 +298,57 @@ git diff --cached --quiet && echo "  (registry.json unchanged — nothing to com
   ok "Pushed to origin"
 }
 
+# ── Prune old releases ────────────────────────────────────────────────────────
+# Opt-in via KEEP_RELEASES (see header comment). Deletes older GitHub
+# releases for THIS module only — other modules' releases are untouched,
+# since they're matched by tag_name prefix "<name>-v".
+if [[ -n "${KEEP_RELEASES:-}" && "${KEEP_RELEASES}" =~ ^[0-9]+$ && "${KEEP_RELEASES}" -gt 0 ]]; then
+  step "Pruning old releases for '$NAME' (keeping the newest $KEEP_RELEASES)..."
+
+  # per_page=100 covers a homelab-scale release history in one request; add
+  # pagination here if a single module ever accumulates more releases than
+  # that.
+  ALL_RELEASES=$(curl -sf \
+    -H "Authorization: Bearer $GITHUB_TOKEN" \
+    -H "Accept: application/vnd.github+json" \
+    "https://api.github.com/repos/$GITHUB_REPO/releases?per_page=100") || die "Failed to list releases for pruning."
+
+  # Only this module's releases (tag_name "<name>-v<version>"), newest first.
+  # GitHub already returns releases newest-first, but sort explicitly by
+  # created_at so this doesn't depend on that ordering being guaranteed.
+  TO_DELETE=$(echo "$ALL_RELEASES" | python3 -c "
+import sys, json
+releases = json.load(sys.stdin)
+mine = [r for r in releases if r['tag_name'].startswith('$NAME-v')]
+mine.sort(key=lambda r: r['created_at'], reverse=True)
+keep = int('$KEEP_RELEASES')
+for r in mine[keep:]:
+    print(f\"{r['id']}\t{r['tag_name']}\")
+")
+
+  if [[ -z "$TO_DELETE" ]]; then
+    echo "  (nothing to prune)"
+  else
+    while IFS=$'\t' read -r OLD_ID OLD_TAG; do
+      [[ -z "$OLD_ID" ]] && continue
+      curl -sf -X DELETE \
+        -H "Authorization: Bearer $GITHUB_TOKEN" \
+        -H "Accept: application/vnd.github+json" \
+        "https://api.github.com/repos/$GITHUB_REPO/releases/$OLD_ID" > /dev/null \
+        || { red "  ! failed to delete release $OLD_TAG (id=$OLD_ID), continuing"; continue; }
+      # Deleting the release above does not delete the underlying git tag
+      # (GitHub keeps those as two separate objects) — remove the tag ref
+      # too, so `git fetch --tags` doesn't keep accumulating dead
+      # module-release tags forever.
+      curl -sf -X DELETE \
+        -H "Authorization: Bearer $GITHUB_TOKEN" \
+        -H "Accept: application/vnd.github+json" \
+        "https://api.github.com/repos/$GITHUB_REPO/git/refs/tags/$OLD_TAG" > /dev/null 2>&1 || true
+      ok "deleted $OLD_TAG"
+    done <<< "$TO_DELETE"
+  fi
+fi
+
 # ── Done ──────────────────────────────────────────────────────────────────────
 echo
 green "═══════════════════════════════════════════════"
@@ -296,6 +356,6 @@ green " Release complete!"
 green ""
 green " https://github.com/$GITHUB_REPO/releases/tag/$TAG"
 green ""
-green " In ModuLab: Admin → Modul-Store → Sync"
+green " In ModuLab: Admin → Module store → Sync"
 green "═══════════════════════════════════════════════"
 echo
