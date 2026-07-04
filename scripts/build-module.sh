@@ -5,18 +5,33 @@
 #   ./scripts/build-module.sh <module-name>
 #
 # Voraussetzungen:
-#   - GITHUB_TOKEN  env-Variable mit einem Personal Access Token (repo-Scope)
-#   - npm           (für den UI-Build)
-#   - curl, zip, jq
+#   - GITHUB_TOKEN    env-Variable mit einem Personal Access Token (repo-Scope)
+#   - COSIGN_PASSWORD env-Variable mit dem Passwort des Cosign-Schlüssels
+#   - cosign.key      im Repo-Root - der private Cosign-Schlüssel (siehe unten,
+#                      niemals committen, steht deswegen in .gitignore)
+#   - npm             (für den UI-Build)
+#   - curl, zip, jq, cosign
+#
+# Einmalige Einrichtung des Signier-Schlüssels (nur beim allerersten Release):
+#   1. cosign generate-key-pair
+#      → erzeugt cosign.key (privat, passwortgeschützt) und cosign.pub im
+#        aktuellen Verzeichnis. Im Repo-Root ausführen.
+#   2. Den Inhalt von cosign.pub 1:1 in modulab-core einfügen:
+#      backend/internal/modules/cosign_pubkey.pem
+#      (siehe den Kommentar dort - solange die Datei keinen echten PEM-Header
+#      enthält, überspringt Core die Signaturprüfung für alle offiziellen Module.)
+#   3. cosign.key sicher aufbewahren (Passwort-Manager) - wer diesen Schlüssel
+#      hat, kann sich als "offizielles ModuLab-Modul" ausgeben.
 #
 # Was das Skript macht:
 #   1. Liest name/version/category aus <module>/manifest.yaml
 #   2. Baut die React-UI  (falls ui/package.json vorhanden)
 #   3. Erstellt dist/<module>-v<version>.zip  (nur Release-relevante Dateien)
 #   4. Berechnet SHA256
-#   5. Erstellt einen GitHub Release (Tag: <module>-v<version>)
-#   6. Lädt .zip + .zip.sha256 als Release-Assets hoch
-#   7. Aktualisiert registry.json und committet + pusht
+#   5. Signiert die ZIP mit cosign sign-blob (cosign.key)
+#   6. Erstellt einen GitHub Release (Tag: <module>-v<version>)
+#   7. Lädt .zip + .zip.sha256 + .zip.sig als Release-Assets hoch
+#   8. Aktualisiert registry.json (inkl. cosign_sig_url) und committet + pusht
 
 set -euo pipefail
 
@@ -41,6 +56,15 @@ MODULE_DIR="$REPO_ROOT/$MODULE"
 
 # ── GitHub token ──────────────────────────────────────────────────────────────
 [[ -n "${GITHUB_TOKEN:-}" ]] || die "GITHUB_TOKEN is not set. Export a GitHub Personal Access Token with repo scope."
+
+# ── Cosign ────────────────────────────────────────────────────────────────────
+# Official modules must be signed (README.md: "mandatory cosign sign-blob
+# signing"). Checked up front, before any build work happens, so a missing
+# key/tool fails fast instead of after minutes of npm install + zip.
+command -v cosign &>/dev/null || die "cosign is not installed. See https://docs.sigstore.dev/cosign/system_config/installation/"
+COSIGN_KEY_PATH="${COSIGN_KEY_PATH:-$REPO_ROOT/cosign.key}"
+[[ -f "$COSIGN_KEY_PATH" ]] || die "Cosign private key not found at $COSIGN_KEY_PATH. Run 'cosign generate-key-pair' once in the repo root (see this script's header comment) before releasing the first module."
+[[ -n "${COSIGN_PASSWORD:-}" ]] || die "COSIGN_PASSWORD is not set. Export the password for $COSIGN_KEY_PATH (needed for non-interactive signing)."
 
 # ── Read repo from git remote ─────────────────────────────────────────────────
 REMOTE_URL=$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null) || die "could not read git remote"
@@ -112,6 +136,17 @@ else
 fi
 echo "$SHA256" > "$ZIP_PATH.sha256"
 ok "$SHA256"
+
+# ── Cosign signature ──────────────────────────────────────────────────────────
+step "Signing $ZIP_NAME with cosign..."
+SIG_PATH="$ZIP_PATH.sig"
+rm -f "$SIG_PATH"
+COSIGN_PASSWORD="$COSIGN_PASSWORD" cosign sign-blob \
+  --key "$COSIGN_KEY_PATH" \
+  --output-signature "$SIG_PATH" \
+  --yes \
+  "$ZIP_PATH" > /dev/null || die "cosign sign-blob failed"
+ok "$SIG_PATH"
 
 # ── GitHub Release ────────────────────────────────────────────────────────────
 step "Creating GitHub Release $TAG..."
@@ -188,12 +223,14 @@ for a in assets:
 
 upload_asset "$ZIP_PATH"
 upload_asset "$ZIP_PATH.sha256"
+upload_asset "$SIG_PATH"
 
 # ── Update registry.json ──────────────────────────────────────────────────────
 step "Updating registry.json..."
 
 REGISTRY="$REPO_ROOT/registry.json"
 RELEASE_URL="https://github.com/$GITHUB_REPO/releases/download/$TAG/$ZIP_NAME"
+SIG_URL="https://github.com/$GITHUB_REPO/releases/download/$TAG/$ZIP_NAME.sig"
 
 # Build the new entry
 NEW_ENTRY=$(python3 -c "
@@ -203,7 +240,7 @@ entry = {
     'version': '$VERSION',
     'release_url': '$RELEASE_URL',
     'sha256': '$SHA256',
-    'cosign_sig_url': '',
+    'cosign_sig_url': '$SIG_URL',
     'category': '$CATEGORY'
 }
 print(json.dumps(entry, indent=2))
