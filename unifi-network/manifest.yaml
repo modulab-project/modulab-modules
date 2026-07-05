@@ -1,8 +1,11 @@
 name: "unifi-network"
-version: "0.3.23"
+version: "0.3.24"
 display_name:
   en: "UniFi Network"
   de: "UniFi Netzwerk"
+  fr: "Réseau UniFi"
+  es: "Red UniFi"
+  nl: "UniFi-netwerk"
 description: "Manage RADIUS-based MAC authentication, dynamic VLAN assignment, and live connection status across multiple independent UniFi gateways"
 icon: "ti-router"
 author: "modulab-project"

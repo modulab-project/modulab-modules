@@ -1,8 +1,11 @@
 name: "recipes"
-version: "0.3.13"
+version: "0.3.14"
 display_name:
   en: "Recipes"
   de: "Rezepte"
+  fr: "Recettes"
+  es: "Recetas"
+  nl: "Recepten"
 description: "Recipe collection with weekly meal plan"
 icon: "ti-book-2"
 author: "modulab-project"

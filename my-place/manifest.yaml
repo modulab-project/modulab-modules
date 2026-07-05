@@ -1,8 +1,11 @@
 name: "my-places"
-version: "0.1.10"
+version: "0.1.11"
 display_name:
   en: "My Places"
   de: "Meine Orte"
+  fr: "Mes lieux"
+  es: "Mis lugares"
+  nl: "Mijn plekken"
 description: "Save and explore your favourite places — restaurants, beaches, hotels, sights and more — on an interactive map"
 icon: "ti-map-pin"
 author: "modulab-project"
