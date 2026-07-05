@@ -400,17 +400,20 @@ export async function computeEgressHosts(db: ModuleDbClient, encKey: CryptoKey |
     try {
       const baseUrl = await decrypt(encKey, row.base_url_enc);
       hosts.add(new URL(baseUrl).hostname);
-    } catch {
+    } catch (err) {
       // Skip rows that fail to decrypt/parse rather than failing the whole
       // reload — a single bad row should not take every other gateway's
-      // network access down with it.
+      // network access down with it. Logged (found 2026-07-05): this
+      // previously swallowed the error entirely, leaving a corrupted
+      // gateway record impossible to diagnose from the logs alone.
+      console.error("[unifi-network] computeEgressHosts: failed to decrypt/parse a gateway's base_url:", err);
     }
   }
   return [...hosts];
 }
 
 async function listGateways(db: ModuleDbClient): Promise<HandlerResponse> {
-  const rows = await db.query<GatewayRow>(`SELECT * FROM gateways`);
+  const rows = await db.query<GatewayRow>(`SELECT * FROM gateways LIMIT 500`);
   const encKey = await getEncKey();
   const result = await Promise.all(rows.map((gw) => decryptGatewayForResponse(gw, encKey)));
   result.sort((a, b) => a.name.localeCompare(b.name));
@@ -557,15 +560,33 @@ async function listVlanNamesForGateway(db: ModuleDbClient, gatewayId: string): P
 // ── Device handlers ──────────────────────────────────────────────────────────
 
 async function listDevices(db: ModuleDbClient): Promise<HandlerResponse> {
-  const devices = await db.query<DeviceRow>(`SELECT * FROM devices WHERE status = 'active' ORDER BY created_at DESC`);
+  const devices = await db.query<DeviceRow>(`SELECT * FROM devices WHERE status = 'active' ORDER BY created_at DESC LIMIT 500`);
   const encKey = await getEncKey();
+
+  // Bugfix (2026-07-05): this used to run one device_gateways/gateways JOIN
+  // query per device (N+1) — a single batched query with
+  // WHERE dg.device_id = ANY($1) fetches every device's gateway rows at
+  // once, then they're grouped back onto each device in memory below.
+  const deviceIds = devices.map((d) => d.id);
+  const allGatewayRows = deviceIds.length > 0
+    ? await db.query<DeviceGatewayRow & { gateway_name_enc: string }>(
+        `SELECT dg.*, g.name_enc AS gateway_name_enc
+         FROM device_gateways dg
+         JOIN gateways g ON g.id = dg.gateway_id
+         WHERE dg.device_id = ANY($1)`,
+        [deviceIds],
+      )
+    : [];
+  const gatewayRowsByDevice = new Map<string, (DeviceGatewayRow & { gateway_name_enc: string })[]>();
+  for (const row of allGatewayRows) {
+    const existing = gatewayRowsByDevice.get(row.device_id);
+    if (existing) existing.push(row);
+    else gatewayRowsByDevice.set(row.device_id, [row]);
+  }
 
   const result = [];
   for (const d of devices) {
-    const gatewayRows = await db.query<DeviceGatewayRow & { gateway_name_enc: string }>(
-      `SELECT dg.*, g.name_enc AS gateway_name_enc FROM device_gateways dg JOIN gateways g ON g.id = dg.gateway_id WHERE dg.device_id = $1`,
-      [d.id],
-    );
+    const gatewayRows = gatewayRowsByDevice.get(d.id) ?? [];
     result.push({
       id: d.id,
       // "name" entfernt (2026-07-01): note ist jetzt das einzige Freitextfeld.
@@ -644,6 +665,23 @@ async function createDevice(
     return badRequest("device_mac_exists");
   }
 
+  // Bugfix (2026-07-05): target_gateway_ids was never checked against the
+  // gateways table before being inserted into device_gateways — an unknown
+  // id (typo, stale client-side cache, deleted gateway) previously created
+  // an orphaned device_gateways row referencing nothing, only surfacing
+  // later as a confusing "gateway not found" in provisionOnGateway() at
+  // approval time instead of a clear 400 right here.
+  const requestedGatewayIds = [...new Set(input.target_gateway_ids)];
+  if (requestedGatewayIds.length > 0) {
+    const foundGateways = await db.query<{ id: string }>(
+      `SELECT id FROM gateways WHERE id = ANY($1)`,
+      [requestedGatewayIds],
+    );
+    if (foundGateways.length !== requestedGatewayIds.length) {
+      return badRequest("one or more target_gateway_ids do not exist");
+    }
+  }
+
   // Entscheidungsvorlage 4.7: onboarding never provisions immediately.
   // The device is stored as pending_approval; no RADIUS/user API calls happen
   // until an Org-Admin/Super-Admin approves it (see approveDevice()).
@@ -655,8 +693,9 @@ async function createDevice(
 
   // Store the requested target gateways as device_gateways rows with a
   // placeholder provisioning_status; the actual RADIUS/alias creation happens
-  // in approveDevice().
-  for (const gatewayId of input.target_gateway_ids) {
+  // in approveDevice(). Uses the deduplicated, already-verified list from
+  // the existence check above.
+  for (const gatewayId of requestedGatewayIds) {
     await db.query(
       `INSERT INTO device_gateways (device_id, gateway_id, radius_account_id, provisioning_status)
        VALUES ($1, $2, '', 'ok')
@@ -1179,6 +1218,26 @@ async function listPendingDeviceChanges(db: ModuleDbClient, auth: ModuleAuthCont
   );
   const encKey = await getEncKey();
 
+  // Bugfix (2026-07-05): pending_target_gateway_ids used to be resolved to
+  // names with one SELECT per gateway id per row (N+1, nested inside the
+  // per-device loop below). Every gateway id referenced by any pending
+  // "gateway_change" row is now collected up front and fetched in a single
+  // ANY($1) query, then looked up from an in-memory map inside the loop.
+  const allReferencedGatewayIds = new Set<string>();
+  for (const d of rows) {
+    if (d.pending_action === "gateway_change" && d.pending_target_gateway_ids) {
+      for (const gid of d.pending_target_gateway_ids) allReferencedGatewayIds.add(gid);
+    }
+  }
+  const gatewaysById = new Map<string, GatewayRow>();
+  if (allReferencedGatewayIds.size > 0) {
+    const gatewayRows = await db.query<GatewayRow>(
+      `SELECT * FROM gateways WHERE id = ANY($1)`,
+      [[...allReferencedGatewayIds]],
+    );
+    for (const gw of gatewayRows) gatewaysById.set(gw.id, gw);
+  }
+
   const result: PendingDeviceChange[] = [];
   for (const d of rows) {
     const entry: PendingDeviceChange = {
@@ -1198,7 +1257,7 @@ async function listPendingDeviceChanges(db: ModuleDbClient, auth: ModuleAuthCont
     if (d.pending_action === "gateway_change" && d.pending_target_gateway_ids) {
       const names: string[] = [];
       for (const gid of d.pending_target_gateway_ids) {
-        const [gw] = await db.query<GatewayRow>(`SELECT * FROM gateways WHERE id = $1`, [gid]);
+        const gw = gatewaysById.get(gid);
         names.push(gw && encKey ? await decrypt(encKey, gw.name_enc).catch(() => "???") : "???");
       }
       entry.pending_target_gateway_names = names;
@@ -1341,16 +1400,33 @@ async function listPendingDevices(db: ModuleDbClient, auth: ModuleAuthContext): 
   const rows = await db.query<DeviceRow>(`SELECT * FROM devices WHERE status = 'pending_approval' ORDER BY created_at`);
   const encKey = await getEncKey();
 
+  // Bugfix (2026-07-05): one device_gateways/gateways JOIN query per pending
+  // device (N+1) — batched into a single ANY($1) query, then grouped back
+  // onto each device in memory below (same pattern as listDevices() above).
+  const deviceIds = rows.map((d) => d.id);
+  const allTargetGatewayRows = deviceIds.length > 0
+    ? await db.query<{ device_id: string; gateway_name_enc: string }>(
+        `SELECT dg.device_id, g.name_enc AS gateway_name_enc
+         FROM device_gateways dg
+         JOIN gateways g ON g.id = dg.gateway_id
+         WHERE dg.device_id = ANY($1)`,
+        [deviceIds],
+      )
+    : [];
+  const targetGatewayRowsByDevice = new Map<string, { device_id: string; gateway_name_enc: string }[]>();
+  for (const row of allTargetGatewayRows) {
+    const existing = targetGatewayRowsByDevice.get(row.device_id);
+    if (existing) existing.push(row);
+    else targetGatewayRowsByDevice.set(row.device_id, [row]);
+  }
+
   const result = [];
   for (const d of rows) {
     // Ergänzt 2026-07-01: Ziel-Gateways mitliefern, damit die
     // Freigabe-Liste zeigen kann, für welche Gateways ein Gerät angefragt
     // wurde — createDevice() legt dafür bereits Platzhalter-Zeilen in
     // device_gateways an, wurden bisher aber nie mit ausgeliefert.
-    const targetGatewayRows = await db.query<{ gateway_name_enc: string }>(
-      `SELECT g.name_enc AS gateway_name_enc FROM device_gateways dg JOIN gateways g ON g.id = dg.gateway_id WHERE dg.device_id = $1`,
-      [d.id],
-    );
+    const targetGatewayRows = targetGatewayRowsByDevice.get(d.id) ?? [];
     const targetGatewayNames = (
       await Promise.all(
         targetGatewayRows.map((g) => (encKey ? decrypt(encKey, g.gateway_name_enc).catch(() => "???") : Promise.resolve("???"))),

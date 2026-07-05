@@ -388,6 +388,7 @@ function RecipeDetail({
   const [servings, setServings] = useState(4);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
     api.get<Recipe & { ingredients: Ingredient[]; steps: Step[]; tags: Tag[] }>(`/recipes/${id}`)
@@ -401,10 +402,15 @@ function RecipeDetail({
   async function handleDelete() {
     if (!window.confirm(t("recipe_delete_confirm"))) return;
     setDeleting(true);
+    setDeleteError(null);
     try {
       await api.mutate("DELETE", `/recipes/${id}`);
       onBack();
     } catch {
+      // Bugfix (2026-07-05): previously only reset the `deleting` flag with
+      // no user-visible error — a failed delete looked identical to a
+      // successful one that just hadn't navigated away yet.
+      setDeleteError(t("recipe_delete_error"));
       setDeleting(false);
     }
   }
@@ -423,6 +429,12 @@ function RecipeDetail({
       >
         <i className="ti ti-arrow-left text-[14px]" /> {t("back")}
       </button>
+
+      {deleteError && (
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+          {deleteError}
+        </div>
+      )}
 
       {recipe.image_path && (
         <img
@@ -1033,6 +1045,7 @@ function MealPlanView({ api }: { api: ReturnType<typeof useApi> }) {
   const [loading, setLoading] = useState(true);
   const [pickerCell, setPickerCell] = useState<{ day: number; slot: string } | null>(null);
   const [pickerSearch, setPickerSearch] = useState("");
+  const [mealPlanError, setMealPlanError] = useState<string | null>(null);
 
   const DAY_KEYS = ["day_mon", "day_tue", "day_wed", "day_thu", "day_fri", "day_sat", "day_sun"] as const;
 
@@ -1084,8 +1097,18 @@ function MealPlanView({ api }: { api: ReturnType<typeof useApi> }) {
   }
 
   async function clearEntry(day: number, slot: string) {
-    await api.mutate("DELETE", `/meal-plan/${weekStart}/${day}/${slot}`);
-    setEntries((prev) => prev.filter((e) => !(e.day_of_week === day && e.meal_slot === slot)));
+    setMealPlanError(null);
+    try {
+      await api.mutate("DELETE", `/meal-plan/${weekStart}/${day}/${slot}`);
+      setEntries((prev) => prev.filter((e) => !(e.day_of_week === day && e.meal_slot === slot)));
+    } catch {
+      // Bugfix (2026-07-05): previously had no try/catch at all — a failed
+      // DELETE call threw unhandled, and the picker still closed as if it
+      // had worked (setPickerCell(null) below still ran via the outer flow
+      // in the old code path). Now the entry is only removed from local
+      // state on success, and a failure is shown instead.
+      setMealPlanError(t("meal_plan_clear_error"));
+    }
     setPickerCell(null);
     setPickerSearch("");
   }
@@ -1115,6 +1138,12 @@ function MealPlanView({ api }: { api: ReturnType<typeof useApi> }) {
         <button type="button" onClick={() => setWeekOffset(0)}
           className="text-xs text-teal-600 hover:underline">{t("this_week")}</button>
       </div>
+
+      {mealPlanError && (
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+          {mealPlanError}
+        </div>
+      )}
 
       {loading && <p className="text-sm text-gray-400">{t("loading")}</p>}
 

@@ -97,6 +97,10 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
 
   if (method === "GET" && pathname.match(/^\/recipes\/[^/]+\/ingredients$/)) {
     const id = pathname.split("/")[2];
+    // Bugfix (2026-07-05): a nonexistent recipe id previously fell through
+    // to an empty-result SELECT and returned 200 with `[]`, indistinguishable
+    // from "recipe exists but has no ingredients yet".
+    if (!(await recipeExists(db, id))) return notFound("recipe");
     const rows = await db.query<Ingredient>(
       `SELECT * FROM ingredients WHERE recipe_id = $1 ORDER BY position ASC`,
       [id],
@@ -112,6 +116,8 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
 
   if (method === "GET" && pathname.match(/^\/recipes\/[^/]+\/steps$/)) {
     const id = pathname.split("/")[2];
+    // Same bugfix as GET /recipes/:id/ingredients above.
+    if (!(await recipeExists(db, id))) return notFound("recipe");
     const rows = await db.query<Step>(
       `SELECT * FROM recipe_steps WHERE recipe_id = $1 ORDER BY step_number ASC`,
       [id],
@@ -283,6 +289,12 @@ async function listRecipes(db: ModuleDbClient, path: string): Promise<HandlerRes
     args,
   );
 
+  // Separate COUNT(*) re-running the same WHERE as the list query above.
+  // Left as-is (2026-07-05 review): combining via a window function
+  // (COUNT(*) OVER()) would need a second GROUP BY-shaped subquery here
+  // because of the existing json_agg/tag_names aggregation, and the current
+  // two-query version is already simple and correct — not worth the
+  // rewrite risk for a homelab-scale recipe count.
   const [countRow] = await db.query<{ total: string }>(
     `SELECT COUNT(*) AS total FROM recipes r ${where}`,
     args.slice(0, -2),
@@ -327,6 +339,11 @@ async function createRecipe(
   input: RecipeInput,
   userId: string,
 ): Promise<HandlerResponse> {
+  // Bugfix (2026-07-05): title has a NOT NULL constraint but no non-empty
+  // check, so a bare "" previously reached the INSERT and created an
+  // untitled, effectively unusable recipe.
+  if (!input.title || !input.title.trim()) return badRequest("title is required");
+  if (input.source_url && !isSafeUrl(input.source_url)) return badRequest("invalid source_url");
   const [row] = await db.query(
     `INSERT INTO recipes
        (title, description, category_id, servings, prep_time_min, cook_time_min,
@@ -334,7 +351,7 @@ async function createRecipe(
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'manual',$9)
      RETURNING *`,
     [
-      input.title,
+      input.title.trim(),
       input.description ?? "",
       input.category_id ?? null,
       input.servings ?? 4,
@@ -357,6 +374,9 @@ async function updateRecipe(
   // n() converts undefined (and empty string for nullable fields) to null so
   // COALESCE($n, col) correctly falls back to the existing column value.
   const n = (v: unknown) => (v === undefined || v === "" ? null : v);
+
+  if (input.title !== undefined && !input.title.trim()) return badRequest("title cannot be empty");
+  if (input.source_url && !isSafeUrl(input.source_url)) return badRequest("invalid source_url");
 
   const [row] = await db.query(
     `UPDATE recipes SET
@@ -387,10 +407,23 @@ async function updateRecipe(
 }
 
 async function deleteRecipe(db: ModuleDbClient, id: string): Promise<HandlerResponse> {
-  await db.query(`DELETE FROM recipes WHERE id = $1`, [id]);
+  // Bugfix (2026-07-05): previously returned 204 unconditionally, even for a
+  // nonexistent id — matches updateRecipe()'s RETURNING/row-count pattern above.
+  const rows = await db.query<{ id: string }>(`DELETE FROM recipes WHERE id = $1 RETURNING id`, [id]);
+  if (rows.length === 0) return notFound("recipe");
   return noContent();
 }
 
+// replaceIngredients()/replaceSteps() below do DELETE-all + one INSERT per
+// item in a loop rather than a single multi-row INSERT. Left as-is
+// (2026-07-05 review): there's no existing dynamic multi-row VALUES helper
+// anywhere in this module (or the other two — see the project-wide
+// no-shared-utilities convention) to model one on, recipe ingredient/step
+// counts are small (a handful to a few dozen rows, not thousands), and
+// building the parameter-index bookkeeping for a variable-width, variable-
+// row-count VALUES list by hand without a TypeScript compiler available to
+// catch an off-by-one is a real risk of silently swapping columns for one
+// row. Not worth it for a homelab-scale recipe box.
 async function replaceIngredients(
   db: ModuleDbClient,
   recipeId: string,
@@ -620,7 +653,38 @@ function isValidMealSlot(slot: string): boolean {
 // <img src> for every other user who views this recipe (found 2026-07-05).
 function isSafeFilePath(value: string): boolean {
   if (!value || value.includes("..") || value.includes("://") || value.startsWith("/")) return false;
+  // A scheme like "data:" or "javascript:" has no "//" and doesn't start
+  // with "/", so it slipped past the checks above undetected until this
+  // was found alongside the equivalent my-place fix (2026-07-05) - reject
+  // any colon that appears before the first slash (or with no slash at
+  // all), which catches those schemes while still accepting a bare
+  // relative path like "uploads/abc123.jpg".
+  const slashIdx = value.indexOf("/");
+  const colonIdx = value.indexOf(":");
+  if (colonIdx !== -1 && (slashIdx === -1 || colonIdx < slashIdx)) return false;
   return true;
+}
+
+// source_url is rendered as <a href> in the frontend (RecipeDetail) — a
+// javascript:/data:/vbscript: scheme there would execute in the viewer's
+// session. Only http/https are ever legitimate for a recipe source link, so
+// anything else is rejected outright (found 2026-07-05).
+function isSafeUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+// Existence check used by GET /recipes/:id/ingredients and GET
+// /recipes/:id/steps (found 2026-07-05): both previously returned `[]` for a
+// nonexistent recipe id instead of 404, indistinguishable from "recipe
+// exists but has no rows yet".
+async function recipeExists(db: ModuleDbClient, id: string): Promise<boolean> {
+  const rows = await db.query<{ exists: boolean }>(`SELECT 1 AS exists FROM recipes WHERE id = $1`, [id]);
+  return rows.length > 0;
 }
 
 // ── Types ─────────────────────────────────────────────────────────────────────

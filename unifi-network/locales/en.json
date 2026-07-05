@@ -26,6 +26,7 @@
   "loading": "Loading…",
   "no_gateways": "No gateways yet.",
   "paused_hint": "Paused after repeated failures. Check the configuration.",
+  "consecutive_failures_label": "{{count}} consecutive failures",
 
   "devices_heading": "RADIUS devices",
   "no_devices": "No devices yet.",
@@ -46,7 +47,6 @@
   "onboard_heading": "Add new device",
   "onboard_approval_hint": "New devices must be approved by an admin before they become active.",
   "label_mac": "MAC address",
-  "optional": "optional",
   "label_note": "Note",
   "placeholder_note": "e.g. device type or location",
   "label_vlan": "Target VLAN",

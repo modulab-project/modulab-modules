@@ -66,6 +66,8 @@
   "recipe_not_found": "Rezept nicht gefunden",
   "recipe_load_error": "Rezept konnte nicht geladen werden",
   "recipe_delete_confirm": "Dieses Rezept wirklich löschen?",
+  "recipe_delete_error": "Löschen fehlgeschlagen",
+  "meal_plan_clear_error": "Eintrag konnte nicht gelöscht werden",
 
   "new_recipe": "Neues Rezept",
   "edit_recipe": "Rezept bearbeiten",

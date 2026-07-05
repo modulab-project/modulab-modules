@@ -26,6 +26,7 @@
   "loading": "Lädt…",
   "no_gateways": "Keine Gateways vorhanden.",
   "paused_hint": "Pausiert nach wiederholten Fehlern. Bitte Konfiguration prüfen.",
+  "consecutive_failures_label": "{{count}} Fehler in Folge",
 
   "devices_heading": "RADIUS-Geräte",
   "no_devices": "Keine Geräte vorhanden.",
@@ -46,7 +47,6 @@
   "onboard_heading": "Neues Gerät anlegen",
   "onboard_approval_hint": "Neue Geräte müssen von einem Admin freigegeben werden, bevor sie aktiv geschaltet werden.",
   "label_mac": "MAC-Adresse",
-  "optional": "optional",
   "label_note": "Notiz",
   "placeholder_note": "z. B. Gerätetyp oder Standort",
   "label_vlan": "Ziel-VLAN",

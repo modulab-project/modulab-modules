@@ -179,13 +179,14 @@ function Stars({ value, onChange }: { value: number | null; onChange?: (v: numbe
 
 // ── PhotoGrid — reusable photo upload/delete grid ──────────────────────────────
 
-function PhotoGrid({ photos, uploading, uploadErr, onUpload, onDelete, fileInputRef }: {
+function PhotoGrid({ photos, uploading, uploadErr, onUpload, onDelete, fileInputRef, t }: {
   photos: SpotPhoto[];
   uploading: boolean;
   uploadErr: string | null;
   onUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onDelete: (id: string) => void;
   fileInputRef: React.RefObject<HTMLInputElement>;
+  t: (k: string, opts?: Record<string, unknown>) => string;
 }) {
   return (
     <div>
@@ -193,7 +194,7 @@ function PhotoGrid({ photos, uploading, uploadErr, onUpload, onDelete, fileInput
       {uploadErr && <p className="mb-2 text-xs text-red-500">{uploadErr}</p>}
       {uploading && (
         <p className="mb-2 flex items-center gap-1.5 text-xs text-teal-600">
-          <i className="ti ti-loader-2 animate-spin" /> Hochladen…
+          <i className="ti ti-loader-2 animate-spin" /> {t("uploading")}
         </p>
       )}
       <div className="grid grid-cols-3 gap-2">
@@ -211,9 +212,9 @@ function PhotoGrid({ photos, uploading, uploadErr, onUpload, onDelete, fileInput
               type="button"
               onClick={(e) => { e.stopPropagation(); onDelete(p.id); }}
               className="mt-1 flex w-full items-center justify-center gap-1 rounded-lg py-1 text-xs text-gray-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950 dark:hover:text-red-400 transition-colors"
-              aria-label="Foto löschen"
+              aria-label={t("spot_photo_delete_aria_label")}
             >
-              <i className="ti ti-trash text-xs" /> Löschen
+              <i className="ti ti-trash text-xs" /> {t("btn_delete")}
             </button>
           </div>
         ))}
@@ -615,8 +616,8 @@ function SpotDetail({ api, id, onBack, onEdit, onDeleted, t }: {
     setUploadErr(null);
     api.get<Spot>(`/spots/${id}`)
       .then((s) => setSpot(s))
-      .catch(() => setUploadErr("Laden fehlgeschlagen"));
-  }, [api, id]);
+      .catch(() => setUploadErr(t("error_load")));
+  }, [api, id, t]);
 
   useEffect(() => {
     setLoading(true);
@@ -701,14 +702,22 @@ function SpotDetail({ api, id, onBack, onEdit, onDeleted, t }: {
         <span className="flex items-center gap-2">
           <a href={`maps://?q=${spot.lat},${spot.lng}`}
             className="flex items-center gap-1 text-teal-600 hover:underline dark:text-teal-400">
-            <i className="ti ti-brand-apple text-[13px]" /> Apple Maps
+            <i className="ti ti-brand-apple text-[13px]" /> {t("open_in_apple_maps")}
           </a>
           <a href={`https://maps.google.com/?q=${spot.lat},${spot.lng}`} target="_blank" rel="noopener noreferrer"
             className="flex items-center gap-1 text-teal-600 hover:underline dark:text-teal-400">
-            <i className="ti ti-map-2 text-[13px]" /> Google Maps
+            <i className="ti ti-map-2 text-[13px]" /> {t("open_in_google_maps")}
           </a>
         </span>
         <span className="flex items-center gap-1.5"><i className="ti ti-calendar" />{new Date(spot.created_at).toLocaleDateString()}</span>
+        {/* Ergänzt 2026-07-05: created_by war bereits Teil der API-Response,
+            wurde aber nirgends angezeigt — spot_added_by existierte als
+            ungenutzter Locale-Key. Nur der reine Wert (User-ID/E-Mail, je
+            nach Core-Auth) verfügbar, kein separater Anzeige-Name-Lookup
+            im Frontend — daher als Rohwert übernommen. */}
+        {spot.created_by && (
+          <span className="flex items-center gap-1.5"><i className="ti ti-user" />{t("spot_added_by", { name: spot.created_by })}</span>
+        )}
       </div>
 
       {/* Photos */}
@@ -721,6 +730,7 @@ function SpotDetail({ api, id, onBack, onEdit, onDeleted, t }: {
           onUpload={handlePhotoUpload}
           onDelete={handleDeletePhoto}
           fileInputRef={fileInputRef}
+          t={t}
         />
       </div>
     </div>
@@ -767,8 +777,11 @@ function SpotEditor({ api, id, trips, categories, onDone, onCancel, t }: {
   }, [api, id, t]);
 
   const reloadPhotos = useCallback((spotId: string) => {
-    api.get<Spot>(`/spots/${spotId}`).then((s) => setPhotos(s.photos ?? [])).catch(() => {});
-  }, [api]);
+    // Bugfix (2026-07-05): previously swallowed a failed reload entirely —
+    // the upload/delete itself had already succeeded, but a stale photo
+    // list stuck around with no indication anything was wrong.
+    api.get<Spot>(`/spots/${spotId}`).then((s) => setPhotos(s.photos ?? [])).catch(() => setUploadErr(t("error_load")));
+  }, [api, t]);
 
   const handleGps = () => {
     navigator.geolocation.getCurrentPosition(
@@ -903,7 +916,7 @@ function SpotEditor({ api, id, trips, categories, onDone, onCancel, t }: {
       {/* Photo section — shown after new spot is saved */}
       {showPhotoSection && !isEdit && (
         <div className="space-y-5">
-          <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300">
+          <div className="rounded-lg border border-teal-200 bg-teal-50 px-4 py-3 text-sm text-teal-700 dark:border-teal-800 dark:bg-teal-950 dark:text-teal-300">
             <i className="ti ti-check mr-1.5" />{t("spot_saved_add_photos")}
           </div>
           <div>
@@ -915,6 +928,7 @@ function SpotEditor({ api, id, trips, categories, onDone, onCancel, t }: {
               onUpload={handlePhotoUpload}
               onDelete={handleDeletePhoto}
               fileInputRef={fileInputRef}
+              t={t}
             />
           </div>
           <div className="flex justify-end">
@@ -1163,7 +1177,7 @@ function SettingsView({ api, onSaved, t }: {
         {t("settings_title")}
         {configured !== null && (
           <span className="flex items-center gap-1.5 text-sm font-normal text-gray-500 dark:text-gray-400">
-            <span className={`h-2 w-2 rounded-full ${configured ? "bg-green-500" : "bg-gray-300 dark:bg-gray-600"}`} />
+            <span className={`h-2 w-2 rounded-full ${configured ? "bg-teal-500" : "bg-gray-300 dark:bg-gray-600"}`} />
             {configured ? t("settings_key_active_short") : t("settings_key_missing_short")}
           </span>
         )}
@@ -1171,7 +1185,7 @@ function SettingsView({ api, onSaved, t }: {
       <p className="mb-6 text-sm text-gray-500 dark:text-gray-400">{t("settings_subtitle")}</p>
 
       {msg && (
-        <p className={`mb-4 text-sm ${msg.ok ? "text-green-700 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
+        <p className={`mb-4 text-sm ${msg.ok ? "text-teal-700 dark:text-teal-400" : "text-red-600 dark:text-red-400"}`}>
           {msg.text}
         </p>
       )}

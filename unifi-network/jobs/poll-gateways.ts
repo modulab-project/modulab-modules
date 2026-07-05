@@ -376,7 +376,15 @@ async function adoptExistingRadiusAccount(
     );
 
     return device;
-  } catch {
+  } catch (err) {
+    // Logged (found 2026-07-05, same rationale as markGatewayError's own
+    // console.error below): this previously swallowed the error entirely —
+    // "will retry next poll" was true but gave no trace of what failed
+    // (e.g. encrypt() failure) if it kept failing every single run.
+    console.error(
+      `[unifi-network] poll_gateways: adoptExistingRadiusAccount failed for MAC ${sanitizedMac} on gateway ${gatewayId}:`,
+      err,
+    );
     return null; // e.g. encrypt() failure — skip this cycle, will retry next poll
   }
 }

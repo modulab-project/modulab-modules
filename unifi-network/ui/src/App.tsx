@@ -375,6 +375,23 @@ function statusBadge(status: GatewayStatus, t: (k: string) => string) {
   );
 }
 
+// last_seen_at formatting — uses the just_now/minutes_ago_*/hours_ago_*/
+// days_ago_*/never_seen i18n keys that already existed in both locale files
+// but were never wired up to anything (found 2026-07-05). i18next resolves
+// the _one/_other plural variant itself from the `count` option, so this
+// only needs to pick the right key + count bucket, not the plural suffix.
+function formatLastSeen(lastSeenAt: string | null, t: (k: string, opts?: Record<string, unknown>) => string): string {
+  if (!lastSeenAt) return t("never_seen");
+  const diffMs = Date.now() - new Date(lastSeenAt).getTime();
+  const minutes = Math.floor(diffMs / 60000);
+  if (minutes < 1) return t("just_now");
+  if (minutes < 60) return t("minutes_ago", { count: minutes });
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return t("hours_ago", { count: hours });
+  const days = Math.floor(hours / 24);
+  return t("days_ago", { count: days });
+}
+
 // ── Overview: gateway status bar + global RADIUS table ──────────────────────
 
 function OverviewView({ api }: { api: ReturnType<typeof useApi> }) {
@@ -544,7 +561,24 @@ function OverviewView({ api }: { api: ReturnType<typeof useApi> }) {
                   <i className="ti ti-refresh text-[14px]" />
                 </button>
               </div>
-              <div className="mt-2">{statusBadge(gw.status, t)}</div>
+              <div className="mt-2 flex items-center gap-1.5">
+                {statusBadge(gw.status, t)}
+                {/* consecutive_failures (found 2026-07-05): already delivered
+                    by the backend and drives the circuit breaker at
+                    CIRCUIT_BREAKER_THRESHOLD (5, see poll-gateways.ts), but
+                    was never shown to admins — only visible indirectly once
+                    a gateway had already flipped to "paused". A small badge
+                    here surfaces it earlier, while it's still climbing. */}
+                {gw.consecutive_failures > 0 && (
+                  <span
+                    className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-300"
+                    title={t("consecutive_failures_label", { count: gw.consecutive_failures })}
+                  >
+                    <i className="ti ti-alert-triangle text-[11px]" />
+                    {gw.consecutive_failures}
+                  </span>
+                )}
+              </div>
               {gw.status === "paused" && (
                 <p className="mt-1.5 text-[11px] text-amber-600 dark:text-amber-400">{t("paused_hint")}</p>
               )}
@@ -720,11 +754,23 @@ function OverviewView({ api }: { api: ReturnType<typeof useApi> }) {
                                 ? "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300"
                                 : "bg-red-50 text-red-600 dark:bg-red-950 dark:text-red-300"
                             }`}
-                            title={g.provisioning_status !== "ok" ? (g.provisioning_error ?? "") : undefined}
+                            // last_seen_at (found 2026-07-05): delivered by the
+                            // backend on every device_gateways row but never
+                            // rendered anywhere — shown here as a tooltip on
+                            // each per-gateway chip using the existing
+                            // just_now/minutes_ago_*/etc. i18n keys.
+                            title={
+                              g.provisioning_status !== "ok"
+                                ? (g.provisioning_error ?? "")
+                                : formatLastSeen(g.last_seen_at, t)
+                            }
                           >
                             {g.gateway_name}
                             {g.provisioning_status === "vlan_not_found" && ` — ${t("vlan_not_found")}`}
                             {g.provisioning_status === "error" && ` — ${t("provisioning_error")}`}
+                            {g.provisioning_status === "ok" && (
+                              <span className="text-gray-400 dark:text-gray-500">· {formatLastSeen(g.last_seen_at, t)}</span>
+                            )}
                           </span>
                         ))}
                       </div>
