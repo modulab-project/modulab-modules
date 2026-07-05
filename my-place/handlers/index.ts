@@ -140,6 +140,7 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
   if (method === "POST" && pathname.match(/^\/spots\/[^/]+\/photos$/)) {
     const spotId = pathname.split("/")[2];
     const { file_path, position } = body as { file_path: string; position?: number };
+    if (!isSafeFilePath(file_path)) return badRequest("invalid file_path");
     if (!(await ownerCheck(db, "spots", spotId, auth.userId))) return forbidden();
     const [row] = await db.query(
       `INSERT INTO spot_photos (spot_id, file_path, position, created_by)
@@ -378,6 +379,25 @@ function created(body: unknown): HandlerResponse { return { status: 201, body };
 function noContent(): HandlerResponse            { return { status: 204, body: null }; }
 function notFound(w: string): HandlerResponse    { return { status: 404, body: { error: `${w} not found` } }; }
 function forbidden(): HandlerResponse            { return { status: 403, body: { error: "forbidden" } }; }
+function badRequest(message: string): HandlerResponse { return { status: 400, body: { error: message } }; }
+
+// file_path is meant to be a relative path under this module's own storage
+// directory, written by Core's upload step ("Core writes file, sends path",
+// see this file's header) — POST /spots/:id/photos still receives it as
+// ordinary untrusted request-body input, though, since nothing stops a
+// client from calling this endpoint directly with a hand-picked value
+// instead of going through the real upload first. Nothing here ever reads
+// this path off disk server-side (it's only ever handed back to the
+// browser, which resolves it against the storage base URL), so this is not
+// a path-traversal-into-a-server-read risk, but an unchecked value could
+// still point outside the storage prefix (`../`) or inject an arbitrary
+// absolute URL/protocol (`https://evil.example/...`, `javascript:...`) that
+// ends up rendered as an <img src> for every other user viewing this spot
+// (found 2026-07-05).
+function isSafeFilePath(value: string): boolean {
+  if (!value || value.includes("..") || value.includes("://") || value.startsWith("/")) return false;
+  return true;
+}
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 

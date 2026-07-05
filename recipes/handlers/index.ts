@@ -77,6 +77,7 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
   if (method === "POST" && pathname.match(/^\/recipes\/[^/]+\/image$/)) {
     const id = pathname.split("/")[2];
     const { file_path } = body as { file_path: string };
+    if (!isSafeFilePath(file_path)) return badRequest("invalid file_path");
     await db.query(
       `UPDATE recipes SET image_path = $1, updated_at = now() WHERE id = $2`,
       [file_path, id],
@@ -203,13 +204,23 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
   }
   if (method === "PUT" && pathname.match(/^\/meal-plan\/[^/]+\/\d+\/\w+$/)) {
     const [, , weekStart, day, slot] = pathname.split("/");
-    return setMealPlanEntry(db, weekStart, parseInt(day), slot, body as MealPlanInput, auth.userId);
+    const dayNum = parseInt(day);
+    // Bugfix (2026-07-05): the route regex only checked "digits" / "word
+    // chars" shape, not the actual allowed range/values — an out-of-range
+    // day or unknown slot reached the INSERT and hit meal_plan_entries' own
+    // CHECK constraints as a raw, unhandled 500 instead of a clear 400.
+    if (!isValidDayOfWeek(dayNum)) return badRequest("day must be between 1 and 7");
+    if (!isValidMealSlot(slot)) return badRequest(`slot must be one of: ${VALID_MEAL_SLOTS.join(", ")}`);
+    return setMealPlanEntry(db, weekStart, dayNum, slot, body as MealPlanInput, auth.userId);
   }
   if (method === "DELETE" && pathname.match(/^\/meal-plan\/[^/]+\/\d+\/\w+$/)) {
     const [, , weekStart, day, slot] = pathname.split("/");
+    const dayNum = parseInt(day);
+    if (!isValidDayOfWeek(dayNum)) return badRequest("day must be between 1 and 7");
+    if (!isValidMealSlot(slot)) return badRequest(`slot must be one of: ${VALID_MEAL_SLOTS.join(", ")}`);
     await db.query(
       `DELETE FROM meal_plan_entries WHERE week_start = $1 AND day_of_week = $2 AND meal_slot = $3`,
-      [weekStart, parseInt(day), slot],
+      [weekStart, dayNum, slot],
     );
     return noContent();
   }
@@ -413,6 +424,11 @@ async function replaceSteps(
   recipeId: string,
   inputs: StepInput[],
 ): Promise<HandlerResponse> {
+  for (const step of inputs) {
+    if (step.image_path && !isSafeFilePath(step.image_path)) {
+      return badRequest(`invalid image_path for step: ${step.image_path}`);
+    }
+  }
   await db.query(`DELETE FROM recipe_steps WHERE recipe_id = $1`, [recipeId]);
   const saved = [];
   for (let i = 0; i < inputs.length; i++) {
@@ -575,6 +591,36 @@ function noContent(): HandlerResponse {
 }
 function notFound(what: string): HandlerResponse {
   return { status: 404, body: { error: `${what} not found` } };
+}
+function badRequest(message: string): HandlerResponse {
+  return { status: 400, body: { error: message } };
+}
+
+// Mirrors migrations/0001_initial.sql's meal_plan_entries CHECK constraints
+// (day_of_week BETWEEN 1 AND 7, meal_slot IN (...)) — validated here too so
+// an out-of-range value reaches the caller as a 400 with a clear message
+// instead of a raw Postgres constraint-violation 500 (found 2026-07-05).
+const VALID_MEAL_SLOTS = ["breakfast", "lunch", "dinner", "snack"];
+function isValidDayOfWeek(day: number): boolean {
+  return Number.isInteger(day) && day >= 1 && day <= 7;
+}
+function isValidMealSlot(slot: string): boolean {
+  return VALID_MEAL_SLOTS.includes(slot);
+}
+
+// image_path/file_path is meant to be a relative path under this module's
+// own storage directory, returned by a prior multipart upload call (see the
+// UI's upload() helper) — never a value the client is free to invent
+// wholesale. Nothing here ever reads this path off disk server-side (it's
+// only ever handed back to the browser, which resolves it against the
+// storage base URL itself), so this is not an SSRF/path-traversal-into-a-
+// server-read risk, but an unchecked value could still point outside the
+// storage prefix (`../`) or inject an arbitrary absolute URL/protocol
+// (`https://evil.example/...`, `javascript:...`) that ends up rendered as an
+// <img src> for every other user who views this recipe (found 2026-07-05).
+function isSafeFilePath(value: string): boolean {
+  if (!value || value.includes("..") || value.includes("://") || value.startsWith("/")) return false;
+  return true;
 }
 
 // ── Types ─────────────────────────────────────────────────────────────────────

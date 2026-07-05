@@ -1227,10 +1227,30 @@ async function approveDeviceChange(db: ModuleDbClient, auth: ModuleAuthContext, 
   const noteForNotify = encKey ? await decrypt(encKey, device.note_enc).catch(() => "?") : "?";
   const macForNotify = encKey ? await decrypt(encKey, device.mac_enc).catch(() => "?") : "?";
 
-  // Clear pending_* first — the apply* functions below re-read note_enc etc.
-  // fresh from the DB where relevant, and this guarantees a device is never
-  // left with stale pending_* pointing at a request that's already been
-  // (or is about to be) applied, even if the apply step itself throws.
+  // Clear pending_* first, atomically guarded by "still pending" in the same
+  // statement — Postgres evaluates WHERE and applies an UPDATE as one atomic
+  // step per row, so this is how two concurrent approve/reject calls on the
+  // same device get resolved: whichever request's UPDATE commits first wins
+  // and clears pending_action, and the second one's WHERE no longer matches
+  // (pending_action is already NULL by then), so RETURNING comes back empty.
+  // Bugfix (2026-07-05): the plain `if (!device.pending_action)` check above
+  // only guards against a device that was ALREADY resolved before this
+  // request even started — it does nothing against two requests racing each
+  // other, since both would read pending_action as still-set from their own
+  // SELECT before either UPDATE runs. This closes that gap; the apply*
+  // functions below only ever run once this UPDATE has actually observed and
+  // cleared a still-pending row itself.
+  const cleared = await db.query<{ id: string }>(
+    `UPDATE devices SET pending_action = NULL, pending_note_enc = NULL, pending_target_vlan_name = NULL,
+       pending_target_gateway_ids = NULL, pending_requested_by = NULL, pending_requested_at = NULL, updated_at = now()
+     WHERE id = $1 AND pending_action IS NOT NULL
+     RETURNING id`,
+    [id],
+  );
+  if (cleared.length === 0) {
+    return badRequest("This change request was already handled.");
+  }
+
   const clearedDevice: DeviceRow = {
     ...device,
     pending_action: null,
@@ -1240,12 +1260,6 @@ async function approveDeviceChange(db: ModuleDbClient, auth: ModuleAuthContext, 
     pending_requested_by: null,
     pending_requested_at: null,
   };
-  await db.query(
-    `UPDATE devices SET pending_action = NULL, pending_note_enc = NULL, pending_target_vlan_name = NULL,
-       pending_target_gateway_ids = NULL, pending_requested_by = NULL, pending_requested_at = NULL, updated_at = now()
-     WHERE id = $1`,
-    [id],
-  );
 
   let applyResp: HandlerResponse;
   if (action === "edit") {
@@ -1288,12 +1302,23 @@ async function rejectDeviceChange(db: ModuleDbClient, auth: ModuleAuthContext, i
   // Rejecting just clears the pending_* columns — the device row itself was
   // never touched by requestDeviceChange(), so it is already exactly as it
   // was before the request. Nothing to roll back.
-  await db.query(
+  //
+  // Same atomic guard as approveDeviceChange() above (WHERE pending_action
+  // IS NOT NULL + RETURNING): closes the race where a reject and an approve
+  // (or two rejects) fire concurrently on the same device — whichever
+  // commits first wins, the other finds nothing left to clear and reports
+  // "already handled" instead of double-logging/double-notifying a reject
+  // that already happened.
+  const cleared = await db.query<{ id: string }>(
     `UPDATE devices SET pending_action = NULL, pending_note_enc = NULL, pending_target_vlan_name = NULL,
        pending_target_gateway_ids = NULL, pending_requested_by = NULL, pending_requested_at = NULL, updated_at = now()
-     WHERE id = $1`,
+     WHERE id = $1 AND pending_action IS NOT NULL
+     RETURNING id`,
     [id],
   );
+  if (cleared.length === 0) {
+    return badRequest("This change request was already handled.");
+  }
 
   await audit(db, auth.userEmail, `device.change_rejected.${action}`, "device", id, requestedBy);
 
