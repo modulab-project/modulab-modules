@@ -9,10 +9,10 @@
   },
   {
     "name": "recipes",
-    "version": "0.3.13",
-    "release_url": "https://github.com/modulab-project/modulab-modules/releases/download/recipes-v0.3.13/recipes-v0.3.13.zip",
-    "sha256": "70d60d2176395ee067ada6fdee58a63c6fcd3194003f754ff3514071881d3cf8",
-    "cosign_sig_url": "https://github.com/modulab-project/modulab-modules/releases/download/recipes-v0.3.13/recipes-v0.3.13.zip.cosign.bundle",
+    "version": "0.3.14",
+    "release_url": "https://github.com/modulab-project/modulab-modules/releases/download/recipes-v0.3.14/recipes-v0.3.14.zip",
+    "sha256": "b8fd265720228663d8ee2d1d650b74b3804b05a4c880fe6fd47dd3a28435be6d",
+    "cosign_sig_url": "https://github.com/modulab-project/modulab-modules/releases/download/recipes-v0.3.14/recipes-v0.3.14.zip.cosign.bundle",
     "category": "productivity"
   },
   {
