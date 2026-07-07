@@ -86,6 +86,7 @@
   "error_delete": "Could not delete",
   "error_location": "Could not get GPS location",
   "error_no_key": "Please enter your Maptiler API key in Settings first.",
+  "error_server": "Server error (status {{status}}). Please try again.",
 
   "open_in_apple_maps": "Apple Maps",
   "open_in_google_maps": "Google Maps",

@@ -1,4 +1,5 @@
 {
+  "error_server": "Server error (status {{status}}). Please try again.",
   "nav_recipes": "Recipes",
   "nav_meal_plan": "Meal Plan",
   "btn_new_recipe": "New Recipe",

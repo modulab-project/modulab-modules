@@ -85,6 +85,7 @@
   "error_delete": "Verwijderen mislukt",
   "error_location": "GPS-locatie kon niet worden bepaald",
   "error_no_key": "Voer eerst je Maptiler API-sleutel in bij de instellingen.",
+  "error_server": "Serverfout (status {{status}}). Probeer het opnieuw.",
 
   "open_in_apple_maps": "Apple Maps",
   "open_in_google_maps": "Google Maps",

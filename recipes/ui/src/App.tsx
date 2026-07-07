@@ -12,6 +12,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
+import i18next from "i18next";
 import type { ModuleComponentProps } from "./types";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -81,6 +82,20 @@ const UNITS = ["g", "kg", "ml", "l", "EL", "TL", "Stk", "Prise", "Bund", "Dose",
 
 // ── API helper ────────────────────────────────────────────────────────────────
 
+// Core (or Cloudflare/Traefik in front of it) sometimes fails a request
+// without ever reaching our Go handler — e.g. Cloudflare's own 502 page when
+// the origin doesn't answer in time. In that case the body is a full HTML
+// document, not the plain-text/JSON error Core itself would send. Dumping
+// that raw markup into the UI is unreadable, so detect it and fall back to a
+// short, translated message instead.
+function extractErrorMessage(status: number, txt: string): string {
+  const looksLikeHtml = /^\s*<(!doctype|html)/i.test(txt);
+  if (looksLikeHtml || !txt.trim()) {
+    return i18next.t(`${NS}:error_server`, { status }) as string;
+  }
+  return txt;
+}
+
 function useApi(apiBase: string, token: string) {
   const base = apiBase.endsWith("/") ? apiBase.slice(0, -1) : apiBase;
 
@@ -88,7 +103,10 @@ function useApi(apiBase: string, token: string) {
     async <T,>(path: string): Promise<T> => {
       const url = base + (path.startsWith("/") ? path : "/" + path);
       const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      if (!r.ok) {
+        const txt = await r.text();
+        throw new Error(extractErrorMessage(r.status, txt));
+      }
       return r.json();
     },
     [base, token],
@@ -104,7 +122,7 @@ function useApi(apiBase: string, token: string) {
       });
       if (!r.ok) {
         const txt = await r.text();
-        throw new Error(txt || `HTTP ${r.status}`);
+        throw new Error(extractErrorMessage(r.status, txt));
       }
       if (r.status === 204) return undefined as unknown as T;
       return r.json();
@@ -122,7 +140,7 @@ function useApi(apiBase: string, token: string) {
       });
       if (!r.ok) {
         const txt = await r.text();
-        throw new Error(txt || `HTTP ${r.status}`);
+        throw new Error(extractErrorMessage(r.status, txt));
       }
       return r.json();
     },

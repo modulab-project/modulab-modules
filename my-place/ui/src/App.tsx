@@ -6,6 +6,7 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import i18next from "i18next";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type * as GeoJSON from "geojson";
@@ -117,6 +118,20 @@ function storageUrl(path: string): string {
   return `${_storageBase}/${rel}?t=${encodeURIComponent(_token)}`;
 }
 
+// Core (or Cloudflare/Traefik in front of it) sometimes fails a request
+// without ever reaching our Go handler — e.g. Cloudflare's own 502 page when
+// the origin doesn't answer in time. In that case the body is a full HTML
+// document, not the plain-text/JSON error Core itself would send. Dumping
+// that raw markup into the UI is unreadable, so detect it and fall back to a
+// short, translated message instead.
+function extractErrorMessage(status: number, txt: string): string {
+  const looksLikeHtml = /^\s*<(!doctype|html)/i.test(txt);
+  if (looksLikeHtml || !txt.trim()) {
+    return i18next.t(`${NS}:error_server`, { status }) as string;
+  }
+  return txt;
+}
+
 function useApi(apiBase: string, token: string) {
   const base = apiBase.endsWith("/") ? apiBase.slice(0, -1) : apiBase;
 
@@ -124,7 +139,7 @@ function useApi(apiBase: string, token: string) {
     const r = await fetch(base + path, {
       headers: { Authorization: `Bearer ${token}` },
     });
-    if (!r.ok) { const txt = await r.text(); throw new Error(txt || `HTTP ${r.status}`); }
+    if (!r.ok) { const txt = await r.text(); throw new Error(extractErrorMessage(r.status, txt)); }
     return r.json();
   }, [base, token]);
 
@@ -134,7 +149,7 @@ function useApi(apiBase: string, token: string) {
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
-    if (!r.ok) { const txt = await r.text(); throw new Error(txt || `HTTP ${r.status}`); }
+    if (!r.ok) { const txt = await r.text(); throw new Error(extractErrorMessage(r.status, txt)); }
     if (r.status === 204) return undefined as T;
     return r.json();
   }, [base, token]);
@@ -147,7 +162,7 @@ function useApi(apiBase: string, token: string) {
       headers: { Authorization: `Bearer ${token}` },
       body: formData,
     });
-    if (!r.ok) { const txt = await r.text(); throw new Error(txt || `HTTP ${r.status}`); }
+    if (!r.ok) { const txt = await r.text(); throw new Error(extractErrorMessage(r.status, txt)); }
     return r.json();
   }, [base, token]);
 
