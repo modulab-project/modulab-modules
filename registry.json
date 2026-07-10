@@ -17,10 +17,10 @@
   },
   {
     "name": "unifi-network",
-    "version": "0.3.26",
-    "release_url": "https://github.com/modulab-project/modulab-modules/releases/download/unifi-network-v0.3.26/unifi-network-v0.3.26.zip",
-    "sha256": "4f3143eaa780e1138b00ce2a4c2ad67e8171de7c8e8ad6e86c5edc415b166a29",
-    "cosign_sig_url": "https://github.com/modulab-project/modulab-modules/releases/download/unifi-network-v0.3.26/unifi-network-v0.3.26.zip.cosign.bundle",
+    "version": "0.3.27",
+    "release_url": "https://github.com/modulab-project/modulab-modules/releases/download/unifi-network-v0.3.27/unifi-network-v0.3.27.zip",
+    "sha256": "b030d2889dc16ac56c53a4fc0ee73ab3ce5626a35e8b1fd476d8cf5ff851460d",
+    "cosign_sig_url": "https://github.com/modulab-project/modulab-modules/releases/download/unifi-network-v0.3.27/unifi-network-v0.3.27.zip.cosign.bundle",
     "category": "network"
   }
 ]
