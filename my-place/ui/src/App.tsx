@@ -725,14 +725,6 @@ function SpotDetail({ api, id, onBack, onEdit, onDeleted, t }: {
           </a>
         </span>
         <span className="flex items-center gap-1.5"><i className="ti ti-calendar" />{new Date(spot.created_at).toLocaleDateString()}</span>
-        {/* Ergänzt 2026-07-05: created_by war bereits Teil der API-Response,
-            wurde aber nirgends angezeigt — spot_added_by existierte als
-            ungenutzter Locale-Key. Nur der reine Wert (User-ID/E-Mail, je
-            nach Core-Auth) verfügbar, kein separater Anzeige-Name-Lookup
-            im Frontend — daher als Rohwert übernommen. */}
-        {spot.created_by && (
-          <span className="flex items-center gap-1.5"><i className="ti ti-user" />{t("spot_added_by", { name: spot.created_by })}</span>
-        )}
       </div>
 
       {/* Photos */}

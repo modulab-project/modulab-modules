@@ -46,7 +46,6 @@
   "spot_location_hint": "Use GPS or enter coordinates manually",
   "spot_photos": "Photos",
   "spot_photo_delete_aria_label": "Delete photo",
-  "spot_added_by": "Added by {{name}}",
   "spot_delete_confirm": "Really delete this place?",
   "spot_saved_add_photos": "Place saved! You can now add photos.",
 

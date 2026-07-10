@@ -11,14 +11,6 @@
   "status_paused": "Gepauzeerd",
   "status_unknown": "Onbekend",
 
-  "never_seen": "nooit gezien",
-  "just_now": "zojuist",
-  "minutes_ago_one": "{{count}} minuut geleden",
-  "minutes_ago_other": "{{count}} minuten geleden",
-  "hours_ago_one": "{{count}} uur geleden",
-  "hours_ago_other": "{{count}} uur geleden",
-  "days_ago_one": "{{count}} dag geleden",
-  "days_ago_other": "{{count}} dagen geleden",
 
   "gateways_heading": "Gateways",
   "refresh_all": "Alles vernieuwen",
@@ -92,7 +84,6 @@
   "pending_change_gateway_change": "Gateway-wijziging",
 
   "btn_new_gateway": "Nieuwe gateway",
-  "created_by_label": "Aangemaakt door {{user}}",
   "btn_edit": "Bewerken",
   "btn_delete": "Verwijderen",
   "confirm_delete_gateway": "Gateway \"{{name}}\" echt verwijderen?",

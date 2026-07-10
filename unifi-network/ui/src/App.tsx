@@ -375,23 +375,6 @@ function statusBadge(status: GatewayStatus, t: (k: string) => string) {
   );
 }
 
-// last_seen_at formatting — uses the just_now/minutes_ago_*/hours_ago_*/
-// days_ago_*/never_seen i18n keys that already existed in both locale files
-// but were never wired up to anything (found 2026-07-05). i18next resolves
-// the _one/_other plural variant itself from the `count` option, so this
-// only needs to pick the right key + count bucket, not the plural suffix.
-function formatLastSeen(lastSeenAt: string | null, t: (k: string, opts?: Record<string, unknown>) => string): string {
-  if (!lastSeenAt) return t("never_seen");
-  const diffMs = Date.now() - new Date(lastSeenAt).getTime();
-  const minutes = Math.floor(diffMs / 60000);
-  if (minutes < 1) return t("just_now");
-  if (minutes < 60) return t("minutes_ago", { count: minutes });
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return t("hours_ago", { count: hours });
-  const days = Math.floor(hours / 24);
-  return t("days_ago", { count: days });
-}
-
 // ── Overview: gateway status bar + global RADIUS table ──────────────────────
 
 function OverviewView({ api }: { api: ReturnType<typeof useApi> }) {
@@ -754,23 +737,11 @@ function OverviewView({ api }: { api: ReturnType<typeof useApi> }) {
                                 ? "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300"
                                 : "bg-red-50 text-red-600 dark:bg-red-950 dark:text-red-300"
                             }`}
-                            // last_seen_at (found 2026-07-05): delivered by the
-                            // backend on every device_gateways row but never
-                            // rendered anywhere — shown here as a tooltip on
-                            // each per-gateway chip using the existing
-                            // just_now/minutes_ago_*/etc. i18n keys.
-                            title={
-                              g.provisioning_status !== "ok"
-                                ? (g.provisioning_error ?? "")
-                                : formatLastSeen(g.last_seen_at, t)
-                            }
+                            title={g.provisioning_status !== "ok" ? (g.provisioning_error ?? "") : undefined}
                           >
                             {g.gateway_name}
                             {g.provisioning_status === "vlan_not_found" && ` — ${t("vlan_not_found")}`}
                             {g.provisioning_status === "error" && ` — ${t("provisioning_error")}`}
-                            {g.provisioning_status === "ok" && (
-                              <span className="text-gray-400 dark:text-gray-500">· {formatLastSeen(g.last_seen_at, t)}</span>
-                            )}
                           </span>
                         ))}
                       </div>
@@ -1830,7 +1801,6 @@ function GatewaysView({ api }: { api: ReturnType<typeof useApi> }) {
                 {statusBadge(gw.status, t)}
               </div>
               <p className="truncate text-xs text-gray-400">{stripHttps(gw.base_url)}</p>
-              <p className="text-[11px] text-gray-400">{t("created_by_label", { user: gw.created_by })}</p>
             </div>
             <div className="flex flex-none gap-1.5">
               <button

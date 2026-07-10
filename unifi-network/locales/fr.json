@@ -11,14 +11,6 @@
   "status_paused": "En pause",
   "status_unknown": "Inconnu",
 
-  "never_seen": "jamais vu",
-  "just_now": "à l'instant",
-  "minutes_ago_one": "il y a {{count}} minute",
-  "minutes_ago_other": "il y a {{count}} minutes",
-  "hours_ago_one": "il y a {{count}} heure",
-  "hours_ago_other": "il y a {{count}} heures",
-  "days_ago_one": "il y a {{count}} jour",
-  "days_ago_other": "il y a {{count}} jours",
 
   "gateways_heading": "Passerelles",
   "refresh_all": "Tout actualiser",
@@ -92,7 +84,6 @@
   "pending_change_gateway_change": "Changement de passerelle",
 
   "btn_new_gateway": "Nouvelle passerelle",
-  "created_by_label": "Créé par {{user}}",
   "btn_edit": "Modifier",
   "btn_delete": "Supprimer",
   "confirm_delete_gateway": "Vraiment supprimer la passerelle « {{name}} » ?",

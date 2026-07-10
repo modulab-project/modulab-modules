@@ -45,7 +45,6 @@
   "spot_location": "Ubicación",
   "spot_location_hint": "Usa el GPS o introduce las coordenadas manualmente",
   "spot_photos": "Fotos",
-  "spot_added_by": "Añadido por {{name}}",
   "spot_delete_confirm": "¿Eliminar este lugar definitivamente?",
   "spot_saved_add_photos": "¡Lugar guardado! Ahora puedes añadir fotos.",
 

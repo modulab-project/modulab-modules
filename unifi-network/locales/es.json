@@ -11,14 +11,6 @@
   "status_paused": "En pausa",
   "status_unknown": "Desconocido",
 
-  "never_seen": "nunca visto",
-  "just_now": "justo ahora",
-  "minutes_ago_one": "hace {{count}} minuto",
-  "minutes_ago_other": "hace {{count}} minutos",
-  "hours_ago_one": "hace {{count}} hora",
-  "hours_ago_other": "hace {{count}} horas",
-  "days_ago_one": "hace {{count}} día",
-  "days_ago_other": "hace {{count}} días",
 
   "gateways_heading": "Puertas de enlace",
   "refresh_all": "Actualizar todo",
@@ -92,7 +84,6 @@
   "pending_change_gateway_change": "Cambio de puerta de enlace",
 
   "btn_new_gateway": "Nueva puerta de enlace",
-  "created_by_label": "Creado por {{user}}",
   "btn_edit": "Editar",
   "btn_delete": "Eliminar",
   "confirm_delete_gateway": "¿Eliminar definitivamente la puerta de enlace «{{name}}»?",

@@ -11,14 +11,6 @@
   "status_paused": "Paused",
   "status_unknown": "Unknown",
 
-  "never_seen": "never seen",
-  "just_now": "just now",
-  "minutes_ago_one": "{{count}} minute ago",
-  "minutes_ago_other": "{{count}} minutes ago",
-  "hours_ago_one": "{{count}} hour ago",
-  "hours_ago_other": "{{count}} hours ago",
-  "days_ago_one": "{{count}} day ago",
-  "days_ago_other": "{{count}} days ago",
 
   "gateways_heading": "Gateways",
   "refresh_all": "Refresh all",
@@ -92,7 +84,6 @@
   "pending_change_gateway_change": "Gateway change",
 
   "btn_new_gateway": "New gateway",
-  "created_by_label": "Created by {{user}}",
   "btn_edit": "Edit",
   "btn_delete": "Delete",
   "confirm_delete_gateway": "Really delete gateway \"{{name}}\"?",

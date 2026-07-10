@@ -45,7 +45,6 @@
   "spot_location": "Locatie",
   "spot_location_hint": "Gebruik GPS of voer coördinaten handmatig in",
   "spot_photos": "Foto's",
-  "spot_added_by": "Toegevoegd door {{name}}",
   "spot_delete_confirm": "Deze plek echt verwijderen?",
   "spot_saved_add_photos": "Plek opgeslagen! Je kunt nu foto's toevoegen.",
 
