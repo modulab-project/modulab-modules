@@ -31,7 +31,7 @@
 #      key can impersonate an "official ModuLab module".
 #
 # What this script does:
-#   1. Reads name/version/category from <module>/manifest.yaml
+#   1. Reads name/version/category/description from <module>/manifest.yaml
 #   2. Builds the React UI (if ui/package.json exists)
 #   3. Creates dist/<module>-v<version>.zip (release-relevant files only)
 #   4. Computes SHA256
@@ -40,7 +40,7 @@
 #      material, cosign.key)
 #   6. Creates a GitHub Release (tag: <module>-v<version>)
 #   7. Uploads .zip + .zip.sha256 + .zip.cosign.bundle as release assets
-#   8. Updates registry.json (incl. cosign_sig_url) and commits + pushes
+#   8. Updates registry.json (incl. cosign_sig_url, description) and commits + pushes
 #   9. Optionally prunes older releases for this module (see KEEP_RELEASES above)
 
 set -euo pipefail
@@ -85,13 +85,23 @@ GITHUB_REPO=$(echo "$REMOTE_URL" | sed 's|.*github.com[:/]||; s|\.git$||')
 # ── Read manifest ─────────────────────────────────────────────────────────────
 yaml_field() { grep -E "^$1:" "$MODULE_DIR/manifest.yaml" | head -1 | sed "s/$1:[[:space:]]*//" | tr -d '"'"'" | tr -d '[:space:]'; }
 
+# Like yaml_field but preserves internal whitespace (for free-text fields such
+# as description) - only strips surrounding quotes and leading whitespace.
+yaml_text_field() {
+  grep -E "^$1:" "$MODULE_DIR/manifest.yaml" | head -1 \
+    | sed -E "s/^$1:[[:space:]]*//" \
+    | sed -E 's/^"(.*)"$/\1/; s/^'"'"'(.*)'"'"'$/\1/'
+}
+
 NAME=$(yaml_field name)
 VERSION=$(yaml_field version)
 CATEGORY=$(yaml_field category)
+DESCRIPTION=$(yaml_text_field description)
 
 [[ -n "$NAME" ]]     || die "could not read 'name' from manifest.yaml"
 [[ -n "$VERSION" ]]  || die "could not read 'version' from manifest.yaml"
 [[ -n "$CATEGORY" ]] || CATEGORY="productivity"
+[[ -n "$DESCRIPTION" ]] || echo "  ⚠ no 'description' in manifest.yaml — store entry will have none"
 
 TAG="${NAME}-v${VERSION}"
 ZIP_NAME="${NAME}-v${VERSION}.zip"
@@ -247,16 +257,20 @@ REGISTRY="$REPO_ROOT/registry.json"
 RELEASE_URL="https://github.com/$GITHUB_REPO/releases/download/$TAG/$ZIP_NAME"
 SIG_URL="https://github.com/$GITHUB_REPO/releases/download/$TAG/$ZIP_NAME.cosign.bundle"
 
-# Build the new entry
-NEW_ENTRY=$(python3 -c "
-import json
+# Build the new entry. Passed via env vars (not interpolated into the Python
+# source string) because DESCRIPTION is free text and may contain quotes,
+# apostrophes, or other characters that would otherwise break the literal.
+NEW_ENTRY=$(NAME="$NAME" VERSION="$VERSION" RELEASE_URL="$RELEASE_URL" SHA256="$SHA256" \
+            SIG_URL="$SIG_URL" CATEGORY="$CATEGORY" DESCRIPTION="$DESCRIPTION" python3 -c "
+import json, os
 entry = {
-    'name': '$NAME',
-    'version': '$VERSION',
-    'release_url': '$RELEASE_URL',
-    'sha256': '$SHA256',
-    'cosign_sig_url': '$SIG_URL',
-    'category': '$CATEGORY'
+    'name': os.environ['NAME'],
+    'version': os.environ['VERSION'],
+    'release_url': os.environ['RELEASE_URL'],
+    'sha256': os.environ['SHA256'],
+    'cosign_sig_url': os.environ['SIG_URL'],
+    'category': os.environ['CATEGORY'],
+    'description': os.environ.get('DESCRIPTION', '')
 }
 print(json.dumps(entry, indent=2))
 ")
