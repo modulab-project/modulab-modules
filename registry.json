@@ -1,17 +1,17 @@
 [
   {
     "name": "my-places",
-    "version": "0.1.15",
-    "release_url": "https://github.com/modulab-project/modulab-modules/releases/download/my-places-v0.1.15/my-places-v0.1.15.zip",
-    "sha256": "d82420f6ca34bda8db043d3e7b50529c4d65d3656aa7f48c04171266877d98d3",
-    "cosign_sig_url": "https://github.com/modulab-project/modulab-modules/releases/download/my-places-v0.1.15/my-places-v0.1.15.zip.cosign.bundle",
+    "version": "0.1.16",
+    "release_url": "https://github.com/modulab-project/modulab-modules/releases/download/my-places-v0.1.16/my-places-v0.1.16.zip",
+    "sha256": "a7bd2024d2b67a78819129417201991b0b157a05a7feb68a91e296741deb25e5",
+    "cosign_sig_url": "https://github.com/modulab-project/modulab-modules/releases/download/my-places-v0.1.16/my-places-v0.1.16.zip.cosign.bundle",
     "category": "lifestyle",
     "description": {
-      "en": "Save and explore your favourite places — restaurants, beaches, hotels, sights and more — on an interactive map",
-      "de": "Speichere und entdecke deine Lieblingsorte — Restaurants, Strände, Hotels, Sehenswürdigkeiten und mehr — auf einer interaktiven Karte",
-      "es": "Guarda y descubre tus lugares favoritos — restaurantes, playas, hoteles, lugares de interés y más — en un mapa interactivo",
-      "fr": "Enregistrez et découvrez vos endroits préférés — restaurants, plages, hôtels, sites touristiques et plus encore — sur une carte interactive",
-      "nl": "Bewaar en ontdek je favoriete plekken — restaurants, stranden, hotels, bezienswaardigheden en meer — op een interactieve kaart"
+      "en": "Save and explore your favourite places \u2014 restaurants, beaches, hotels, sights and more \u2014 on an interactive map",
+      "de": "Speichere und entdecke deine Lieblingsorte \u2014 Restaurants, Str\u00e4nde, Hotels, Sehensw\u00fcrdigkeiten und mehr \u2014 auf einer interaktiven Karte",
+      "es": "Guarda y descubre tus lugares favoritos \u2014 restaurantes, playas, hoteles, lugares de inter\u00e9s y m\u00e1s \u2014 en un mapa interactivo",
+      "fr": "Enregistrez et d\u00e9couvrez vos endroits pr\u00e9f\u00e9r\u00e9s \u2014 restaurants, plages, h\u00f4tels, sites touristiques et plus encore \u2014 sur une carte interactive",
+      "nl": "Bewaar en ontdek je favoriete plekken \u2014 restaurants, stranden, hotels, bezienswaardigheden en meer \u2014 op een interactieve kaart"
     }
   },
   {
@@ -24,7 +24,7 @@
     "description": {
       "en": "Recipe collection with weekly meal plan",
       "de": "Rezeptsammlung mit Wochenspeiseplan",
-      "es": "Colección de recetas con plan de comidas semanal",
+      "es": "Colecci\u00f3n de recetas con plan de comidas semanal",
       "fr": "Collection de recettes avec planning de repas hebdomadaire",
       "nl": "Receptenverzameling met wekelijks maaltijdplan"
     }
@@ -38,9 +38,9 @@
     "category": "network",
     "description": {
       "en": "Manage RADIUS-based MAC authentication, dynamic VLAN assignment, and live connection status across multiple independent UniFi gateways",
-      "de": "Verwalte RADIUS-basierte MAC-Authentifizierung, dynamische VLAN-Zuweisung und den Live-Verbindungsstatus über mehrere unabhängige UniFi-Gateways hinweg",
-      "es": "Gestiona la autenticación MAC basada en RADIUS, la asignación dinámica de VLAN y el estado de conexión en vivo en varias puertas de enlace UniFi independientes",
-      "fr": "Gérez l'authentification MAC basée sur RADIUS, l'attribution dynamique de VLAN et l'état de connexion en direct sur plusieurs passerelles UniFi indépendantes",
+      "de": "Verwalte RADIUS-basierte MAC-Authentifizierung, dynamische VLAN-Zuweisung und den Live-Verbindungsstatus \u00fcber mehrere unabh\u00e4ngige UniFi-Gateways hinweg",
+      "es": "Gestiona la autenticaci\u00f3n MAC basada en RADIUS, la asignaci\u00f3n din\u00e1mica de VLAN y el estado de conexi\u00f3n en vivo en varias puertas de enlace UniFi independientes",
+      "fr": "G\u00e9rez l'authentification MAC bas\u00e9e sur RADIUS, l'attribution dynamique de VLAN et l'\u00e9tat de connexion en direct sur plusieurs passerelles UniFi ind\u00e9pendantes",
       "nl": "Beheer RADIUS-gebaseerde MAC-authenticatie, dynamische VLAN-toewijzing en live verbindingsstatus over meerdere onafhankelijke UniFi-gateways"
     }
   }
