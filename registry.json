@@ -21,8 +21,9 @@
     "name": "unifi-network",
     "version": "0.3.27",
     "release_url": "https://github.com/modulab-project/modulab-modules/releases/download/unifi-network-v0.3.27/unifi-network-v0.3.27.zip",
-    "sha256": "b030d2889dc16ac56c53a4fc0ee73ab3ce5626a35e8b1fd476d8cf5ff851460d",
+    "sha256": "98c2125f4d0f45f5ab234d6160e2e08b669e219435308b0fed9f3000e6ad0992",
     "cosign_sig_url": "https://github.com/modulab-project/modulab-modules/releases/download/unifi-network-v0.3.27/unifi-network-v0.3.27.zip.cosign.bundle",
-    "category": "network"
+    "category": "network",
+    "description": "Manage RADIUS-based MAC authentication, dynamic VLAN assignment, and live connection status across multiple independent UniFi gateways"
   }
 ]
