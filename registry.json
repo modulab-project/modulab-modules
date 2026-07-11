@@ -12,9 +12,10 @@
     "name": "recipes",
     "version": "0.3.17",
     "release_url": "https://github.com/modulab-project/modulab-modules/releases/download/recipes-v0.3.17/recipes-v0.3.17.zip",
-    "sha256": "c686e64c4c408ea196afd0e82d2b6a10b9f681bced9d3720c15361b63d198f20",
+    "sha256": "591ced8b67028efdc785bdf31c766f768067142abde7cbaeaeb86193625cc787",
     "cosign_sig_url": "https://github.com/modulab-project/modulab-modules/releases/download/recipes-v0.3.17/recipes-v0.3.17.zip.cosign.bundle",
-    "category": "productivity"
+    "category": "productivity",
+    "description": "Recipe collection with weekly meal plan"
   },
   {
     "name": "unifi-network",
