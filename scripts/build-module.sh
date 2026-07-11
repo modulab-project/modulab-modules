@@ -33,9 +33,9 @@
 #      key can impersonate an "official ModuLab module".
 #
 # What this script does:
-#   1. Reads name/version/category/description/logo from <module>/manifest.yaml
-#      (description is a map of language code → blurb, e.g. {en: "...", de:
-#      "..."} - same shape as manifest.yaml's display_name; logo is an
+#   1. Reads name/version/category/description/display_name/logo from
+#      <module>/manifest.yaml (description and display_name are both maps
+#      of language code → text, e.g. {en: "...", de: "..."}; logo is an
 #      optional filename resolved to an absolute raw.githubusercontent.com URL)
 #   2. Builds the React UI (if ui/package.json exists)
 #   3. Creates dist/<module>-v<version>.zip (release-relevant files only)
@@ -45,7 +45,8 @@
 #      material, cosign.key)
 #   6. Creates a GitHub Release (tag: <module>-v<version>)
 #   7. Uploads .zip + .zip.sha256 + .zip.cosign.bundle as release assets
-#   8. Updates registry.json (incl. cosign_sig_url, description, logo_url) and commits + pushes
+#   8. Updates registry.json (incl. cosign_sig_url, description, display_name,
+#      logo_url, browse_url) and commits + pushes
 #   9. Optionally prunes older releases for this module (see KEEP_RELEASES above)
 
 set -euo pipefail
@@ -100,19 +101,22 @@ import yaml, json
 with open('$MODULE_DIR/manifest.yaml') as f:
     m = yaml.safe_load(f) or {}
 
-desc = m.get('description')
-if isinstance(desc, str):
-    # Legacy single-string description (pre-i18n manifests) - treat as
-    # English only rather than failing the build.
-    desc = {'en': desc} if desc else {}
-elif not isinstance(desc, dict):
-    desc = {}
+def lang_map(v):
+    # Shared helper for description/display_name: both are optional maps of
+    # language code -> text, same shape. A plain string is treated as
+    # English-only (legacy pre-i18n manifests) rather than failing the build.
+    if isinstance(v, str):
+        return {'en': v} if v else {}
+    if isinstance(v, dict):
+        return v
+    return {}
 
 print(json.dumps({
     'name': m.get('name') or '',
     'version': m.get('version') or '',
     'category': m.get('category') or '',
-    'description': desc,
+    'description': lang_map(m.get('description')),
+    'display_name': lang_map(m.get('display_name')),
     'logo': m.get('logo') or '',
 }))
 ") || die "failed to parse $MODULE_DIR/manifest.yaml"
@@ -121,12 +125,19 @@ NAME=$(echo "$MANIFEST_JSON" | python3 -c "import sys,json; print(json.load(sys.
 VERSION=$(echo "$MANIFEST_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['version'])")
 CATEGORY=$(echo "$MANIFEST_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['category'])")
 DESCRIPTION_JSON=$(echo "$MANIFEST_JSON" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin)['description']))")
+DISPLAY_NAME_JSON=$(echo "$MANIFEST_JSON" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin)['display_name']))")
 LOGO=$(echo "$MANIFEST_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['logo'])")
 
 [[ -n "$NAME" ]]     || die "could not read 'name' from manifest.yaml"
 [[ -n "$VERSION" ]]  || die "could not read 'version' from manifest.yaml"
 [[ -n "$CATEGORY" ]] || CATEGORY="productivity"
 [[ "$DESCRIPTION_JSON" != "{}" ]] || echo "  ⚠ no 'description' in manifest.yaml — store entry will have none"
+
+# browse_url: link into the module's own subdirectory of this monorepo,
+# not just the repo root - $MODULE is the actual on-disk directory name,
+# which can differ from the manifest's own "name" field (e.g. directory
+# "my-place" vs name "my-places").
+BROWSE_URL="https://github.com/$GITHUB_REPO/tree/main/$MODULE"
 
 # logo (optional): a filename relative to the module directory, e.g.
 # "logo.png". Resolved here to an absolute raw.githubusercontent.com URL
@@ -299,7 +310,7 @@ SIG_URL="https://github.com/$GITHUB_REPO/releases/download/$TAG/$ZIP_NAME.cosign
 # apostrophes, or other characters that would otherwise break the literal.
 NEW_ENTRY=$(NAME="$NAME" VERSION="$VERSION" RELEASE_URL="$RELEASE_URL" SHA256="$SHA256" \
             SIG_URL="$SIG_URL" CATEGORY="$CATEGORY" DESCRIPTION_JSON="$DESCRIPTION_JSON" \
-            LOGO_URL="$LOGO_URL" python3 -c "
+            DISPLAY_NAME_JSON="$DISPLAY_NAME_JSON" LOGO_URL="$LOGO_URL" BROWSE_URL="$BROWSE_URL" python3 -c "
 import json, os
 entry = {
     'name': os.environ['NAME'],
@@ -309,7 +320,9 @@ entry = {
     'cosign_sig_url': os.environ['SIG_URL'],
     'category': os.environ['CATEGORY'],
     'description': json.loads(os.environ.get('DESCRIPTION_JSON') or '{}'),
-    'logo_url': os.environ.get('LOGO_URL', '')
+    'display_name': json.loads(os.environ.get('DISPLAY_NAME_JSON') or '{}'),
+    'logo_url': os.environ.get('LOGO_URL', ''),
+    'browse_url': os.environ.get('BROWSE_URL', '')
 }
 print(json.dumps(entry, indent=2))
 ")
