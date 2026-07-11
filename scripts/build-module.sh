@@ -33,9 +33,10 @@
 #      key can impersonate an "official ModuLab module".
 #
 # What this script does:
-#   1. Reads name/version/category/description from <module>/manifest.yaml
+#   1. Reads name/version/category/description/logo from <module>/manifest.yaml
 #      (description is a map of language code → blurb, e.g. {en: "...", de:
-#      "..."} - same shape as manifest.yaml's display_name)
+#      "..."} - same shape as manifest.yaml's display_name; logo is an
+#      optional filename resolved to an absolute raw.githubusercontent.com URL)
 #   2. Builds the React UI (if ui/package.json exists)
 #   3. Creates dist/<module>-v<version>.zip (release-relevant files only)
 #   4. Computes SHA256
@@ -44,7 +45,7 @@
 #      material, cosign.key)
 #   6. Creates a GitHub Release (tag: <module>-v<version>)
 #   7. Uploads .zip + .zip.sha256 + .zip.cosign.bundle as release assets
-#   8. Updates registry.json (incl. cosign_sig_url, description) and commits + pushes
+#   8. Updates registry.json (incl. cosign_sig_url, description, logo_url) and commits + pushes
 #   9. Optionally prunes older releases for this module (see KEEP_RELEASES above)
 
 set -euo pipefail
@@ -112,6 +113,7 @@ print(json.dumps({
     'version': m.get('version') or '',
     'category': m.get('category') or '',
     'description': desc,
+    'logo': m.get('logo') or '',
 }))
 ") || die "failed to parse $MODULE_DIR/manifest.yaml"
 
@@ -119,11 +121,24 @@ NAME=$(echo "$MANIFEST_JSON" | python3 -c "import sys,json; print(json.load(sys.
 VERSION=$(echo "$MANIFEST_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['version'])")
 CATEGORY=$(echo "$MANIFEST_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['category'])")
 DESCRIPTION_JSON=$(echo "$MANIFEST_JSON" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin)['description']))")
+LOGO=$(echo "$MANIFEST_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['logo'])")
 
 [[ -n "$NAME" ]]     || die "could not read 'name' from manifest.yaml"
 [[ -n "$VERSION" ]]  || die "could not read 'version' from manifest.yaml"
 [[ -n "$CATEGORY" ]] || CATEGORY="productivity"
 [[ "$DESCRIPTION_JSON" != "{}" ]] || echo "  ⚠ no 'description' in manifest.yaml — store entry will have none"
+
+# logo (optional): a filename relative to the module directory, e.g.
+# "logo.png". Resolved here to an absolute raw.githubusercontent.com URL
+# against the "main" branch, since Core reads registry.json only - it never
+# fetches an official module's manifest.yaml or repo tree directly. Verified
+# to actually exist in the module directory so a typo'd filename fails the
+# build instead of silently shipping a 404 logo_url.
+LOGO_URL=""
+if [[ -n "$LOGO" ]]; then
+  [[ -f "$MODULE_DIR/$LOGO" ]] || die "manifest.yaml references logo '$LOGO' but $MODULE_DIR/$LOGO does not exist"
+  LOGO_URL="https://raw.githubusercontent.com/$GITHUB_REPO/main/$MODULE/$LOGO"
+fi
 
 TAG="${NAME}-v${VERSION}"
 ZIP_NAME="${NAME}-v${VERSION}.zip"
@@ -283,7 +298,8 @@ SIG_URL="https://github.com/$GITHUB_REPO/releases/download/$TAG/$ZIP_NAME.cosign
 # source string) because free text - and JSON - may contain quotes,
 # apostrophes, or other characters that would otherwise break the literal.
 NEW_ENTRY=$(NAME="$NAME" VERSION="$VERSION" RELEASE_URL="$RELEASE_URL" SHA256="$SHA256" \
-            SIG_URL="$SIG_URL" CATEGORY="$CATEGORY" DESCRIPTION_JSON="$DESCRIPTION_JSON" python3 -c "
+            SIG_URL="$SIG_URL" CATEGORY="$CATEGORY" DESCRIPTION_JSON="$DESCRIPTION_JSON" \
+            LOGO_URL="$LOGO_URL" python3 -c "
 import json, os
 entry = {
     'name': os.environ['NAME'],
@@ -292,7 +308,8 @@ entry = {
     'sha256': os.environ['SHA256'],
     'cosign_sig_url': os.environ['SIG_URL'],
     'category': os.environ['CATEGORY'],
-    'description': json.loads(os.environ.get('DESCRIPTION_JSON') or '{}')
+    'description': json.loads(os.environ.get('DESCRIPTION_JSON') or '{}'),
+    'logo_url': os.environ.get('LOGO_URL', '')
 }
 print(json.dumps(entry, indent=2))
 ")
