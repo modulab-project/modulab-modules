@@ -3,9 +3,10 @@
     "name": "my-places",
     "version": "0.1.15",
     "release_url": "https://github.com/modulab-project/modulab-modules/releases/download/my-places-v0.1.15/my-places-v0.1.15.zip",
-    "sha256": "a664ccae2473b445f2629e98daad64495e0d93e3615ba345b3fb8524af841348",
+    "sha256": "d82420f6ca34bda8db043d3e7b50529c4d65d3656aa7f48c04171266877d98d3",
     "cosign_sig_url": "https://github.com/modulab-project/modulab-modules/releases/download/my-places-v0.1.15/my-places-v0.1.15.zip.cosign.bundle",
-    "category": "lifestyle"
+    "category": "lifestyle",
+    "description": "Save and explore your favourite places \u2014 restaurants, beaches, hotels, sights and more \u2014 on an interactive map"
   },
   {
     "name": "recipes",
