@@ -10,7 +10,9 @@
 #   - cosign.key      in the repo root - the private cosign key (see below,
 #                      never commit it, hence it's in .gitignore)
 #   - npm             (for the UI build)
-#   - curl, zip, jq, cosign
+#   - curl, zip, jq, cosign, python3, PyYAML (`pip3 install pyyaml`) - PyYAML
+#     is used to parse manifest.yaml properly (rather than sed/grep) so nested
+#     fields like description's per-language map parse correctly
 #
 # Optional:
 #   - KEEP_RELEASES   env var (integer) - if set, deletes older GitHub
@@ -32,6 +34,8 @@
 #
 # What this script does:
 #   1. Reads name/version/category/description from <module>/manifest.yaml
+#      (description is a map of language code → blurb, e.g. {en: "...", de:
+#      "..."} - same shape as manifest.yaml's display_name)
 #   2. Builds the React UI (if ui/package.json exists)
 #   3. Creates dist/<module>-v<version>.zip (release-relevant files only)
 #   4. Computes SHA256
@@ -83,25 +87,43 @@ GITHUB_REPO=$(echo "$REMOTE_URL" | sed 's|.*github.com[:/]||; s|\.git$||')
 [[ -n "$GITHUB_REPO" ]] || die "could not parse GitHub repo from remote: $REMOTE_URL"
 
 # ── Read manifest ─────────────────────────────────────────────────────────────
-yaml_field() { grep -E "^$1:" "$MODULE_DIR/manifest.yaml" | head -1 | sed "s/$1:[[:space:]]*//" | tr -d '"'"'" | tr -d '[:space:]'; }
+# Parsed with PyYAML rather than sed/grep: description is a nested map (one
+# key per language code, same shape as display_name), which line-based
+# regex extraction can't handle reliably.
+command -v python3 &>/dev/null || die "python3 is not installed."
+python3 -c "import yaml" 2>/dev/null || die "PyYAML is not installed. Run: pip3 install pyyaml"
 
-# Like yaml_field but preserves internal whitespace (for free-text fields such
-# as description) - only strips surrounding quotes and leading whitespace.
-yaml_text_field() {
-  grep -E "^$1:" "$MODULE_DIR/manifest.yaml" | head -1 \
-    | sed -E "s/^$1:[[:space:]]*//" \
-    | sed -E 's/^"(.*)"$/\1/; s/^'"'"'(.*)'"'"'$/\1/'
-}
+MANIFEST_JSON=$(python3 -c "
+import yaml, json
 
-NAME=$(yaml_field name)
-VERSION=$(yaml_field version)
-CATEGORY=$(yaml_field category)
-DESCRIPTION=$(yaml_text_field description)
+with open('$MODULE_DIR/manifest.yaml') as f:
+    m = yaml.safe_load(f) or {}
+
+desc = m.get('description')
+if isinstance(desc, str):
+    # Legacy single-string description (pre-i18n manifests) - treat as
+    # English only rather than failing the build.
+    desc = {'en': desc} if desc else {}
+elif not isinstance(desc, dict):
+    desc = {}
+
+print(json.dumps({
+    'name': m.get('name') or '',
+    'version': m.get('version') or '',
+    'category': m.get('category') or '',
+    'description': desc,
+}))
+") || die "failed to parse $MODULE_DIR/manifest.yaml"
+
+NAME=$(echo "$MANIFEST_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['name'])")
+VERSION=$(echo "$MANIFEST_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['version'])")
+CATEGORY=$(echo "$MANIFEST_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['category'])")
+DESCRIPTION_JSON=$(echo "$MANIFEST_JSON" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin)['description']))")
 
 [[ -n "$NAME" ]]     || die "could not read 'name' from manifest.yaml"
 [[ -n "$VERSION" ]]  || die "could not read 'version' from manifest.yaml"
 [[ -n "$CATEGORY" ]] || CATEGORY="productivity"
-[[ -n "$DESCRIPTION" ]] || echo "  ⚠ no 'description' in manifest.yaml — store entry will have none"
+[[ "$DESCRIPTION_JSON" != "{}" ]] || echo "  ⚠ no 'description' in manifest.yaml — store entry will have none"
 
 TAG="${NAME}-v${VERSION}"
 ZIP_NAME="${NAME}-v${VERSION}.zip"
@@ -258,10 +280,10 @@ RELEASE_URL="https://github.com/$GITHUB_REPO/releases/download/$TAG/$ZIP_NAME"
 SIG_URL="https://github.com/$GITHUB_REPO/releases/download/$TAG/$ZIP_NAME.cosign.bundle"
 
 # Build the new entry. Passed via env vars (not interpolated into the Python
-# source string) because DESCRIPTION is free text and may contain quotes,
+# source string) because free text - and JSON - may contain quotes,
 # apostrophes, or other characters that would otherwise break the literal.
 NEW_ENTRY=$(NAME="$NAME" VERSION="$VERSION" RELEASE_URL="$RELEASE_URL" SHA256="$SHA256" \
-            SIG_URL="$SIG_URL" CATEGORY="$CATEGORY" DESCRIPTION="$DESCRIPTION" python3 -c "
+            SIG_URL="$SIG_URL" CATEGORY="$CATEGORY" DESCRIPTION_JSON="$DESCRIPTION_JSON" python3 -c "
 import json, os
 entry = {
     'name': os.environ['NAME'],
@@ -270,7 +292,7 @@ entry = {
     'sha256': os.environ['SHA256'],
     'cosign_sig_url': os.environ['SIG_URL'],
     'category': os.environ['CATEGORY'],
-    'description': os.environ.get('DESCRIPTION', '')
+    'description': json.loads(os.environ.get('DESCRIPTION_JSON') or '{}')
 }
 print(json.dumps(entry, indent=2))
 ")
