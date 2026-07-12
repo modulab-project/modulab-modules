@@ -164,7 +164,7 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
 
   if (route === "GET /categories") {
     const rows = await db.query(
-      `SELECT * FROM categories ORDER BY sort_order ASC, name ASC`,
+      `SELECT * FROM categories ORDER BY name ASC`,
     );
     return ok(rows);
   }

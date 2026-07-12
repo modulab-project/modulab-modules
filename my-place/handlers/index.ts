@@ -232,7 +232,7 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
   // ── Categories ─────────────────────────────────────────────────────────────
 
   if (route === "GET /categories") {
-    const rows = await db.query(`SELECT * FROM categories ORDER BY sort_order ASC, name ASC LIMIT 500`);
+    const rows = await db.query(`SELECT * FROM categories ORDER BY name ASC LIMIT 500`);
     return ok(rows);
   }
   if (route === "POST /categories") {
