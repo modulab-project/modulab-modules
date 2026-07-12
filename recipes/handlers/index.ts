@@ -36,13 +36,31 @@
  * Portion calculator
  *   GET    /recipes/:id/nutrition?servings=N   recalculated per servings
  *
+ * AI nutrition estimation (2026-07-12, see Entscheidungsvorlage "KI-Nährwertberechnung")
+ *   POST   /recipes/:id/nutrition/ai        estimate nutrition via a configured AI provider
+ *                                            body: { provider?: "openai"|"google"|"anthropic"|"deepseek" }
+ *                                            (falls back to the default provider if omitted)
+ *
+ * AI provider settings — Admin only (mirrors unifi-network gateways)
+ *   GET    /ai-providers                    list configured providers (keys never returned)
+ *   PUT    /ai-providers/:provider           upsert one provider's config
+ *   DELETE /ai-providers/:provider           remove one provider's config
+ *
  * Meal plan
  *   GET    /meal-plan?week=YYYY-MM-DD          get week (Monday date)
  *   PUT    /meal-plan/:weekStart/:day/:slot     set entry  (day=1-7, slot=breakfast|lunch|dinner|snack)
  *   DELETE /meal-plan/:weekStart/:day/:slot     clear entry
  */
 
-import type { HandlerRequest, HandlerResponse, ModuleDbClient } from "./types.ts";
+import type { HandlerRequest, HandlerResponse, ModuleDbClient, ModuleAuthContext } from "./types.ts";
+import { getEncKey, encrypt, decrypt } from "./crypto.ts";
+import {
+  callNutritionAi,
+  AiProviderError,
+  AI_PROVIDER_NAMES,
+  AI_PROVIDER_DEFAULT_MODELS,
+  type AiProviderName,
+} from "./ai-providers.ts";
 
 export default async function handler(req: HandlerRequest): Promise<HandlerResponse> {
   const { method, path, body, auth, db } = req;
@@ -229,6 +247,25 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
       [weekStart, dayNum, slot],
     );
     return noContent();
+  }
+
+  // ── AI provider settings (Admin only) ───────────────────────────────────
+
+  if (route === "GET /ai-providers") {
+    return listAiProviders(db, auth);
+  }
+  if (method === "PUT" && pathname.match(/^\/ai-providers\/[^/]+$/)) {
+    return upsertAiProvider(db, auth, segId(pathname), body);
+  }
+  if (method === "DELETE" && pathname.match(/^\/ai-providers\/[^/]+$/)) {
+    return deleteAiProvider(db, auth, segId(pathname));
+  }
+
+  // ── AI nutrition estimation ──────────────────────────────────────────────
+
+  if (method === "POST" && pathname.match(/^\/recipes\/[^/]+\/nutrition\/ai$/)) {
+    const id = pathname.split("/")[2];
+    return estimateNutritionWithAi(db, id, body as { provider?: string } | undefined);
   }
 
   return { status: 404, body: { error: "not found" } };
@@ -597,6 +634,194 @@ async function setMealPlanEntry(
     [weekStart, day, slot, input.recipe_id ?? null, input.note ?? null, userId],
   );
   return ok(row);
+}
+
+// ── AI provider settings ─────────────────────────────────────────────────────
+//
+// Managing the API keys themselves is Admin-only (same reasoning as
+// unifi-network's gateways: these are shared, billable credentials for the
+// whole location, not per-user data). Actually *using* a configured
+// provider to estimate a recipe's nutrition (estimateNutritionWithAi below)
+// is not gated — any user who can edit a recipe can trigger a calculation,
+// same as the existing manual/portion-calculator nutrition features.
+
+const ADMIN_ROLES = ["super-admin", "org-admin"];
+
+function isAdmin(auth: ModuleAuthContext): boolean {
+  return auth.roles.some((r) => ADMIN_ROLES.includes(r));
+}
+
+function forbidden(): HandlerResponse {
+  return { status: 403, body: { error: "Forbidden" } };
+}
+
+interface AiProviderRow {
+  id: string;
+  provider: AiProviderName;
+  api_key_enc: string;
+  model: string;
+  enabled: boolean;
+  is_default: boolean;
+  created_by_enc: string;
+  created_at: string;
+  updated_at: string;
+}
+
+async function listAiProviders(db: ModuleDbClient, auth: ModuleAuthContext): Promise<HandlerResponse> {
+  if (!isAdmin(auth)) return forbidden();
+  const rows = await db.query<AiProviderRow>(
+    `SELECT * FROM ai_nutrition_providers ORDER BY provider ASC`,
+  );
+  // api_key_enc/created_by_enc are never sent to the frontend — has_key is
+  // enough for the settings UI to show "configured" vs. "not configured"
+  // without ever exposing the ciphertext (let alone the plaintext key).
+  return ok(
+    rows.map((r) => ({
+      provider: r.provider,
+      model: r.model,
+      enabled: r.enabled,
+      is_default: r.is_default,
+      has_key: true,
+      updated_at: r.updated_at,
+    })),
+  );
+}
+
+async function upsertAiProvider(
+  db: ModuleDbClient,
+  auth: ModuleAuthContext,
+  provider: string,
+  body: unknown,
+): Promise<HandlerResponse> {
+  if (!isAdmin(auth)) return forbidden();
+  if (!AI_PROVIDER_NAMES.includes(provider as AiProviderName)) {
+    return badRequest(`provider must be one of: ${AI_PROVIDER_NAMES.join(", ")}`);
+  }
+  const encKey = await getEncKey();
+  if (!encKey) return { status: 500, body: { error: "MODULAB_ENCRYPTION_KEY not configured on server" } };
+
+  const { api_key, model, enabled, is_default } = body as {
+    api_key?: string;
+    model?: string;
+    enabled?: boolean;
+    is_default?: boolean;
+  };
+
+  const [existing] = await db.query<AiProviderRow>(
+    `SELECT * FROM ai_nutrition_providers WHERE provider = $1`,
+    [provider],
+  );
+  if (!existing && !api_key) return badRequest("api_key is required when configuring a provider for the first time");
+
+  const resolvedModel = (model && model.trim()) || existing?.model || AI_PROVIDER_DEFAULT_MODELS[provider as AiProviderName];
+  const resolvedEnabled = enabled ?? existing?.enabled ?? true;
+  const resolvedIsDefault = is_default ?? existing?.is_default ?? false;
+  const createdByEnc = existing?.created_by_enc ?? (await encrypt(encKey, auth.userEmail));
+
+  // Clearing any other row's is_default first avoids the partial-unique-index
+  // conflict (ai_nutrition_providers_one_default_idx) when this upsert is the
+  // one being promoted to default.
+  if (resolvedIsDefault) {
+    await db.query(`UPDATE ai_nutrition_providers SET is_default = false WHERE provider != $1`, [provider]);
+  }
+
+  if (api_key) {
+    const apiKeyEnc = await encrypt(encKey, api_key);
+    await db.query(
+      `INSERT INTO ai_nutrition_providers (provider, api_key_enc, model, enabled, is_default, created_by_enc)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (provider) DO UPDATE SET
+         api_key_enc = EXCLUDED.api_key_enc, model = EXCLUDED.model,
+         enabled = EXCLUDED.enabled, is_default = EXCLUDED.is_default, updated_at = now()`,
+      [provider, apiKeyEnc, resolvedModel, resolvedEnabled, resolvedIsDefault, createdByEnc],
+    );
+  } else {
+    // No new key supplied — rotate model/enabled/is_default only, keep the
+    // existing encrypted key untouched (mirrors unifi-network updateGateway).
+    await db.query(
+      `UPDATE ai_nutrition_providers SET model = $2, enabled = $3, is_default = $4, updated_at = now() WHERE provider = $1`,
+      [provider, resolvedModel, resolvedEnabled, resolvedIsDefault],
+    );
+  }
+
+  return ok({ provider, model: resolvedModel, enabled: resolvedEnabled, is_default: resolvedIsDefault, has_key: true });
+}
+
+async function deleteAiProvider(db: ModuleDbClient, auth: ModuleAuthContext, provider: string): Promise<HandlerResponse> {
+  if (!isAdmin(auth)) return forbidden();
+  const rows = await db.query<{ provider: string }>(
+    `DELETE FROM ai_nutrition_providers WHERE provider = $1 RETURNING provider`,
+    [provider],
+  );
+  if (rows.length === 0) return notFound("provider config");
+  return noContent();
+}
+
+// ── AI nutrition estimation ──────────────────────────────────────────────────
+
+async function estimateNutritionWithAi(
+  db: ModuleDbClient,
+  recipeId: string,
+  input: { provider?: string } | undefined,
+): Promise<HandlerResponse> {
+  const [recipe] = await db.query<{ title: string; servings: number }>(
+    `SELECT title, servings FROM recipes WHERE id = $1`,
+    [recipeId],
+  );
+  if (!recipe) return notFound("recipe");
+
+  const ingredients = await db.query<{ name: string; amount: number | null; unit: string | null }>(
+    `SELECT name, amount, unit FROM ingredients WHERE recipe_id = $1 ORDER BY position ASC`,
+    [recipeId],
+  );
+  if (ingredients.length === 0) return badRequest("recipe has no ingredients to estimate from");
+
+  const requestedProvider = input?.provider;
+  if (requestedProvider && !AI_PROVIDER_NAMES.includes(requestedProvider as AiProviderName)) {
+    return badRequest(`provider must be one of: ${AI_PROVIDER_NAMES.join(", ")}`);
+  }
+
+  const [row] = requestedProvider
+    ? await db.query<AiProviderRow>(
+        `SELECT * FROM ai_nutrition_providers WHERE provider = $1 AND enabled = true`,
+        [requestedProvider],
+      )
+    : await db.query<AiProviderRow>(
+        `SELECT * FROM ai_nutrition_providers WHERE enabled = true ORDER BY is_default DESC, updated_at DESC LIMIT 1`,
+      );
+  if (!row) {
+    return badRequest(
+      requestedProvider
+        ? `provider "${requestedProvider}" is not configured or disabled — set it up under Settings first`
+        : "no AI provider is configured — set one up under Settings first",
+    );
+  }
+
+  const encKey = await getEncKey();
+  if (!encKey) return { status: 500, body: { error: "MODULAB_ENCRYPTION_KEY not configured on server" } };
+  const apiKey = await decrypt(encKey, row.api_key_enc);
+
+  let estimate;
+  try {
+    estimate = await callNutritionAi(row.provider, apiKey, row.model, recipe.title, recipe.servings || 1, ingredients);
+  } catch (err) {
+    const message = err instanceof AiProviderError ? err.message : String(err);
+    return { status: 502, body: { error: `AI nutrition estimation failed (${row.provider}): ${message}` } };
+  }
+
+  const [updated] = await db.query(
+    `UPDATE recipes SET
+       kcal_per_serving      = $2,
+       protein_g_per_serving = $3,
+       fat_g_per_serving     = $4,
+       carbs_g_per_serving   = $5,
+       fiber_g_per_serving   = $6,
+       nutrition_source      = 'ai',
+       updated_at            = now()
+     WHERE id = $1 RETURNING *`,
+    [recipeId, estimate.kcal, estimate.protein_g, estimate.fat_g, estimate.carbs_g, estimate.fiber_g],
+  );
+  return ok({ ...updated, ai_provider: row.provider, ai_model: row.model });
 }
 
 // ── Utilities ─────────────────────────────────────────────────────────────────

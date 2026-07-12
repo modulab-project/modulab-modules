@@ -52,7 +52,7 @@
   "add_tag": "Ajouter",
   "all_tags": "Tous les tags",
 
-  "nutrition_unavailable": "Valeurs nutritionnelles pas encore disponibles — associez les ingrédients à Open Food Facts.",
+  "nutrition_unavailable": "Valeurs nutritionnelles pas encore disponibles.",
 
   "steps": "Préparation",
   "step_placeholder": "Étape {{n}}",
@@ -109,5 +109,28 @@
   "info_no_network_access": "aucun accès réseau",
   "info_installed_at": "Installé le",
   "info_updated_at": "Dernière mise à jour",
-  "info_github_link": "Code source sur GitHub"
+  "info_github_link": "Code source sur GitHub",
+
+  "nav_settings": "Paramètres",
+  "nutrition": "Valeurs nutritionnelles",
+  "calc_nutrition_ai": "Calculer avec l'IA",
+  "nutrition_protein": "Protéines",
+  "nutrition_fat": "Lipides",
+  "nutrition_carbs": "Glucides",
+  "nutrition_fiber": "Fibres",
+  "nutrition_source_manual": "manuel",
+  "nutrition_source_off": "Open Food Facts",
+  "nutrition_source_calculated": "calculé à partir des ingrédients",
+  "nutrition_source_ai": "estimé par IA",
+  "ai_settings_title": "Calcul nutritionnel par IA",
+  "ai_settings_description": "Configurez les clés API pour l'estimation nutritionnelle par IA. Les clés sont chiffrées et stockées dans ce module, pas dans les paramètres IA du Core.",
+  "ai_settings_configured": "configuré",
+  "ai_settings_default": "Par défaut",
+  "ai_settings_disabled": "désactivé",
+  "ai_settings_make_default": "Définir par défaut",
+  "ai_settings_api_key": "Clé API",
+  "ai_settings_api_key_keep": "laisser inchangé",
+  "ai_settings_model": "Modèle",
+  "ai_settings_enabled": "Activé",
+  "ai_settings_delete_confirm": "Vraiment supprimer ce fournisseur ? La clé API enregistrée sera supprimée."
 }

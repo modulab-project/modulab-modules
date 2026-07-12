@@ -7,7 +7,8 @@ A recipe collection with a weekly meal plan.
 Recipes is a self-hosted recipe manager: keep your recipes with ingredients, step-by-step instructions, tags, and categories, then plan your week by dropping recipes into a meal-plan grid (breakfast/lunch/dinner/snack, Monday to Sunday).
 
 - **Recipes** — title, image, ingredients, steps, tags, and category.
-- **Portion calculator** — recalculates ingredient quantities and nutrition for any number of servings, based on the nutrition values you enter per ingredient (no external nutrition database lookup).
+- **Portion calculator** — recalculates ingredient quantities and nutrition for any number of servings, based on the nutrition values you enter per ingredient or the AI-estimated per-serving totals.
+- **AI nutrition estimation** — optionally configure an API key for OpenAI, Google Gemini, Anthropic Claude, or DeepSeek under the module's own Settings tab (Admin only), then estimate a recipe's nutrition from its title, servings, and ingredient list with one click. Fully optional — the module works without any AI provider configured, falling back to manual entry / the ingredient-based portion calculator.
 - **Meal plan** — a weekly grid; assign any recipe to a day and slot.
 - **Tags & categories** — flexible organization on top of the recipe list, with search and filtering.
 
@@ -17,7 +18,7 @@ Recipes is a self-hosted recipe manager: keep your recipes with ingredients, ste
 - **Scope:** per-location — each ModuLab location gets its own independent recipe collection
 - **Category:** Productivity
 - **Storage:** database + uploaded recipe images
-- **External calls:** none — the module makes no outbound network requests; nutrition values are entered manually and all calculations happen locally
+- **External calls:** only when AI nutrition estimation is configured and triggered — outbound HTTPS to whichever provider(s) an Admin has set up (`api.openai.com`, `generativelanguage.googleapis.com`, `api.anthropic.com`, `api.deepseek.com`; see `egress_allowlist` in `manifest.yaml`). API keys are AES-256-GCM encrypted and stored entirely inside this module's own database schema — never sent to or stored by ModuLab Core.
 
 ## License
 

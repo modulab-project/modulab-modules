@@ -52,7 +52,7 @@
   "add_tag": "Add",
   "all_tags": "All Tags",
 
-  "nutrition_unavailable": "Nutrition not yet available — link ingredients to Open Food Facts.",
+  "nutrition_unavailable": "Nutrition not yet available.",
 
   "steps": "Instructions",
   "step_placeholder": "Step {{n}}",
@@ -111,5 +111,28 @@
   "info_no_network_access": "no network access",
   "info_installed_at": "Installed on",
   "info_updated_at": "Last updated",
-  "info_github_link": "Source code on GitHub"
+  "info_github_link": "Source code on GitHub",
+
+  "nav_settings": "Settings",
+  "nutrition": "Nutrition",
+  "calc_nutrition_ai": "Calculate with AI",
+  "nutrition_protein": "Protein",
+  "nutrition_fat": "Fat",
+  "nutrition_carbs": "Carbs",
+  "nutrition_fiber": "Fiber",
+  "nutrition_source_manual": "manual",
+  "nutrition_source_off": "Open Food Facts",
+  "nutrition_source_calculated": "calculated from ingredients",
+  "nutrition_source_ai": "estimated by AI",
+  "ai_settings_title": "AI Nutrition Calculation",
+  "ai_settings_description": "Configure API keys for AI-based nutrition estimation. Keys are encrypted and stored inside this module, not in Core's AI settings.",
+  "ai_settings_configured": "configured",
+  "ai_settings_default": "Default",
+  "ai_settings_disabled": "disabled",
+  "ai_settings_make_default": "Make default",
+  "ai_settings_api_key": "API key",
+  "ai_settings_api_key_keep": "leave unchanged",
+  "ai_settings_model": "Model",
+  "ai_settings_enabled": "Enabled",
+  "ai_settings_delete_confirm": "Really remove this provider? The stored API key will be deleted."
 }

@@ -1,11 +1,22 @@
 /**
- * Recipes module — React frontend  v0.3.0
+ * Recipes module — React frontend  v0.4.0
  *
- * Changes vs 0.2.4:
+ * Changes vs 0.3.20:
+ *  - AI nutrition estimation (2026-07-12): a "Nährwerte per KI berechnen"
+ *    button in RecipeDetail calls POST /recipes/:id/nutrition/ai, which
+ *    hits whichever AI provider (OpenAI/Google/Anthropic/DeepSeek) is
+ *    configured as default under Settings. New nutrition panel actually
+ *    renders now (the "always visible" claim below the old v0.3.0 entry was
+ *    stale — no such panel existed in this file until this change).
+ *  - New Admin-only "Settings" tab (AISettingsView) to configure AI provider
+ *    API keys, mirroring unifi-network's Gateways tab: hidden client-side
+ *    from non-Admins via the same isAdmin-probe pattern (ModuleComponentProps
+ *    carries no role info), enforced server-side regardless.
+ *
+ * Changes vs 0.2.4 (carried over from v0.3.0):
  *  - Tag filter added to RecipeList (alongside category filter)
  *  - Ingredient unit field replaced by datalist with common units
  *  - Image upload no longer requires title first (uses temp title)
- *  - Nutrition panel always visible in RecipeDetail (shows "not available" if missing)
  *  - Meal plan picker: event bubbling fixed so recipe selection works
  *  - Search now covers title + description (already was, just documented)
  */
@@ -31,6 +42,12 @@ interface Recipe {
   notes: string | null;
   tag_names: string[];
   updated_at: string;
+  kcal_per_serving: number | null;
+  protein_g_per_serving: number | null;
+  fat_g_per_serving: number | null;
+  carbs_g_per_serving: number | null;
+  fiber_g_per_serving: number | null;
+  nutrition_source: "manual" | "off" | "calculated" | "ai" | null;
 }
 
 interface Ingredient {
@@ -75,6 +92,7 @@ type View =
   | { type: "editor"; id?: string }
   | { type: "meal-plan" }
   | { type: "categories" }
+  | { type: "settings" }
   | { type: "info" };
 
 // Common ingredient units shown in datalist
@@ -160,6 +178,34 @@ export default function RecipesApp({ moduleName, apiBase, token }: ModuleCompone
   const api = useApi(apiBase, token);
   setStorageBase(apiBase, token);
 
+  // isAdmin (2026-07-12, same pattern as unifi-network's ui/src/App.tsx):
+  // the Settings tab (AI provider API keys) must be fully hidden from
+  // non-Admins, not just have its mutating actions rejected server-side.
+  // ModuleComponentProps carries no role info, so Admin status is inferred
+  // client-side from whether the Admin-only GET /ai-providers probe
+  // succeeds. null = not yet known (probe in flight); the tab stays hidden
+  // during that brief window rather than flashing visible for everyone. A
+  // transient network error also resolves to false (hidden) — for a
+  // UI-only visibility gate (the backend enforces the real permission check
+  // regardless), that is the safer default.
+  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    api
+      .get("/ai-providers")
+      .then(() => setIsAdmin(true))
+      .catch(() => setIsAdmin(false));
+  }, [api]);
+
+  // Guards against a stale deep-link landing a non-Admin on the settings
+  // tab just before it disappears from the nav — bounces back to the
+  // recipe list once the Admin probe above resolves to false.
+  useEffect(() => {
+    if (isAdmin === false && view.type === "settings") {
+      setView({ type: "list" });
+    }
+  }, [isAdmin, view.type]);
+
   return (
     <div className="recipes-module">
       {/* Navigation bar — scrollable on mobile */}
@@ -191,6 +237,17 @@ export default function RecipesApp({ moduleName, apiBase, token }: ModuleCompone
           <i className="ti ti-tag text-[15px]" />
           <span className="hidden sm:inline">{t("nav_categories")}</span>
         </button>
+        {isAdmin && (
+          <button
+            type="button"
+            onClick={() => setView({ type: "settings" })}
+            className={navCls(view.type === "settings")}
+            title={t("nav_settings")}
+          >
+            <i className="ti ti-settings text-[15px]" />
+            <span className="hidden sm:inline">{t("nav_settings")}</span>
+          </button>
+        )}
         <div className="flex-1" style={{ minWidth: "4px" }} />
         <button
           type="button"
@@ -232,6 +289,7 @@ export default function RecipesApp({ moduleName, apiBase, token }: ModuleCompone
       )}
       {view.type === "meal-plan" && <MealPlanView api={api} />}
       {view.type === "categories" && <CategoriesView api={api} />}
+      {view.type === "settings" && isAdmin && <AISettingsView api={api} />}
       {view.type === "info" && <ModuleInfoView moduleName={moduleName} token={token} />}
     </div>
   );
@@ -407,6 +465,8 @@ function RecipeDetail({
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [aiCalculating, setAiCalculating] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
 
   useEffect(() => {
     api.get<Recipe & { ingredients: Ingredient[]; steps: Step[]; tags: Tag[] }>(`/recipes/${id}`)
@@ -430,6 +490,19 @@ function RecipeDetail({
       // successful one that just hadn't navigated away yet.
       setDeleteError(t("recipe_delete_error"));
       setDeleting(false);
+    }
+  }
+
+  async function handleCalcNutritionAi() {
+    setAiCalculating(true);
+    setAiError(null);
+    try {
+      const updated = await api.mutate<Recipe>("POST", `/recipes/${id}/nutrition/ai`, {});
+      setRecipe((prev) => (prev ? { ...prev, ...updated } : prev));
+    } catch (e) {
+      setAiError(String(e));
+    } finally {
+      setAiCalculating(false);
     }
   }
 
@@ -522,6 +595,39 @@ function RecipeDetail({
           <p className="whitespace-pre-wrap text-sm text-amber-900 dark:text-amber-200">{recipe.notes}</p>
         </div>
       )}
+
+      {/* Nutrition */}
+      <div className="mb-5 rounded-2xl border border-gray-200 p-4 dark:border-gray-800">
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <h2 className="font-semibold">{t("nutrition")}</h2>
+          <button
+            type="button"
+            onClick={handleCalcNutritionAi}
+            disabled={aiCalculating || recipe.ingredients.length === 0}
+            className="flex flex-none items-center gap-1.5 rounded-lg border border-teal-300 px-2.5 py-1.5 text-xs font-medium text-teal-700 hover:bg-teal-50 disabled:opacity-50 dark:border-teal-800 dark:text-teal-300 dark:hover:bg-teal-950"
+          >
+            {aiCalculating ? <i className="ti ti-loader-2 animate-spin text-[13px]" /> : <i className="ti ti-sparkles text-[13px]" />}
+            {t("calc_nutrition_ai")}
+          </button>
+        </div>
+        {aiError && (
+          <p className="mb-2 text-xs text-red-600 dark:text-red-400">{aiError}</p>
+        )}
+        {recipe.kcal_per_serving != null ? (
+          <div className="flex flex-wrap gap-4 text-sm">
+            <span><strong>{Math.round(recipe.kcal_per_serving * (servings / (recipe.servings || 1)))}</strong> kcal</span>
+            {recipe.protein_g_per_serving != null && <span>{t("nutrition_protein")}: {+(recipe.protein_g_per_serving * (servings / (recipe.servings || 1))).toFixed(1)} g</span>}
+            {recipe.fat_g_per_serving != null && <span>{t("nutrition_fat")}: {+(recipe.fat_g_per_serving * (servings / (recipe.servings || 1))).toFixed(1)} g</span>}
+            {recipe.carbs_g_per_serving != null && <span>{t("nutrition_carbs")}: {+(recipe.carbs_g_per_serving * (servings / (recipe.servings || 1))).toFixed(1)} g</span>}
+            {recipe.fiber_g_per_serving != null && <span>{t("nutrition_fiber")}: {+(recipe.fiber_g_per_serving * (servings / (recipe.servings || 1))).toFixed(1)} g</span>}
+            {recipe.nutrition_source && (
+              <span className="text-gray-400">({t(`nutrition_source_${recipe.nutrition_source}`)})</span>
+            )}
+          </div>
+        ) : (
+          <p className="text-sm text-gray-400">{t("nutrition_unavailable")}</p>
+        )}
+      </div>
 
       {/* Ingredients */}
       {recipe.ingredients.length > 0 && (
@@ -1438,6 +1544,209 @@ function CategoriesView({ api }: { api: ReturnType<typeof useApi> }) {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+// ── AISettingsView ───────────────────────────────────────────────────────────
+//
+// Admin-only. Configure API keys for the four supported AI providers used
+// by "Nährwerte per KI berechnen" in RecipeDetail. Keys are write-only from
+// here on out: GET /ai-providers never returns api_key_enc/the plaintext
+// key (see handlers/index.ts listAiProviders), only has_key: true/false — so
+// the input field always starts empty and a save with it left empty keeps
+// whatever key is already stored (mirrors unifi-network's Gateway edit form).
+
+const AI_PROVIDERS: { id: string; label: string; placeholder_model: string }[] = [
+  { id: "openai", label: "OpenAI", placeholder_model: "gpt-5.6" },
+  { id: "google", label: "Google Gemini", placeholder_model: "gemini-3.1-flash-lite" },
+  { id: "anthropic", label: "Anthropic Claude", placeholder_model: "claude-haiku-4-5" },
+  { id: "deepseek", label: "DeepSeek", placeholder_model: "deepseek-v4-flash" },
+];
+
+interface AiProviderConfig {
+  provider: string;
+  model: string;
+  enabled: boolean;
+  is_default: boolean;
+  has_key: boolean;
+  updated_at?: string;
+}
+
+function AISettingsView({ api }: { api: ReturnType<typeof useApi> }) {
+  const { t } = useTranslation(NS);
+  const [configs, setConfigs] = useState<Record<string, AiProviderConfig>>({});
+  const [loading, setLoading] = useState(true);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [apiKeyInput, setApiKeyInput] = useState("");
+  const [modelInput, setModelInput] = useState("");
+  const [enabledInput, setEnabledInput] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const rows = await api.get<AiProviderConfig[]>("/ai-providers");
+      const byProvider: Record<string, AiProviderConfig> = {};
+      for (const row of Array.isArray(rows) ? rows : []) byProvider[row.provider] = row;
+      setConfigs(byProvider);
+    } finally {
+      setLoading(false);
+    }
+  }, [api]);
+
+  useEffect(() => { load(); }, [load]);
+
+  function startEdit(providerId: string) {
+    const existing = configs[providerId];
+    const meta = AI_PROVIDERS.find((p) => p.id === providerId)!;
+    setEditingId(providerId);
+    setApiKeyInput("");
+    setModelInput(existing?.model ?? meta.placeholder_model);
+    setEnabledInput(existing?.enabled ?? true);
+    setError(null);
+  }
+  function cancelEdit() { setEditingId(null); setError(null); }
+
+  async function handleSave(providerId: string) {
+    setSaving(true);
+    setError(null);
+    try {
+      const body: Record<string, unknown> = { model: modelInput.trim(), enabled: enabledInput };
+      if (apiKeyInput.trim()) body.api_key = apiKeyInput.trim();
+      await api.mutate("PUT", `/ai-providers/${providerId}`, body);
+      setEditingId(null);
+      await load();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleSetDefault(providerId: string) {
+    setError(null);
+    try {
+      await api.mutate("PUT", `/ai-providers/${providerId}`, { is_default: true });
+      await load();
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function handleDelete(providerId: string) {
+    if (!window.confirm(t("ai_settings_delete_confirm"))) return;
+    setError(null);
+    try {
+      await api.mutate("DELETE", `/ai-providers/${providerId}`);
+      await load();
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  const inputCls = "w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 dark:border-gray-700 dark:bg-gray-900";
+
+  return (
+    <div className="mx-auto max-w-lg">
+      <h2 className="mb-1 text-lg font-semibold">{t("ai_settings_title")}</h2>
+      <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">{t("ai_settings_description")}</p>
+
+      {error && (
+        <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+          {error}
+        </div>
+      )}
+
+      {loading && <p className="text-sm text-gray-400">{t("loading")}</p>}
+
+      {!loading && (
+        <div className="space-y-3">
+          {AI_PROVIDERS.map((meta) => {
+            const cfg = configs[meta.id];
+            const isEditing = editingId === meta.id;
+            return (
+              <div key={meta.id} className="rounded-2xl border border-gray-200 p-4 dark:border-gray-800">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{meta.label}</span>
+                      {cfg?.has_key && (
+                        <span className="rounded-full bg-teal-50 px-2 py-0.5 text-xs text-teal-700 dark:bg-teal-950 dark:text-teal-300">
+                          {t("ai_settings_configured")}
+                        </span>
+                      )}
+                      {cfg?.is_default && (
+                        <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+                          {t("ai_settings_default")}
+                        </span>
+                      )}
+                      {cfg && !cfg.enabled && (
+                        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500 dark:bg-gray-800">
+                          {t("ai_settings_disabled")}
+                        </span>
+                      )}
+                    </div>
+                    {cfg?.model && <div className="mt-0.5 text-xs text-gray-400">{cfg.model}</div>}
+                  </div>
+                  {!isEditing && (
+                    <div className="flex flex-none gap-2">
+                      {cfg?.has_key && !cfg.is_default && (
+                        <button type="button" onClick={() => handleSetDefault(meta.id)}
+                          className="rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900">
+                          {t("ai_settings_make_default")}
+                        </button>
+                      )}
+                      <button type="button" onClick={() => startEdit(meta.id)}
+                        className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800">
+                        <i className="ti ti-pencil text-[14px]" />
+                      </button>
+                      {cfg?.has_key && (
+                        <button type="button" onClick={() => handleDelete(meta.id)}
+                          className="rounded-lg p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950">
+                          <i className="ti ti-trash text-[14px]" />
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {isEditing && (
+                  <div className="mt-3 space-y-2">
+                    <div>
+                      <label className="mb-1 block text-xs text-gray-500 dark:text-gray-400">{t("ai_settings_api_key")}</label>
+                      <input type="password" value={apiKeyInput} onChange={(e) => setApiKeyInput(e.target.value)}
+                        placeholder={cfg?.has_key ? t("ai_settings_api_key_keep") : ""}
+                        className={inputCls} style={{ fontSize: "16px" }} autoFocus />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs text-gray-500 dark:text-gray-400">{t("ai_settings_model")}</label>
+                      <input type="text" value={modelInput} onChange={(e) => setModelInput(e.target.value)}
+                        placeholder={meta.placeholder_model} className={inputCls} style={{ fontSize: "16px" }} />
+                    </div>
+                    <label className="flex items-center gap-2 text-sm">
+                      <input type="checkbox" checked={enabledInput} onChange={(e) => setEnabledInput(e.target.checked)} />
+                      {t("ai_settings_enabled")}
+                    </label>
+                    <div className="flex justify-end gap-2 pt-1">
+                      <button type="button" onClick={cancelEdit}
+                        className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900">
+                        {t("cancel")}
+                      </button>
+                      <button type="button" onClick={() => handleSave(meta.id)} disabled={saving}
+                        className="flex items-center gap-1.5 rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50">
+                        {saving ? <i className="ti ti-loader-2 animate-spin text-[13px]" /> : <i className="ti ti-check text-[13px]" />}
+                        {t("save")}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

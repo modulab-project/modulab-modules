@@ -52,7 +52,7 @@
   "add_tag": "Hinzufügen",
   "all_tags": "Alle Tags",
 
-  "nutrition_unavailable": "Nährwerte noch nicht verfügbar — Zutaten mit Open Food Facts verknüpfen.",
+  "nutrition_unavailable": "Nährwerte noch nicht verfügbar.",
 
   "steps": "Zubereitung",
   "step_placeholder": "Schritt {{n}}",
@@ -111,5 +111,28 @@
   "info_no_network_access": "kein Netzzugriff",
   "info_installed_at": "Installiert am",
   "info_updated_at": "Zuletzt aktualisiert",
-  "info_github_link": "Quellcode auf GitHub"
+  "info_github_link": "Quellcode auf GitHub",
+
+  "nav_settings": "Einstellungen",
+  "nutrition": "Nährwerte",
+  "calc_nutrition_ai": "Per KI berechnen",
+  "nutrition_protein": "Eiweiß",
+  "nutrition_fat": "Fett",
+  "nutrition_carbs": "Kohlenhydrate",
+  "nutrition_fiber": "Ballaststoffe",
+  "nutrition_source_manual": "manuell",
+  "nutrition_source_off": "Open Food Facts",
+  "nutrition_source_calculated": "aus Zutaten berechnet",
+  "nutrition_source_ai": "per KI geschätzt",
+  "ai_settings_title": "KI-Nährwertberechnung",
+  "ai_settings_description": "API-Schlüssel für die Nährwertschätzung per KI hinterlegen. Die Schlüssel werden verschlüsselt in diesem Modul gespeichert, nicht in den Core-KI-Einstellungen.",
+  "ai_settings_configured": "eingerichtet",
+  "ai_settings_default": "Standard",
+  "ai_settings_disabled": "deaktiviert",
+  "ai_settings_make_default": "Als Standard",
+  "ai_settings_api_key": "API-Schlüssel",
+  "ai_settings_api_key_keep": "unverändert lassen",
+  "ai_settings_model": "Modell",
+  "ai_settings_enabled": "Aktiviert",
+  "ai_settings_delete_confirm": "Diesen Anbieter wirklich entfernen? Der gespeicherte API-Schlüssel wird gelöscht."
 }

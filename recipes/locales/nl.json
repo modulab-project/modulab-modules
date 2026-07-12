@@ -52,7 +52,7 @@
   "add_tag": "Toevoegen",
   "all_tags": "Alle tags",
 
-  "nutrition_unavailable": "Voedingswaarden nog niet beschikbaar — koppel ingrediënten aan Open Food Facts.",
+  "nutrition_unavailable": "Voedingswaarden nog niet beschikbaar.",
 
   "steps": "Bereiding",
   "step_placeholder": "Stap {{n}}",
@@ -109,5 +109,28 @@
   "info_no_network_access": "geen netwerktoegang",
   "info_installed_at": "Geïnstalleerd op",
   "info_updated_at": "Laatst bijgewerkt",
-  "info_github_link": "Broncode op GitHub"
+  "info_github_link": "Broncode op GitHub",
+
+  "nav_settings": "Instellingen",
+  "nutrition": "Voedingswaarden",
+  "calc_nutrition_ai": "Berekenen met AI",
+  "nutrition_protein": "Eiwit",
+  "nutrition_fat": "Vet",
+  "nutrition_carbs": "Koolhydraten",
+  "nutrition_fiber": "Vezels",
+  "nutrition_source_manual": "handmatig",
+  "nutrition_source_off": "Open Food Facts",
+  "nutrition_source_calculated": "berekend uit ingrediënten",
+  "nutrition_source_ai": "geschat door AI",
+  "ai_settings_title": "AI-voedingsberekening",
+  "ai_settings_description": "Configureer API-sleutels voor AI-gebaseerde voedingsschatting. Sleutels worden versleuteld opgeslagen binnen deze module, niet in Core's AI-instellingen.",
+  "ai_settings_configured": "geconfigureerd",
+  "ai_settings_default": "Standaard",
+  "ai_settings_disabled": "uitgeschakeld",
+  "ai_settings_make_default": "Als standaard instellen",
+  "ai_settings_api_key": "API-sleutel",
+  "ai_settings_api_key_keep": "ongewijzigd laten",
+  "ai_settings_model": "Model",
+  "ai_settings_enabled": "Ingeschakeld",
+  "ai_settings_delete_confirm": "Deze aanbieder echt verwijderen? De opgeslagen API-sleutel wordt gewist."
 }
