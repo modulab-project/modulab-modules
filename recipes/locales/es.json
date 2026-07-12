@@ -90,7 +90,6 @@
   "no_categories": "Aún no hay categorías",
   "new_category": "Nueva categoría",
   "category_name_placeholder": "p. ej. Pasta",
-  "category_sort_order": "Orden de clasificación",
   "category_name_required": "El nombre es obligatorio",
   "category_saved": "Guardado",
   "category_delete_confirm": "¿Eliminar esta categoría? Las recetas que contiene no se eliminarán.",

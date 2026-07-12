@@ -90,7 +90,6 @@
   "no_categories": "Aucune catégorie pour l'instant",
   "new_category": "Nouvelle catégorie",
   "category_name_placeholder": "p.ex. Pâtes",
-  "category_sort_order": "Ordre de tri",
   "category_name_required": "Le nom est requis",
   "category_saved": "Enregistré",
   "category_delete_confirm": "Supprimer cette catégorie ? Les recettes qu'elle contient ne seront pas supprimées.",

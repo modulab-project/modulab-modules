@@ -1323,7 +1323,6 @@ function CategoriesView({ api }: { api: ReturnType<typeof useApi> }) {
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | "new" | null>(null);
   const [name, setName] = useState("");
-  const [sortOrder, setSortOrder] = useState("0");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1339,8 +1338,8 @@ function CategoriesView({ api }: { api: ReturnType<typeof useApi> }) {
 
   useEffect(() => { load(); }, [load]);
 
-  function startNew() { setEditingId("new"); setName(""); setSortOrder("0"); setError(null); }
-  function startEdit(cat: Category) { setEditingId(cat.id); setName(cat.name); setSortOrder(String(cat.sort_order)); setError(null); }
+  function startNew() { setEditingId("new"); setName(""); setError(null); }
+  function startEdit(cat: Category) { setEditingId(cat.id); setName(cat.name); setError(null); }
   function cancelEdit() { setEditingId(null); setError(null); }
 
   async function handleSave() {
@@ -1349,9 +1348,9 @@ function CategoriesView({ api }: { api: ReturnType<typeof useApi> }) {
     setError(null);
     try {
       if (editingId === "new") {
-        await api.mutate("POST", "/categories", { name: name.trim(), sort_order: parseInt(sortOrder) || 0 });
+        await api.mutate("POST", "/categories", { name: name.trim() });
       } else {
-        await api.mutate("PATCH", `/categories/${editingId}`, { name: name.trim(), sort_order: parseInt(sortOrder) || 0 });
+        await api.mutate("PATCH", `/categories/${editingId}`, { name: name.trim() });
       }
       setEditingId(null);
       await load();
@@ -1399,8 +1398,6 @@ function CategoriesView({ api }: { api: ReturnType<typeof useApi> }) {
               placeholder={t("category_name_placeholder")} className={`flex-1 ${inputCls}`}
               style={{ fontSize: "16px" }} autoFocus
               onKeyDown={(e) => { if (e.key === "Enter") handleSave(); if (e.key === "Escape") cancelEdit(); }} />
-            <input type="number" value={sortOrder} onChange={(e) => setSortOrder(e.target.value)}
-              title={t("category_sort_order")} placeholder="0" className={`w-20 ${inputCls}`} style={{ fontSize: "16px" }} />
           </div>
           <div className="mt-3 flex justify-end gap-2">
             <button type="button" onClick={cancelEdit}
@@ -1430,7 +1427,6 @@ function CategoriesView({ api }: { api: ReturnType<typeof useApi> }) {
           <div key={cat.id}
             className="flex items-center gap-3 rounded-xl border border-gray-200 px-4 py-3 dark:border-gray-800">
             <span className="flex-1 text-sm font-medium">{cat.name}</span>
-            <span className="text-xs text-gray-400">{cat.sort_order}</span>
             <button type="button" onClick={() => startEdit(cat)}
               className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800">
               <i className="ti ti-pencil text-[14px]" />

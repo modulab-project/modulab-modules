@@ -1,5 +1,5 @@
 name: "recipes"
-version: "0.3.18"
+version: "0.3.19"
 display_name:
   en: "Recipes"
   de: "Rezepte"
@@ -31,17 +31,6 @@ resources:
 storage:
   quota: "2g"
 
-# URL import (fetch(url) with a user-supplied URL) was removed 2026-07-02 as
-# part of the Core Deno sandbox hardening: an unrestricted-destination fetch
-# is incompatible with a scoped --allow-net egress_allowlist.
-#
-# Open Food Facts nutrition lookup (world.openfoodfacts.org/api.openfoodfacts.org)
-# was removed 2026-07-03: the /nutrition/search and /nutrition/:offId routes
-# were never wired up to any UI (no autocomplete/search field ever called
-# them), so this module now makes no outbound network calls at all. The
-# portion calculator (/recipes/:id/nutrition) is unaffected — it only
-# recalculates from ingredient rows already stored in the DB (manually
-# entered kcal/protein/fat/carbs/fiber per 100g), no external call involved.
 egress_allowlist: []
 
 requested_scopes: []
