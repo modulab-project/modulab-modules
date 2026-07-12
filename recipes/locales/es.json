@@ -135,6 +135,6 @@
   "ai_settings_delete_confirm": "¿Eliminar realmente este proveedor? Se borrará la clave API guardada.",
 
     "ai_settings_load_models": "Cargar modelos disponibles",
-  "ai_settings_models_empty": "No se encontraron modelos — comprueba la clave API.",
-  "ai_settings_models_loaded": "{{count}} modelos cargados — elige uno del campo o escribe el tuyo."
+
+  "ai_settings_save_key_first": "Guarda primero una clave API para poder cargar modelos."
 }

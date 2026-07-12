@@ -137,6 +137,6 @@
   "ai_settings_delete_confirm": "Diesen Anbieter wirklich entfernen? Der gespeicherte API-Schlüssel wird gelöscht.",
 
     "ai_settings_load_models": "Verfügbare Modelle laden",
-  "ai_settings_models_empty": "Keine Modelle gefunden — API-Schlüssel prüfen.",
-  "ai_settings_models_loaded": "{{count}} Modelle geladen — aus dem Feld auswählen oder eigenen Namen eintragen."
+
+  "ai_settings_save_key_first": "Zuerst API-Schlüssel speichern, um Modelle laden zu können."
 }

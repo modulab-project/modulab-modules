@@ -135,6 +135,6 @@
   "ai_settings_delete_confirm": "Deze aanbieder echt verwijderen? De opgeslagen API-sleutel wordt gewist.",
 
     "ai_settings_load_models": "Beschikbare modellen laden",
-  "ai_settings_models_empty": "Geen modellen gevonden — controleer de API-sleutel.",
-  "ai_settings_models_loaded": "{{count}} modellen geladen — kies er een of typ je eigen naam."
+
+  "ai_settings_save_key_first": "Sla eerst een API-sleutel op om modellen te kunnen laden."
 }

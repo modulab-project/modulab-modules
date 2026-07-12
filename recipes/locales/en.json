@@ -137,6 +137,6 @@
   "ai_settings_delete_confirm": "Really remove this provider? The stored API key will be deleted.",
 
     "ai_settings_load_models": "Load available models",
-  "ai_settings_models_empty": "No models found — check the API key.",
-  "ai_settings_models_loaded": "{{count}} models loaded — pick one from the field or type your own."
+
+  "ai_settings_save_key_first": "Save an API key first to be able to load models."
 }

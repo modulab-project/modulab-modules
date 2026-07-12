@@ -253,97 +253,80 @@ export async function callNutritionAi(
 
 // ── Available-models lookup ───────────────────────────────────────────────────
 //
-// Mirrors Core's admin/system/ai settings page (backend/internal/ai/ai.go):
-// the Settings UI lets an Admin fetch the live list of models for the key
-// they just typed, instead of hand-typing a model id that may be stale,
-// misspelled, or no longer available on that account. Called with the
-// api_key straight from the (not-yet-saved) form input — see
-// listAiProviderModels() in index.ts — so this works before the key is
-// ever persisted, same as Core's flow.
+// Ported 1:1 from Core's admin/system/ai settings page
+// (backend/internal/ai/ai.go: fetchModels/normalizeModelID/isCompatibleModel/
+// defaultBaseURL — 2026-07-12 user request "genauso umsetzen wie in
+// admin/system/ai"). Same behavior as Core:
+//  - Anthropic hits its own native https://api.anthropic.com/v1/models with
+//    x-api-key + anthropic-version.
+//  - openai/google/deepseek all go through an OpenAI-compatible {base}/models
+//    endpoint with a Bearer token — including Google, via Gemini's
+//    OpenAI-compat shim (generativelanguage.googleapis.com/v1beta/openai),
+//    NOT the native v1beta/models REST endpoint — so all three share one
+//    request/response shape ({"data":[{"id": "..."}]}).
+//  - Result is a flat, deduped, sorted string[] of model ids — no display
+//    name/context-window/pricing metadata, matching Core exactly.
+//  - Requires an already-stored key (see listAiProviderModels() in
+//    index.ts) — this module has no "unsaved key" fast path, same as
+//    Core's admin endpoint.
 
-export interface AiModelOption {
-  id: string;
-  label: string;
-}
-
-async function listOpenAiModels(apiKey: string): Promise<AiModelOption[]> {
-  return withTimeout(async (signal) => {
-    const res = await fetch("https://api.openai.com/v1/models", {
-      signal,
-      headers: { Authorization: `Bearer ${apiKey}` },
-    });
-    await assertOk(res, "OpenAI");
-    const data = await res.json();
-    const ids: string[] = (data?.data ?? []).map((m: { id?: string }) => m.id).filter(Boolean);
-    // Chat-completions is the only capability this module needs — filter
-    // out the obviously-unrelated model families (embeddings, audio,
-    // image, moderation) rather than trying to positively allowlist every
-    // current gpt-* name, which would go stale immediately.
-    const excluded = /embedding|whisper|tts|dall-e|moderation|davinci|babbage|ada\b/i;
-    return ids
-      .filter((id) => !excluded.test(id))
-      .sort()
-      .map((id) => ({ id, label: id }));
-  }, MODELS_LIST_TIMEOUT_MS);
-}
-
-async function listAnthropicModels(apiKey: string): Promise<AiModelOption[]> {
-  return withTimeout(async (signal) => {
-    const res = await fetch("https://api.anthropic.com/v1/models", {
-      signal,
-      headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
-    });
-    await assertOk(res, "Anthropic Claude");
-    const data = await res.json();
-    const models: { id?: string; display_name?: string }[] = data?.data ?? [];
-    return models
-      .filter((m) => m.id)
-      .map((m) => ({ id: m.id!, label: m.display_name ? `${m.display_name} (${m.id})` : m.id! }));
-  }, MODELS_LIST_TIMEOUT_MS);
-}
-
-async function listGoogleModels(apiKey: string): Promise<AiModelOption[]> {
-  return withTimeout(async (signal) => {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`,
-      { signal },
-    );
-    await assertOk(res, "Google Gemini");
-    const data = await res.json();
-    const models: { name?: string; displayName?: string; supportedGenerationMethods?: string[] }[] = data?.models ?? [];
-    return models
-      .filter((m) => m.name && (m.supportedGenerationMethods ?? []).includes("generateContent"))
-      .map((m) => {
-        const id = m.name!.replace(/^models\//, "");
-        return { id, label: m.displayName ? `${m.displayName} (${id})` : id };
-      });
-  }, MODELS_LIST_TIMEOUT_MS);
-}
-
-async function listDeepSeekModels(apiKey: string): Promise<AiModelOption[]> {
-  return withTimeout(async (signal) => {
-    const res = await fetch("https://api.deepseek.com/models", {
-      signal,
-      headers: { Authorization: `Bearer ${apiKey}` },
-    });
-    await assertOk(res, "DeepSeek");
-    const data = await res.json();
-    const ids: string[] = (data?.data ?? []).map((m: { id?: string }) => m.id).filter(Boolean);
-    return ids.sort().map((id) => ({ id, label: id }));
-  }, MODELS_LIST_TIMEOUT_MS);
-}
-
-export async function listAvailableModels(provider: AiProviderName, apiKey: string): Promise<AiModelOption[]> {
+function defaultModelsBaseUrl(provider: AiProviderName): string {
   switch (provider) {
     case "openai":
-      return listOpenAiModels(apiKey);
-    case "anthropic":
-      return listAnthropicModels(apiKey);
+      return "https://api.openai.com/v1";
     case "google":
-      return listGoogleModels(apiKey);
+      return "https://generativelanguage.googleapis.com/v1beta/openai";
     case "deepseek":
-      return listDeepSeekModels(apiKey);
+      return "https://api.deepseek.com/v1";
+    case "anthropic":
+      return ""; // unused — anthropic branch below is hardcoded, same as Core
   }
+}
+
+// Strips provider-specific noise from a raw model id so the same id a user
+// picks from the list is what gets stored/used later (Core: normalizeModelID).
+function normalizeModelId(provider: AiProviderName, id: string): string {
+  if (provider === "google") return id.replace(/^models\//, "");
+  if (provider === "anthropic") {
+    // Strip a trailing "-YYYYMMDD" date suffix (8 digits after the last hyphen).
+    const m = id.match(/^(.*)-(\d{8})$/);
+    if (m) return m[1];
+  }
+  return id;
+}
+
+// Only Gemini needs filtering (Core: isCompatibleModel) — its /models list
+// includes live/embedding/aqa/imagen entries that aren't chat-completion
+// models. OpenAI/Anthropic/DeepSeek lists are returned as-is, same as Core.
+function isCompatibleModel(provider: AiProviderName, id: string): boolean {
+  if (provider !== "google") return true;
+  const lower = id.toLowerCase();
+  return !["live", "embedding", "-aqa", "imagen"].some((s) => lower.includes(s));
+}
+
+export async function listAvailableModels(provider: AiProviderName, apiKey: string): Promise<string[]> {
+  return withTimeout(async (signal) => {
+    let res: Response;
+    if (provider === "anthropic") {
+      res = await fetch("https://api.anthropic.com/v1/models", {
+        signal,
+        headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
+      });
+    } else {
+      res = await fetch(`${defaultModelsBaseUrl(provider)}/models`, {
+        signal,
+        headers: { Authorization: `Bearer ${apiKey}` },
+      });
+    }
+    await assertOk(res, provider);
+    const data = await res.json();
+    const raw: { id?: string }[] = data?.data ?? [];
+    const ids = raw
+      .map((m) => m.id)
+      .filter((id): id is string => !!id && isCompatibleModel(provider, id))
+      .map((id) => normalizeModelId(provider, id));
+    return Array.from(new Set(ids)).sort();
+  }, MODELS_LIST_TIMEOUT_MS);
 }
 
 export const AI_PROVIDER_NAMES: AiProviderName[] = ["openai", "google", "anthropic", "deepseek"];

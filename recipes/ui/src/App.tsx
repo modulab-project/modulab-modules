@@ -1573,11 +1573,6 @@ interface AiProviderConfig {
   updated_at?: string;
 }
 
-interface AiModelOption {
-  id: string;
-  label: string;
-}
-
 function AISettingsView({ api }: { api: ReturnType<typeof useApi> }) {
   const { t } = useTranslation(NS);
   const [configs, setConfigs] = useState<Record<string, AiProviderConfig>>({});
@@ -1588,12 +1583,14 @@ function AISettingsView({ api }: { api: ReturnType<typeof useApi> }) {
   const [enabledInput, setEnabledInput] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Available-models lookup (2026-07-12, "wie bei admin/system/ai anfragen
-  // der verfügbaren KI Modelle pro Anbieter"): fetched on demand into a
-  // <datalist> rather than a <select> — same pattern as the ingredient unit
-  // field (UNITS datalist above) — so a provider that's unreachable or a
-  // key that's not saved yet never blocks typing a model id by hand.
-  const [modelOptions, setModelOptions] = useState<AiModelOption[]>([]);
+  // Available-models lookup (2026-07-12, "genauso umsetzen wie in
+  // admin/system/ai"): ported to match Core's AdminAIPage.tsx
+  // EditBuiltinModal exactly — a manual "load models" text-link button
+  // (not autofetch), a flat string[] that swaps the <input> for a <select>
+  // once populated, and a save-the-typed-key-first-if-unsaved step before
+  // fetching (GET /ai-providers/:provider/models requires an already-
+  // stored key, same constraint as Core's endpoint).
+  const [modelOptions, setModelOptions] = useState<string[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
   const [modelsError, setModelsError] = useState<string | null>(null);
 
@@ -1627,11 +1624,36 @@ function AISettingsView({ api }: { api: ReturnType<typeof useApi> }) {
   async function handleLoadModels(providerId: string) {
     setModelsLoading(true);
     setModelsError(null);
+    const cfg = configs[providerId];
+    // Mirrors Core's EditBuiltinModal.handleLoadModels: if the admin typed
+    // a key this session but nothing is saved yet, save it first (falling
+    // back to whatever the current form state is for model/enabled) so
+    // GET /ai-providers/:id/models — which only ever reads the stored key,
+    // never one from a request body — has something to decrypt. If a key
+    // is already stored, an unsaved key in the field is intentionally
+    // ignored here, same as Core.
+    if (apiKeyInput.trim() && !cfg?.has_key) {
+      try {
+        await api.mutate("PUT", `/ai-providers/${providerId}`, {
+          model: modelInput.trim(),
+          enabled: enabledInput,
+          api_key: apiKeyInput.trim(),
+        });
+        await load();
+      } catch {
+        // proceed anyway — the fetch below fails with a clear error if this didn't work
+      }
+    }
     try {
-      const body = apiKeyInput.trim() ? { api_key: apiKeyInput.trim() } : {};
-      const models = await api.mutate<AiModelOption[]>("POST", `/ai-providers/${providerId}/models`, body);
-      setModelOptions(Array.isArray(models) ? models : []);
-      if (!models || models.length === 0) setModelsError(t("ai_settings_models_empty"));
+      const resp = await api.get<{ models: string[] }>(`/ai-providers/${providerId}/models`);
+      const models = Array.isArray(resp?.models) ? resp.models : [];
+      setModelOptions(models);
+      // Snap to the first fetched model if the current value isn't in the
+      // list, same as Core's built-in modal (keeps the select and state in
+      // sync instead of showing a <select> whose value matches no <option>).
+      if (models.length > 0 && !models.includes(modelInput)) {
+        setModelInput(models[0]);
+      }
     } catch (e) {
       setModelsError(String(e));
     } finally {
@@ -1751,23 +1773,27 @@ function AISettingsView({ api }: { api: ReturnType<typeof useApi> }) {
                         className={inputCls} style={{ fontSize: "16px" }} autoFocus />
                     </div>
                     <div>
-                      <label className="mb-1 block text-xs text-gray-500 dark:text-gray-400">{t("ai_settings_model")}</label>
-                      <div className="flex gap-2">
-                        <input type="text" value={modelInput} onChange={(e) => setModelInput(e.target.value)}
-                          placeholder={meta.placeholder_model} className={inputCls} style={{ fontSize: "16px" }}
-                          list={`ai-models-${meta.id}`} />
-                        <button type="button" onClick={() => handleLoadModels(meta.id)} disabled={modelsLoading}
-                          title={t("ai_settings_load_models")}
-                          className="flex flex-none items-center gap-1 rounded-lg border border-gray-300 px-2.5 py-2 text-xs hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:hover:bg-gray-900">
-                          {modelsLoading ? <i className="ti ti-loader-2 animate-spin text-[13px]" /> : <i className="ti ti-refresh text-[13px]" />}
-                        </button>
+                      <div className="mb-1 flex items-center justify-between">
+                        <label className="text-xs text-gray-500 dark:text-gray-400">{t("ai_settings_model")}</label>
+                        {(cfg?.has_key || apiKeyInput.trim() !== "") && (
+                          <button type="button" onClick={() => handleLoadModels(meta.id)} disabled={modelsLoading}
+                            className="text-xs text-teal-600 hover:underline disabled:opacity-50 dark:text-teal-400">
+                            {modelsLoading ? t("loading") : t("ai_settings_load_models")}
+                          </button>
+                        )}
                       </div>
-                      <datalist id={`ai-models-${meta.id}`}>
-                        {modelOptions.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-                      </datalist>
-                      {modelsError && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{modelsError}</p>}
-                      {!modelsError && modelOptions.length > 0 && (
-                        <p className="mt-1 text-xs text-gray-400">{t("ai_settings_models_loaded", { count: modelOptions.length })}</p>
+                      {modelOptions.length > 0 ? (
+                        <select value={modelInput} onChange={(e) => setModelInput(e.target.value)}
+                          className={inputCls} style={{ fontSize: "16px" }}>
+                          {modelOptions.map((m) => <option key={m} value={m}>{m}</option>)}
+                        </select>
+                      ) : (
+                        <input type="text" value={modelInput} onChange={(e) => setModelInput(e.target.value)}
+                          placeholder={meta.placeholder_model} className={inputCls} style={{ fontSize: "16px" }} />
+                      )}
+                      {modelsError && <p className="mt-1 text-xs text-red-500">{modelsError}</p>}
+                      {!cfg?.has_key && (
+                        <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">{t("ai_settings_save_key_first")}</p>
                       )}
                     </div>
                     <label className="flex items-center gap-2 text-sm">
