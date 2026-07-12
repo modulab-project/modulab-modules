@@ -138,5 +138,9 @@
 
     "ai_settings_load_models": "Verfügbare Modelle laden",
 
-  "ai_settings_save_key_first": "Zuerst API-Schlüssel speichern, um Modelle laden zu können."
+  "ai_settings_save_key_first": "Zuerst API-Schlüssel speichern, um Modelle laden zu können.",
+
+    "servings_decrease": "Weniger Portionen",
+  "servings_increase": "Mehr Portionen",
+  "servings_reset": "zurück auf {{count}}"
 }

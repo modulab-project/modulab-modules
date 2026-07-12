@@ -136,5 +136,9 @@
 
     "ai_settings_load_models": "Charger les modèles disponibles",
 
-  "ai_settings_save_key_first": "Enregistrez d'abord une clé API pour pouvoir charger les modèles."
+  "ai_settings_save_key_first": "Enregistrez d'abord une clé API pour pouvoir charger les modèles.",
+
+    "servings_decrease": "Moins de portions",
+  "servings_increase": "Plus de portions",
+  "servings_reset": "revenir à {{count}}"
 }

@@ -136,5 +136,9 @@
 
     "ai_settings_load_models": "Beschikbare modellen laden",
 
-  "ai_settings_save_key_first": "Sla eerst een API-sleutel op om modellen te kunnen laden."
+  "ai_settings_save_key_first": "Sla eerst een API-sleutel op om modellen te kunnen laden.",
+
+    "servings_decrease": "Minder porties",
+  "servings_increase": "Meer porties",
+  "servings_reset": "terug naar {{count}}"
 }

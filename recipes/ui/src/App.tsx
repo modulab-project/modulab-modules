@@ -572,9 +572,39 @@ function RecipeDetail({
       </div>
 
       {/* Meta row */}
-      <div className="mb-4 flex flex-wrap gap-3 text-sm text-gray-500 dark:text-gray-400">
+      <div className="mb-4 flex flex-wrap items-center gap-3 text-sm text-gray-500 dark:text-gray-400">
         {totalMin > 0 && <span><i className="ti ti-clock" /> {t("total_time", { min: totalMin })}</span>}
-        <span><i className="ti ti-users" /> {recipe.servings} {t("servings")}</span>
+        {/* Portion stepper (2026-07-12): servings/setServings already existed
+            and already drove the ingredient-amount and nutrition scaling
+            factors below (servings / (recipe.servings || 1)) — this is
+            purely a view-time multiplier, nothing here is ever written
+            back to the recipe. There was just no control to change it;
+            it silently always equalled recipe.servings. Min 1, no upper
+            bound (a family reunion isn't out of scope for a recipe box). */}
+        <span className="flex items-center gap-1.5">
+          <i className="ti ti-users" />
+          <button type="button" onClick={() => setServings((s) => Math.max(1, s - 1))}
+            aria-label={t("servings_decrease")}
+            className="flex h-6 w-6 items-center justify-center rounded-md border border-gray-300 text-gray-500 hover:bg-gray-100 dark:border-gray-700 dark:hover:bg-gray-800">
+            <i className="ti ti-minus text-[11px]" />
+          </button>
+          <input type="number" min={1} value={servings}
+            onChange={(e) => setServings(Math.max(1, parseInt(e.target.value) || 1))}
+            className="w-12 rounded-md border border-gray-300 bg-transparent px-1 py-0.5 text-center dark:border-gray-700"
+            style={{ fontSize: "16px" }} />
+          <button type="button" onClick={() => setServings((s) => s + 1)}
+            aria-label={t("servings_increase")}
+            className="flex h-6 w-6 items-center justify-center rounded-md border border-gray-300 text-gray-500 hover:bg-gray-100 dark:border-gray-700 dark:hover:bg-gray-800">
+            <i className="ti ti-plus text-[11px]" />
+          </button>
+          {t("servings")}
+          {servings !== recipe.servings && (
+            <button type="button" onClick={() => setServings(recipe.servings)}
+              className="text-xs text-teal-600 hover:underline dark:text-teal-400">
+              {t("servings_reset", { count: recipe.servings })}
+            </button>
+          )}
+        </span>
         {recipe.source_url && (
           <a href={recipe.source_url} target="_blank" rel="noreferrer" className="flex items-center gap-1 hover:text-teal-600">
             <i className="ti ti-external-link" /> {t("source")}

@@ -138,5 +138,9 @@
 
     "ai_settings_load_models": "Load available models",
 
-  "ai_settings_save_key_first": "Save an API key first to be able to load models."
+  "ai_settings_save_key_first": "Save an API key first to be able to load models.",
+
+    "servings_decrease": "Fewer servings",
+  "servings_increase": "More servings",
+  "servings_reset": "reset to {{count}}"
 }
