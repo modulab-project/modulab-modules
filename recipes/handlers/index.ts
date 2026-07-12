@@ -45,6 +45,8 @@
  *   GET    /ai-providers                    list configured providers (keys never returned)
  *   PUT    /ai-providers/:provider           upsert one provider's config
  *   DELETE /ai-providers/:provider           remove one provider's config
+ *   POST   /ai-providers/:provider/models    list available models for a (not-yet-saved) API key
+ *                                             body: { api_key?: string } (falls back to the stored key)
  *
  * Meal plan
  *   GET    /meal-plan?week=YYYY-MM-DD          get week (Monday date)
@@ -56,6 +58,7 @@ import type { HandlerRequest, HandlerResponse, ModuleDbClient, ModuleAuthContext
 import { getEncKey, encrypt, decrypt } from "./crypto.ts";
 import {
   callNutritionAi,
+  listAvailableModels,
   AiProviderError,
   AI_PROVIDER_NAMES,
   AI_PROVIDER_DEFAULT_MODELS,
@@ -259,6 +262,10 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
   }
   if (method === "DELETE" && pathname.match(/^\/ai-providers\/[^/]+$/)) {
     return deleteAiProvider(db, auth, segId(pathname));
+  }
+  if (method === "POST" && pathname.match(/^\/ai-providers\/[^/]+\/models$/)) {
+    const provider = pathname.split("/")[2];
+    return listAiProviderModels(db, auth, provider, body as { api_key?: string } | undefined);
   }
 
   // ── AI nutrition estimation ──────────────────────────────────────────────
@@ -757,6 +764,49 @@ async function deleteAiProvider(db: ModuleDbClient, auth: ModuleAuthContext, pro
   return noContent();
 }
 
+// listAiProviderModels (2026-07-12, user request "wie bei admin/system/ai
+// anfragen der verfügbaren KI Modelle pro Anbieter"): lets the Settings UI
+// fetch the live model list for whatever key is currently in the form —
+// including a key that hasn't been saved yet, exactly like Core's admin AI
+// settings page. Falls back to the already-stored (decrypted) key only if
+// the request body has none, so re-fetching after a page reload still
+// works without re-entering the key.
+async function listAiProviderModels(
+  db: ModuleDbClient,
+  auth: ModuleAuthContext,
+  provider: string,
+  body: { api_key?: string } | undefined,
+): Promise<HandlerResponse> {
+  if (!isAdmin(auth)) return forbidden();
+  if (!AI_PROVIDER_NAMES.includes(provider as AiProviderName)) {
+    return badRequest(`provider must be one of: ${AI_PROVIDER_NAMES.join(", ")}`);
+  }
+
+  let apiKey = body?.api_key?.trim();
+  if (!apiKey) {
+    const encKey = await getEncKey();
+    if (!encKey) return { status: 500, body: { error: "MODULAB_ENCRYPTION_KEY not configured on server" } };
+    const [existing] = await db.query<AiProviderRow>(
+      `SELECT * FROM ai_nutrition_providers WHERE provider = $1`,
+      [provider],
+    );
+    if (!existing) return badRequest("enter an API key first (nothing saved for this provider yet)");
+    try {
+      apiKey = await decrypt(encKey, existing.api_key_enc);
+    } catch (err) {
+      return { status: 500, body: { error: `could not decrypt the stored API key: ${String(err)}` } };
+    }
+  }
+
+  try {
+    const models = await listAvailableModels(provider as AiProviderName, apiKey);
+    return ok(models);
+  } catch (err) {
+    const message = err instanceof AiProviderError ? err.message : String(err);
+    return { status: 502, body: { error: `could not list models (${provider}): ${message}` } };
+  }
+}
+
 // ── AI nutrition estimation ──────────────────────────────────────────────────
 
 async function estimateNutritionWithAi(
@@ -799,10 +849,18 @@ async function estimateNutritionWithAi(
 
   const encKey = await getEncKey();
   if (!encKey) return { status: 500, body: { error: "MODULAB_ENCRYPTION_KEY not configured on server" } };
-  const apiKey = await decrypt(encKey, row.api_key_enc);
 
+  // Bugfix (2026-07-12): decrypt() used to sit outside this try block. A
+  // corrupted/legacy-format api_key_enc value threw an uncaught exception
+  // there, which never reached extractErrorMessage()'s JSON body on the
+  // frontend — the browser only saw a bare, bodyless error from whatever
+  // layer caught the crash, rendered as the generic "Serverfehler (Status
+  // 502)" fallback with no indication of what actually went wrong. Folding
+  // decrypt() into the same try as the provider call means every failure
+  // mode here now returns a structured, provider-labeled 502 body instead.
   let estimate;
   try {
+    const apiKey = await decrypt(encKey, row.api_key_enc);
     estimate = await callNutritionAi(row.provider, apiKey, row.model, recipe.title, recipe.servings || 1, ingredients);
   } catch (err) {
     const message = err instanceof AiProviderError ? err.message : String(err);

@@ -1,5 +1,5 @@
 name: "recipes"
-version: "0.4.0"
+version: "0.4.1"
 display_name:
   en: "Recipes"
   de: "Rezepte"
@@ -26,7 +26,13 @@ handler: "handlers/index.ts"
 
 resources:
   memory: "256m"
-  timeout: "45s"
+  # 60s (2026-07-12, up from 45s): a POST .../nutrition/ai call can involve
+  # a slower reasoning model on the provider side; the in-module fetch
+  # timeout (handlers/ai-providers.ts REQUEST_TIMEOUT_MS) is 55s, so this
+  # needs headroom above that or Core/the reverse proxy cuts the request
+  # before the module's own timeout/error handling ever gets to run —
+  # which is what produced the bare, bodyless 502 seen in testing.
+  timeout: "60s"
 
 storage:
   quota: "2g"

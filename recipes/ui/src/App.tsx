@@ -1573,6 +1573,11 @@ interface AiProviderConfig {
   updated_at?: string;
 }
 
+interface AiModelOption {
+  id: string;
+  label: string;
+}
+
 function AISettingsView({ api }: { api: ReturnType<typeof useApi> }) {
   const { t } = useTranslation(NS);
   const [configs, setConfigs] = useState<Record<string, AiProviderConfig>>({});
@@ -1583,6 +1588,14 @@ function AISettingsView({ api }: { api: ReturnType<typeof useApi> }) {
   const [enabledInput, setEnabledInput] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Available-models lookup (2026-07-12, "wie bei admin/system/ai anfragen
+  // der verfügbaren KI Modelle pro Anbieter"): fetched on demand into a
+  // <datalist> rather than a <select> — same pattern as the ingredient unit
+  // field (UNITS datalist above) — so a provider that's unreachable or a
+  // key that's not saved yet never blocks typing a model id by hand.
+  const [modelOptions, setModelOptions] = useState<AiModelOption[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [modelsError, setModelsError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1606,8 +1619,25 @@ function AISettingsView({ api }: { api: ReturnType<typeof useApi> }) {
     setModelInput(existing?.model ?? meta.placeholder_model);
     setEnabledInput(existing?.enabled ?? true);
     setError(null);
+    setModelOptions([]);
+    setModelsError(null);
   }
   function cancelEdit() { setEditingId(null); setError(null); }
+
+  async function handleLoadModels(providerId: string) {
+    setModelsLoading(true);
+    setModelsError(null);
+    try {
+      const body = apiKeyInput.trim() ? { api_key: apiKeyInput.trim() } : {};
+      const models = await api.mutate<AiModelOption[]>("POST", `/ai-providers/${providerId}/models`, body);
+      setModelOptions(Array.isArray(models) ? models : []);
+      if (!models || models.length === 0) setModelsError(t("ai_settings_models_empty"));
+    } catch (e) {
+      setModelsError(String(e));
+    } finally {
+      setModelsLoading(false);
+    }
+  }
 
   async function handleSave(providerId: string) {
     setSaving(true);
@@ -1722,8 +1752,23 @@ function AISettingsView({ api }: { api: ReturnType<typeof useApi> }) {
                     </div>
                     <div>
                       <label className="mb-1 block text-xs text-gray-500 dark:text-gray-400">{t("ai_settings_model")}</label>
-                      <input type="text" value={modelInput} onChange={(e) => setModelInput(e.target.value)}
-                        placeholder={meta.placeholder_model} className={inputCls} style={{ fontSize: "16px" }} />
+                      <div className="flex gap-2">
+                        <input type="text" value={modelInput} onChange={(e) => setModelInput(e.target.value)}
+                          placeholder={meta.placeholder_model} className={inputCls} style={{ fontSize: "16px" }}
+                          list={`ai-models-${meta.id}`} />
+                        <button type="button" onClick={() => handleLoadModels(meta.id)} disabled={modelsLoading}
+                          title={t("ai_settings_load_models")}
+                          className="flex flex-none items-center gap-1 rounded-lg border border-gray-300 px-2.5 py-2 text-xs hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:hover:bg-gray-900">
+                          {modelsLoading ? <i className="ti ti-loader-2 animate-spin text-[13px]" /> : <i className="ti ti-refresh text-[13px]" />}
+                        </button>
+                      </div>
+                      <datalist id={`ai-models-${meta.id}`}>
+                        {modelOptions.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+                      </datalist>
+                      {modelsError && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{modelsError}</p>}
+                      {!modelsError && modelOptions.length > 0 && (
+                        <p className="mt-1 text-xs text-gray-400">{t("ai_settings_models_loaded", { count: modelOptions.length })}</p>
+                      )}
                     </div>
                     <label className="flex items-center gap-2 text-sm">
                       <input type="checkbox" checked={enabledInput} onChange={(e) => setEnabledInput(e.target.checked)} />

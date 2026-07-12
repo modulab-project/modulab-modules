@@ -132,5 +132,9 @@
   "ai_settings_api_key_keep": "laisser inchangé",
   "ai_settings_model": "Modèle",
   "ai_settings_enabled": "Activé",
-  "ai_settings_delete_confirm": "Vraiment supprimer ce fournisseur ? La clé API enregistrée sera supprimée."
+  "ai_settings_delete_confirm": "Vraiment supprimer ce fournisseur ? La clé API enregistrée sera supprimée.",
+
+    "ai_settings_load_models": "Charger les modèles disponibles",
+  "ai_settings_models_empty": "Aucun modèle trouvé — vérifiez la clé API.",
+  "ai_settings_models_loaded": "{{count}} modèles chargés — choisissez-en un ou saisissez le vôtre."
 }

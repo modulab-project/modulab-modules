@@ -34,7 +34,8 @@ interface IngredientForPrompt {
   unit: string | null;
 }
 
-const REQUEST_TIMEOUT_MS = 40_000; // headroom under manifest resources.timeout (45s)
+const REQUEST_TIMEOUT_MS = 55_000; // headroom under manifest resources.timeout (60s, see manifest.yaml)
+const MODELS_LIST_TIMEOUT_MS = 15_000; // GET .../models is cheap/fast — no reason to wait as long as a completion call
 
 const SYSTEM_PROMPT =
   "You are a nutrition estimation assistant. Given a recipe title, its total " +
@@ -83,9 +84,9 @@ export class AiProviderError extends Error {
   }
 }
 
-async function withTimeout<T>(fn: (signal: AbortSignal) => Promise<T>): Promise<T> {
+async function withTimeout<T>(fn: (signal: AbortSignal) => Promise<T>, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     return await fn(controller.signal);
   } finally {
@@ -247,6 +248,101 @@ export async function callNutritionAi(
       return callAnthropic(apiKey, model, userPrompt);
     case "deepseek":
       return callDeepSeek(apiKey, model, userPrompt);
+  }
+}
+
+// ── Available-models lookup ───────────────────────────────────────────────────
+//
+// Mirrors Core's admin/system/ai settings page (backend/internal/ai/ai.go):
+// the Settings UI lets an Admin fetch the live list of models for the key
+// they just typed, instead of hand-typing a model id that may be stale,
+// misspelled, or no longer available on that account. Called with the
+// api_key straight from the (not-yet-saved) form input — see
+// listAiProviderModels() in index.ts — so this works before the key is
+// ever persisted, same as Core's flow.
+
+export interface AiModelOption {
+  id: string;
+  label: string;
+}
+
+async function listOpenAiModels(apiKey: string): Promise<AiModelOption[]> {
+  return withTimeout(async (signal) => {
+    const res = await fetch("https://api.openai.com/v1/models", {
+      signal,
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    await assertOk(res, "OpenAI");
+    const data = await res.json();
+    const ids: string[] = (data?.data ?? []).map((m: { id?: string }) => m.id).filter(Boolean);
+    // Chat-completions is the only capability this module needs — filter
+    // out the obviously-unrelated model families (embeddings, audio,
+    // image, moderation) rather than trying to positively allowlist every
+    // current gpt-* name, which would go stale immediately.
+    const excluded = /embedding|whisper|tts|dall-e|moderation|davinci|babbage|ada\b/i;
+    return ids
+      .filter((id) => !excluded.test(id))
+      .sort()
+      .map((id) => ({ id, label: id }));
+  }, MODELS_LIST_TIMEOUT_MS);
+}
+
+async function listAnthropicModels(apiKey: string): Promise<AiModelOption[]> {
+  return withTimeout(async (signal) => {
+    const res = await fetch("https://api.anthropic.com/v1/models", {
+      signal,
+      headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
+    });
+    await assertOk(res, "Anthropic Claude");
+    const data = await res.json();
+    const models: { id?: string; display_name?: string }[] = data?.data ?? [];
+    return models
+      .filter((m) => m.id)
+      .map((m) => ({ id: m.id!, label: m.display_name ? `${m.display_name} (${m.id})` : m.id! }));
+  }, MODELS_LIST_TIMEOUT_MS);
+}
+
+async function listGoogleModels(apiKey: string): Promise<AiModelOption[]> {
+  return withTimeout(async (signal) => {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`,
+      { signal },
+    );
+    await assertOk(res, "Google Gemini");
+    const data = await res.json();
+    const models: { name?: string; displayName?: string; supportedGenerationMethods?: string[] }[] = data?.models ?? [];
+    return models
+      .filter((m) => m.name && (m.supportedGenerationMethods ?? []).includes("generateContent"))
+      .map((m) => {
+        const id = m.name!.replace(/^models\//, "");
+        return { id, label: m.displayName ? `${m.displayName} (${id})` : id };
+      });
+  }, MODELS_LIST_TIMEOUT_MS);
+}
+
+async function listDeepSeekModels(apiKey: string): Promise<AiModelOption[]> {
+  return withTimeout(async (signal) => {
+    const res = await fetch("https://api.deepseek.com/models", {
+      signal,
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    await assertOk(res, "DeepSeek");
+    const data = await res.json();
+    const ids: string[] = (data?.data ?? []).map((m: { id?: string }) => m.id).filter(Boolean);
+    return ids.sort().map((id) => ({ id, label: id }));
+  }, MODELS_LIST_TIMEOUT_MS);
+}
+
+export async function listAvailableModels(provider: AiProviderName, apiKey: string): Promise<AiModelOption[]> {
+  switch (provider) {
+    case "openai":
+      return listOpenAiModels(apiKey);
+    case "anthropic":
+      return listAnthropicModels(apiKey);
+    case "google":
+      return listGoogleModels(apiKey);
+    case "deepseek":
+      return listDeepSeekModels(apiKey);
   }
 }
 
