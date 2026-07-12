@@ -281,7 +281,7 @@ export default function App({ moduleName, apiBase, token }: ModuleComponentProps
   const vt = view.type;
 
   return (
-    <div className="my-places-module flex flex-col" style={{ height: "100vh" }}>
+    <div className="my-places-module flex h-full flex-col">
       {/* Nav */}
       <div className="flex items-center gap-1 overflow-x-auto border-b border-gray-200 px-3 py-1 dark:border-gray-800 flex-shrink-0">
         <i className="ti ti-map-pin text-teal-600 text-base mr-1 flex-shrink-0" />
