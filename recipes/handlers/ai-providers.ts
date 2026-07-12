@@ -20,6 +20,21 @@
 
 export type AiProviderName = "openai" | "google" | "anthropic" | "deepseek";
 
+// Bugfix (2026-07-12, user report: values looked "hochgerechnet" — off by
+// roughly a factor of servings after the portion stepper landed): this used
+// to ask the model for the per-serving total directly, i.e. it had to sum
+// every ingredient's contribution AND divide by servings itself. Division
+// by an arbitrary N is exactly the kind of arithmetic a cheap/fast model
+// (the defaults here are gemini-3.1-flash-lite, deepseek-v4-flash, not a
+// reasoning-tier model) is prone to getting wrong or skipping — the
+// symptom matches a model returning the recipe TOTAL while labeled as
+// "per serving". Fixed by asking for the TOTAL only (pure ingredient
+// summation, no division involved) and dividing by servings ourselves in
+// estimateNutritionWithAi() (index.ts) — the same "let code do arithmetic,
+// let the model do estimation" split recalcNutritionFromIngredients()
+// already uses for the manual/ingredient-based path. NutritionEstimate
+// below therefore holds TOTALS for the whole recipe, not per-serving
+// values — callers must divide by servings before persisting.
 export interface NutritionEstimate {
   kcal: number;
   protein_g: number;
@@ -38,20 +53,23 @@ const REQUEST_TIMEOUT_MS = 55_000; // headroom under manifest resources.timeout 
 const MODELS_LIST_TIMEOUT_MS = 15_000; // GET .../models is cheap/fast — no reason to wait as long as a completion call
 
 const SYSTEM_PROMPT =
-  "You are a nutrition estimation assistant. Given a recipe title, its total " +
-  "number of servings, and its ingredient list (name, amount, unit — amount/unit " +
-  "may be missing for \"to taste\" items), estimate the TOTAL nutrition PER SERVING " +
-  "for the finished dish. Base this on typical nutritional values for the named " +
-  "ingredients and the given amounts. Respond with your best numeric estimate even " +
-  "if some ingredients are vague — never refuse. All five values are required " +
-  "non-negative numbers (grams, except kcal): kcal, protein_g, fat_g, carbs_g, fiber_g.";
+  "You are a nutrition estimation assistant. Given a recipe title and its " +
+  "ingredient list (name, amount, unit — amount/unit may be missing for " +
+  "\"to taste\" items), estimate the TOTAL nutrition for the ENTIRE finished " +
+  "dish as prepared — i.e. the sum of all listed ingredient amounts combined, " +
+  "NOT divided by servings and NOT a per-serving figure. Base this on typical " +
+  "nutritional values for the named ingredients and the given amounts. " +
+  "Respond with your best numeric estimate even if some ingredients are vague " +
+  "— never refuse. All five values are required non-negative numbers (grams, " +
+  "except kcal): kcal, protein_g, fat_g, carbs_g, fiber_g — for the whole " +
+  "recipe, not per portion.";
 
-function buildUserPrompt(title: string, servings: number, ingredients: IngredientForPrompt[]): string {
+function buildUserPrompt(title: string, ingredients: IngredientForPrompt[]): string {
   const lines = ingredients.map((i) => {
     const amt = i.amount != null ? `${i.amount}${i.unit ? " " + i.unit : ""}` : "nach Geschmack";
     return `- ${i.name}: ${amt}`;
   });
-  return `Recipe: ${title}\nServings: ${servings}\nIngredients:\n${lines.join("\n")}`;
+  return `Recipe: ${title}\nIngredients (whole recipe, all servings combined):\n${lines.join("\n")}`;
 }
 
 // Coerces/validates whatever JSON-ish object a provider returned into a
@@ -240,15 +258,18 @@ async function callDeepSeek(apiKey: string, model: string, userPrompt: string): 
   });
 }
 
+// Returns TOTALS for the whole recipe (see NutritionEstimate doc comment
+// above) — no servings parameter here anymore; the division happens once,
+// deterministically, in estimateNutritionWithAi() (index.ts), not inside
+// the prompt.
 export async function callNutritionAi(
   provider: AiProviderName,
   apiKey: string,
   model: string,
   title: string,
-  servings: number,
   ingredients: IngredientForPrompt[],
 ): Promise<NutritionEstimate> {
-  const userPrompt = buildUserPrompt(title, servings, ingredients);
+  const userPrompt = buildUserPrompt(title, ingredients);
   switch (provider) {
     case "openai":
       return callOpenAi(apiKey, model, userPrompt);

@@ -871,7 +871,22 @@ async function estimateNutritionWithAi(
     if (!encKey) return { status: 500, body: { error: "MODULAB_ENCRYPTION_KEY not configured on server" } };
 
     const apiKey = await decrypt(encKey, row.api_key_enc);
-    const estimate = await callNutritionAi(row.provider, apiKey, row.model, recipe.title, recipe.servings || 1, ingredients);
+    // callNutritionAi returns TOTALS for the whole recipe now (2026-07-12
+    // bugfix — see the NutritionEstimate doc comment in ai-providers.ts).
+    // Dividing by servings here, in code, is the actual fix: it used to be
+    // the model's job to do this division itself (asked for "per serving"
+    // directly), and a cheap/fast model got it wrong often enough that
+    // values looked scaled up by roughly a factor of servings once the
+    // portion stepper made the mismatch visible.
+    const totals = await callNutritionAi(row.provider, apiKey, row.model, recipe.title, ingredients);
+    const servings = recipe.servings || 1;
+    const perServing = {
+      kcal: totals.kcal / servings,
+      protein_g: totals.protein_g / servings,
+      fat_g: totals.fat_g / servings,
+      carbs_g: totals.carbs_g / servings,
+      fiber_g: totals.fiber_g / servings,
+    };
 
     const [updated] = await db.query(
       `UPDATE recipes SET
@@ -883,7 +898,7 @@ async function estimateNutritionWithAi(
          nutrition_source      = 'ai',
          updated_at            = now()
        WHERE id = $1 RETURNING *`,
-      [recipeId, estimate.kcal, estimate.protein_g, estimate.fat_g, estimate.carbs_g, estimate.fiber_g],
+      [recipeId, perServing.kcal, perServing.protein_g, perServing.fat_g, perServing.carbs_g, perServing.fiber_g],
     );
     return ok({ ...updated, ai_provider: row.provider, ai_model: row.model });
   } catch (err) {
