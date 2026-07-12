@@ -30,13 +30,3 @@ resources:
 
 storage:
   quota: "5g"
-
-credentials:
-  - key: "maptiler_api_key"
-    label:
-      en: "Maptiler API Key"
-      de: "Maptiler API-Key"
-    description:
-      en: "Get a free key at maptiler.com — required to display the map."
-      de: "Kostenlosen Key auf maptiler.com erstellen — wird für die Karte benötigt."
-    required: true
