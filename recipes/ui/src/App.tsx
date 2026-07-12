@@ -654,11 +654,31 @@ function RecipeDetail({
         )}
         {recipe.kcal_per_serving != null ? (
           <div className="flex flex-wrap gap-4 text-sm">
-            <span><strong>{Math.round(recipe.kcal_per_serving)}</strong> kcal</span>
-            {recipe.protein_g_per_serving != null && <span>{t("nutrition_protein")}: {+recipe.protein_g_per_serving.toFixed(1)} g</span>}
-            {recipe.fat_g_per_serving != null && <span>{t("nutrition_fat")}: {+recipe.fat_g_per_serving.toFixed(1)} g</span>}
-            {recipe.carbs_g_per_serving != null && <span>{t("nutrition_carbs")}: {+recipe.carbs_g_per_serving.toFixed(1)} g</span>}
-            {recipe.fiber_g_per_serving != null && <span>{t("nutrition_fiber")}: {+recipe.fiber_g_per_serving.toFixed(1)} g</span>}
+            {/* Bugfix (2026-07-12, blank-page crash via browser console:
+                "l.protein_g_per_serving.toFixed is not a function"):
+                Postgres NUMERIC columns (kcal_per_serving etc., see
+                migrations/0001_initial.sql) come back from the DB driver —
+                and therefore over the wire as JSON — as STRINGS, not
+                numbers (the standard way to avoid float-precision loss on
+                NUMERIC). Math.round() silently coerces a string argument,
+                which is why kcal never crashed, but .toFixed() is a
+                String/Number *instance* method — calling it directly on a
+                string throws, it does not coerce. This used to be masked
+                by the since-removed "* (servings / (recipe.servings ||
+                1))" multiplication (`"12.5" * 2` does coerce, unlike a
+                method call), so removing that scaling bug in the previous
+                fix is what exposed this pre-existing type bug. An
+                uncaught exception during render here unmounted the whole
+                app (no error boundary above this), which is the actual
+                blank-white-page symptom the user saw — not something
+                specific to the servings scaling itself. Number(...) wraps
+                every value here now, regardless of what shape the driver
+                hands back. */}
+            <span><strong>{Math.round(Number(recipe.kcal_per_serving))}</strong> kcal</span>
+            {recipe.protein_g_per_serving != null && <span>{t("nutrition_protein")}: {Number(recipe.protein_g_per_serving).toFixed(1)} g</span>}
+            {recipe.fat_g_per_serving != null && <span>{t("nutrition_fat")}: {Number(recipe.fat_g_per_serving).toFixed(1)} g</span>}
+            {recipe.carbs_g_per_serving != null && <span>{t("nutrition_carbs")}: {Number(recipe.carbs_g_per_serving).toFixed(1)} g</span>}
+            {recipe.fiber_g_per_serving != null && <span>{t("nutrition_fiber")}: {Number(recipe.fiber_g_per_serving).toFixed(1)} g</span>}
             {recipe.nutrition_source && (
               <span className="text-gray-400">({t(`nutrition_source_${recipe.nutrition_source}`)})</span>
             )}
