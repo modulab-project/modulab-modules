@@ -58,7 +58,6 @@
   "step_placeholder": "Schritt {{n}}",
   "add_step": "Schritt hinzufügen",
 
-  "nutrition": "Nährwerte",
   "kcal": "kcal",
   "protein": "Protein",
   "fat": "Fett",
@@ -114,7 +113,6 @@
   "info_github_link": "Quellcode auf GitHub",
 
   "nav_settings": "Einstellungen",
-  "nutrition": "Nährwerte",
   "calc_nutrition_ai": "Per KI berechnen",
   "nutrition_protein": "Eiweiß",
   "nutrition_fat": "Fett",
@@ -142,5 +140,7 @@
 
     "servings_decrease": "Weniger Portionen",
   "servings_increase": "Mehr Portionen",
-  "servings_reset": "zurück auf {{count}}"
+  "servings_reset": "zurück auf {{count}}",
+
+  "nutrition_per_serving": "Nährwerte pro Portion"
 }

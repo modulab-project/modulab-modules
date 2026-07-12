@@ -58,7 +58,6 @@
   "step_placeholder": "Step {{n}}",
   "add_step": "Add step",
 
-  "nutrition": "Nutrition",
   "kcal": "kcal",
   "protein": "Protein",
   "fat": "Fat",
@@ -114,7 +113,6 @@
   "info_github_link": "Source code on GitHub",
 
   "nav_settings": "Settings",
-  "nutrition": "Nutrition",
   "calc_nutrition_ai": "Calculate with AI",
   "nutrition_protein": "Protein",
   "nutrition_fat": "Fat",
@@ -142,5 +140,7 @@
 
     "servings_decrease": "Fewer servings",
   "servings_increase": "More servings",
-  "servings_reset": "reset to {{count}}"
+  "servings_reset": "reset to {{count}}",
+
+  "nutrition_per_serving": "Nutrition per serving"
 }

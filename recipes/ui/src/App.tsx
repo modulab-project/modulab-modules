@@ -627,9 +627,18 @@ function RecipeDetail({
       )}
 
       {/* Nutrition */}
+      {/* Bugfix (2026-07-12, user report): kcal_per_serving etc. are a
+          per-portion figure by definition — one Brötchen has the same
+          calories whether the recipe makes 6 or 8 of them. Multiplying by
+          (servings / recipe.servings) here was wrong: that ratio is for
+          scaling the total ingredient amounts (see the Ingredients section
+          below, where it's applied correctly), not a value that's already
+          per-serving. Removed the multiplication entirely and relabeled
+          the heading to make the "this is per portion, it does not change
+          with the stepper" intent explicit instead of implicit. */}
       <div className="mb-5 rounded-2xl border border-gray-200 p-4 dark:border-gray-800">
         <div className="mb-2 flex items-center justify-between gap-3">
-          <h2 className="font-semibold">{t("nutrition")}</h2>
+          <h2 className="font-semibold">{t("nutrition_per_serving")}</h2>
           <button
             type="button"
             onClick={handleCalcNutritionAi}
@@ -645,11 +654,11 @@ function RecipeDetail({
         )}
         {recipe.kcal_per_serving != null ? (
           <div className="flex flex-wrap gap-4 text-sm">
-            <span><strong>{Math.round(recipe.kcal_per_serving * (servings / (recipe.servings || 1)))}</strong> kcal</span>
-            {recipe.protein_g_per_serving != null && <span>{t("nutrition_protein")}: {+(recipe.protein_g_per_serving * (servings / (recipe.servings || 1))).toFixed(1)} g</span>}
-            {recipe.fat_g_per_serving != null && <span>{t("nutrition_fat")}: {+(recipe.fat_g_per_serving * (servings / (recipe.servings || 1))).toFixed(1)} g</span>}
-            {recipe.carbs_g_per_serving != null && <span>{t("nutrition_carbs")}: {+(recipe.carbs_g_per_serving * (servings / (recipe.servings || 1))).toFixed(1)} g</span>}
-            {recipe.fiber_g_per_serving != null && <span>{t("nutrition_fiber")}: {+(recipe.fiber_g_per_serving * (servings / (recipe.servings || 1))).toFixed(1)} g</span>}
+            <span><strong>{Math.round(recipe.kcal_per_serving)}</strong> kcal</span>
+            {recipe.protein_g_per_serving != null && <span>{t("nutrition_protein")}: {+recipe.protein_g_per_serving.toFixed(1)} g</span>}
+            {recipe.fat_g_per_serving != null && <span>{t("nutrition_fat")}: {+recipe.fat_g_per_serving.toFixed(1)} g</span>}
+            {recipe.carbs_g_per_serving != null && <span>{t("nutrition_carbs")}: {+recipe.carbs_g_per_serving.toFixed(1)} g</span>}
+            {recipe.fiber_g_per_serving != null && <span>{t("nutrition_fiber")}: {+recipe.fiber_g_per_serving.toFixed(1)} g</span>}
             {recipe.nutrition_source && (
               <span className="text-gray-400">({t(`nutrition_source_${recipe.nutrition_source}`)})</span>
             )}

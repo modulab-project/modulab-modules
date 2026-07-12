@@ -58,7 +58,6 @@
   "step_placeholder": "Stap {{n}}",
   "add_step": "Stap toevoegen",
 
-  "nutrition": "Voedingswaarden",
   "kcal": "kcal",
   "protein": "Eiwitten",
   "fat": "Vetten",
@@ -112,7 +111,6 @@
   "info_github_link": "Broncode op GitHub",
 
   "nav_settings": "Instellingen",
-  "nutrition": "Voedingswaarden",
   "calc_nutrition_ai": "Berekenen met AI",
   "nutrition_protein": "Eiwit",
   "nutrition_fat": "Vet",
@@ -140,5 +138,7 @@
 
     "servings_decrease": "Minder porties",
   "servings_increase": "Meer porties",
-  "servings_reset": "terug naar {{count}}"
+  "servings_reset": "terug naar {{count}}",
+
+  "nutrition_per_serving": "Voedingswaarden per portie"
 }

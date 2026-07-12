@@ -58,7 +58,6 @@
   "step_placeholder": "Étape {{n}}",
   "add_step": "Ajouter une étape",
 
-  "nutrition": "Valeurs nutritionnelles",
   "kcal": "kcal",
   "protein": "Protéines",
   "fat": "Lipides",
@@ -112,7 +111,6 @@
   "info_github_link": "Code source sur GitHub",
 
   "nav_settings": "Paramètres",
-  "nutrition": "Valeurs nutritionnelles",
   "calc_nutrition_ai": "Calculer avec l'IA",
   "nutrition_protein": "Protéines",
   "nutrition_fat": "Lipides",
@@ -140,5 +138,7 @@
 
     "servings_decrease": "Moins de portions",
   "servings_increase": "Plus de portions",
-  "servings_reset": "revenir à {{count}}"
+  "servings_reset": "revenir à {{count}}",
+
+  "nutrition_per_serving": "Valeurs nutritionnelles par portion"
 }

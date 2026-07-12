@@ -58,7 +58,6 @@
   "step_placeholder": "Paso {{n}}",
   "add_step": "Añadir paso",
 
-  "nutrition": "Valores nutricionales",
   "kcal": "kcal",
   "protein": "Proteínas",
   "fat": "Grasas",
@@ -112,7 +111,6 @@
   "info_github_link": "Código fuente en GitHub",
 
   "nav_settings": "Ajustes",
-  "nutrition": "Valores nutricionales",
   "calc_nutrition_ai": "Calcular con IA",
   "nutrition_protein": "Proteínas",
   "nutrition_fat": "Grasas",
@@ -140,5 +138,7 @@
 
     "servings_decrease": "Menos porciones",
   "servings_increase": "Más porciones",
-  "servings_reset": "restablecer a {{count}}"
+  "servings_reset": "restablecer a {{count}}",
+
+  "nutrition_per_serving": "Valores nutricionales por porción"
 }
