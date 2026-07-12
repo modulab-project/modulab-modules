@@ -117,6 +117,16 @@ const NUTRITION_SCHEMA = {
   additionalProperties: false,
 };
 
+// Bugfix (2026-07-12, seen in production logs): Gemini's responseSchema is
+// only a subset of OpenAPI 3.0's schema object and does not recognize
+// "additionalProperties" at all — sending it is a hard 400 ("Invalid JSON
+// payload received. Unknown name \"additionalProperties\"..."), not a
+// no-op like it would be against a more permissive JSON Schema validator.
+// OpenAI's strict json_schema mode requires additionalProperties: false to
+// be present, so NUTRITION_SCHEMA above can't just drop the field —
+// Gemini needs its own copy without it instead.
+const { additionalProperties: _unusedForGemini, ...GEMINI_NUTRITION_SCHEMA } = NUTRITION_SCHEMA;
+
 async function callOpenAi(apiKey: string, model: string, userPrompt: string): Promise<NutritionEstimate> {
   return withTimeout(async (signal) => {
     const res = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -155,7 +165,7 @@ async function callGoogle(apiKey: string, model: string, userPrompt: string): Pr
         contents: [{ role: "user", parts: [{ text: userPrompt }] }],
         generationConfig: {
           responseMimeType: "application/json",
-          responseSchema: NUTRITION_SCHEMA,
+          responseSchema: GEMINI_NUTRITION_SCHEMA,
         },
       }),
     });
