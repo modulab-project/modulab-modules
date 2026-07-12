@@ -467,9 +467,11 @@ function MapView({ spots, mapStyleUrl, mapConfigured, trips, categories, onSpotC
   }, [filtered]);
 
   return (
-    <div className="flex h-full">
-      <div className="w-40 flex-shrink-0 border-r border-gray-200 bg-gray-50 p-3 flex flex-col gap-3 overflow-y-auto dark:border-gray-800 dark:bg-gray-900">
-        <div>
+    <div className="flex h-full flex-col">
+      {/* Filter toolbar sits above the map (not beside it) so it never squeezes
+          the map into a narrow strip on small screens. */}
+      <div className="flex flex-shrink-0 flex-wrap items-end gap-2 border-b border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-900">
+        <div className="min-w-0 flex-1">
           <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-gray-400">{t("nav_trips")}</label>
           <select value={filterTrip} onChange={(e) => { setFilterTrip(e.target.value); setFilterCategory(""); }}
             className="w-full rounded-lg border border-gray-300 px-2 py-2 text-sm dark:border-gray-700 dark:bg-gray-800" style={{ fontSize: "16px" }}>
@@ -477,7 +479,7 @@ function MapView({ spots, mapStyleUrl, mapConfigured, trips, categories, onSpotC
             {trips.map((tr) => <option key={tr.id} value={tr.id}>{tripLabel(tr)}</option>)}
           </select>
         </div>
-        <div>
+        <div className="min-w-0 flex-1">
           <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-gray-400">{t("nav_categories")}</label>
           <select value={filterCategory} onChange={(e) => { setFilterCategory(e.target.value); setFilterTrip(""); }}
             className="w-full rounded-lg border border-gray-300 px-2 py-2 text-sm dark:border-gray-700 dark:bg-gray-800" style={{ fontSize: "16px" }}>
@@ -485,15 +487,15 @@ function MapView({ spots, mapStyleUrl, mapConfigured, trips, categories, onSpotC
             {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </div>
-        <div className="mt-auto text-xs text-gray-400">{filtered.length} {filtered.length !== 1 ? t("spot_count_many") : t("spot_count_one")}</div>
+        <div className="flex-shrink-0 text-xs text-gray-400">{filtered.length} {filtered.length !== 1 ? t("spot_count_many") : t("spot_count_one")}</div>
       </div>
-      <div className="flex-1 relative">
+      <div className="relative flex-1">
         {mapConfigured === false ? (
           <div className="flex h-full items-center justify-center text-center text-sm text-gray-500 px-8">
             <div><i className="ti ti-key block text-4xl mb-3 text-gray-300" />{t("error_no_key")}</div>
           </div>
         ) : (
-          <div ref={mapContainerRef} className="w-full h-full" />
+          <div ref={mapContainerRef} className="h-full w-full" />
         )}
       </div>
     </div>
