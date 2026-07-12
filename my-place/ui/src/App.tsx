@@ -413,6 +413,14 @@ function MapView({ spots, mapStyleUrl, mapConfigured, trips, categories, onSpotC
       zoom: 4,
     });
     map.addControl(new maplibregl.NavigationControl(), "bottom-right");
+    map.addControl(
+      new maplibregl.GeolocateControl({
+        positionOptions: { enableHighAccuracy: true },
+        trackUserLocation: true,
+        showUserHeading: true,
+      }),
+      "bottom-right"
+    );
     popupRef.current = new maplibregl.Popup({ closeButton: false, closeOnClick: false, maxWidth: "240px" });
 
     map.on("load", () => {
