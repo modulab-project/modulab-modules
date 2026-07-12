@@ -1,10 +1,10 @@
 [
   {
     "name": "my-places",
-    "version": "0.1.16",
-    "release_url": "https://github.com/modulab-project/modulab-modules/releases/download/my-places-v0.1.16/my-places-v0.1.16.zip",
-    "sha256": "a7bd2024d2b67a78819129417201991b0b157a05a7feb68a91e296741deb25e5",
-    "cosign_sig_url": "https://github.com/modulab-project/modulab-modules/releases/download/my-places-v0.1.16/my-places-v0.1.16.zip.cosign.bundle",
+    "version": "0.1.17",
+    "release_url": "https://github.com/modulab-project/modulab-modules/releases/download/my-places-v0.1.17/my-places-v0.1.17.zip",
+    "sha256": "1b0279b7907c786779af4734b92d6b38545036c71aec166368590361d0770dd6",
+    "cosign_sig_url": "https://github.com/modulab-project/modulab-modules/releases/download/my-places-v0.1.17/my-places-v0.1.17.zip.cosign.bundle",
     "category": "lifestyle",
     "description": {
       "en": "Save and explore your favourite places \u2014 restaurants, beaches, hotels, sights and more \u2014 on an interactive map",
@@ -20,6 +20,7 @@
       "es": "Mis lugares",
       "nl": "Mijn plekken"
     },
+    "logo_url": "",
     "browse_url": "https://github.com/modulab-project/modulab-modules/tree/main/my-place"
   },
   {
