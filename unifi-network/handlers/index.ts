@@ -423,7 +423,7 @@ async function listGateways(db: ModuleDbClient): Promise<HandlerResponse> {
 async function createGateway(db: ModuleDbClient, auth: ModuleAuthContext, body: unknown): Promise<HandlerResponse> {
   if (!isAdmin(auth)) return forbidden();
   const encKey = await getEncKey();
-  if (!encKey) return { status: 500, body: { error: "MODULAB_ENCRYPTION_KEY not configured on server" } };
+  if (!encKey) return { status: 500, body: { error: "MODULAB_MODULE_PII_KEY not configured on server" } };
 
   const { name, base_url, api_key } = body as { name?: string; base_url?: string; api_key?: string };
   if (!name || !base_url || !api_key) return badRequest("name, base_url and api_key are required");
@@ -454,7 +454,7 @@ async function updateGateway(
   const { name, base_url, api_key } = body as { name?: string; base_url?: string; api_key?: string };
 
   const encKey = await getEncKey();
-  if (!encKey) return { status: 500, body: { error: "MODULAB_ENCRYPTION_KEY not configured on server" } };
+  if (!encKey) return { status: 500, body: { error: "MODULAB_MODULE_PII_KEY not configured on server" } };
 
   const nameEnc = name ? await encrypt(encKey, name) : null;
   const baseUrlEnc = base_url ? await encrypt(encKey, base_url) : null;
@@ -885,7 +885,7 @@ async function applyDeviceGatewayChange(
 ): Promise<HandlerResponse> {
   const id = device.id;
   const encKey = await getEncKey();
-  if (!encKey) return { status: 500, body: { error: "MODULAB_ENCRYPTION_KEY not configured on server" } };
+  if (!encKey) return { status: 500, body: { error: "MODULAB_MODULE_PII_KEY not configured on server" } };
 
   const currentRows = await db.query<DeviceGatewayRow>(`SELECT * FROM device_gateways WHERE device_id = $1`, [id]);
   const currentGatewayIds = new Set(currentRows.map((r) => r.gateway_id));
@@ -1165,7 +1165,7 @@ async function requestDeviceChange(
     if (input.note !== undefined) {
       if (input.note.trim().length === 0) return badRequest("note cannot be empty");
       const encKey = await getEncKey();
-      if (!encKey) return { status: 500, body: { error: "MODULAB_ENCRYPTION_KEY not configured on server" } };
+      if (!encKey) return { status: 500, body: { error: "MODULAB_MODULE_PII_KEY not configured on server" } };
       noteEnc = await encrypt(encKey, input.note);
     }
     if (input.target_vlan_name) targetVlanName = input.target_vlan_name;
@@ -1454,7 +1454,7 @@ async function approveDevice(db: ModuleDbClient, auth: ModuleAuthContext, id: st
   if (device.status !== "pending_approval") return badRequest("Device is not pending approval");
 
   const encKey = await getEncKey();
-  if (!encKey) return { status: 500, body: { error: "MODULAB_ENCRYPTION_KEY not configured on server" } };
+  if (!encKey) return { status: 500, body: { error: "MODULAB_MODULE_PII_KEY not configured on server" } };
 
   const mac = await decrypt(encKey, device.mac_enc);
   const note = await decrypt(encKey, device.note_enc).catch(() => undefined);
@@ -1644,7 +1644,7 @@ async function resolveNoteDiscrepancy(
   if (!canonical_note || canonical_note.trim().length === 0) return badRequest("canonical_note is required");
 
   const encKey = await getEncKey();
-  if (!encKey) return { status: 500, body: { error: "MODULAB_ENCRYPTION_KEY not configured on server" } };
+  if (!encKey) return { status: 500, body: { error: "MODULAB_MODULE_PII_KEY not configured on server" } };
 
   // Loaded before the update so the notification below can mention the
   // device's prior note, not just the new canonical one — helps an admin

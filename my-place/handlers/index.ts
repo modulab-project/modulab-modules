@@ -30,13 +30,14 @@
 import type { HandlerRequest, HandlerResponse, ModuleDbClient } from "./types.ts";
 
 // ── Encryption helpers (AES-256-GCM) ─────────────────────────────────────────
-// Key source: MODULAB_ENCRYPTION_KEY env var (64 hex chars = 32 bytes), set by Core.
+// Key source: MODULAB_MODULE_PII_KEY env var (64 hex chars = 32 bytes), set by Core.
+// (renamed from MODULAB_ENCRYPTION_KEY 2026-07-16, same key material)
 
 let _cachedKey: CryptoKey | null = null;
 
 async function getEncKey(): Promise<CryptoKey | null> {
   if (_cachedKey) return _cachedKey;
-  const hexKey = Deno.env.get("MODULAB_ENCRYPTION_KEY") ?? "";
+  const hexKey = Deno.env.get("MODULAB_MODULE_PII_KEY") ?? "";
   if (hexKey.length !== 64) return null;
   const raw = new Uint8Array(32);
   for (let i = 0; i < 32; i++) raw[i] = parseInt(hexKey.slice(i * 2, i * 2 + 2), 16);
@@ -110,7 +111,7 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
         return forbidden();
       }
       if (!encKey) {
-        return { status: 500, body: { error: "MODULAB_ENCRYPTION_KEY not configured on server" } };
+        return { status: 500, body: { error: "MODULAB_MODULE_PII_KEY not configured on server" } };
       }
       const { maptiler_api_key } = body as { maptiler_api_key?: string };
       if (maptiler_api_key !== undefined) {

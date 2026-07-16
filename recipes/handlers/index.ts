@@ -706,7 +706,7 @@ async function upsertAiProvider(
     return badRequest(`provider must be one of: ${AI_PROVIDER_NAMES.join(", ")}`);
   }
   const encKey = await getEncKey();
-  if (!encKey) return { status: 500, body: { error: "MODULAB_ENCRYPTION_KEY not configured on server" } };
+  if (!encKey) return { status: 500, body: { error: "MODULAB_MODULE_PII_KEY not configured on server" } };
 
   const { api_key, model, enabled, is_default } = body as {
     api_key?: string;
@@ -793,7 +793,7 @@ async function listAiProviderModels(
 
   try {
     const encKey = await getEncKey();
-    if (!encKey) return { status: 500, body: { error: "MODULAB_ENCRYPTION_KEY not configured on server" } };
+    if (!encKey) return { status: 500, body: { error: "MODULAB_MODULE_PII_KEY not configured on server" } };
 
     const [existing] = await db.query<AiProviderRow>(
       `SELECT * FROM ai_nutrition_providers WHERE provider = $1`,
@@ -868,7 +868,7 @@ async function estimateNutritionWithAi(
     }
 
     const encKey = await getEncKey();
-    if (!encKey) return { status: 500, body: { error: "MODULAB_ENCRYPTION_KEY not configured on server" } };
+    if (!encKey) return { status: 500, body: { error: "MODULAB_MODULE_PII_KEY not configured on server" } };
 
     const apiKey = await decrypt(encKey, row.api_key_enc);
     // callNutritionAi returns TOTALS for the whole recipe now (2026-07-12

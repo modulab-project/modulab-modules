@@ -1,7 +1,8 @@
 // ── Encryption & hashing helpers ─────────────────────────────────────────────
 //
 // AES-256-GCM: same pattern as modulab-modules/my-place/handlers/index.ts.
-// Key source: MODULAB_ENCRYPTION_KEY env var (64 hex chars = 32 bytes), set by Core.
+// Key source: MODULAB_MODULE_PII_KEY env var (64 hex chars = 32 bytes), set by
+// Core (renamed from MODULAB_ENCRYPTION_KEY 2026-07-16, same key material).
 //
 // HMAC-SHA256 blind index: additional to my-places' pattern. MAC addresses are
 // stored GCM-encrypted (probabilistic — no two ciphertexts of the same MAC are
@@ -10,9 +11,9 @@
 // lookups/joins. It must never be used to derive or guess the plaintext MAC —
 // it is a blind index, not a substitute for mac_enc.
 //
-// Reuses the same raw key material as MODULAB_ENCRYPTION_KEY (no separate
+// Reuses the same raw key material as MODULAB_MODULE_PII_KEY (no separate
 // MODULAB_UNIFI_MAC_HASH_KEY). Rationale: in this deployment's threat model, a
-// compromised MODULAB_ENCRYPTION_KEY already means total loss (it decrypts
+// compromised MODULAB_MODULE_PII_KEY already means total loss (it decrypts
 // every GCM field across Core), so a second key would add key-management
 // overhead without closing an additional attack path. Web Crypto keys are
 // algorithm-scoped, so the same raw bytes are imported twice — once for
@@ -33,7 +34,7 @@ function hexToBytes(hexKey: string): Uint8Array | null {
 
 export async function getEncKey(): Promise<CryptoKey | null> {
   if (_cachedEncKey) return _cachedEncKey;
-  const raw = hexToBytes(Deno.env.get("MODULAB_ENCRYPTION_KEY") ?? "");
+  const raw = hexToBytes(Deno.env.get("MODULAB_MODULE_PII_KEY") ?? "");
   if (!raw) return null;
   _cachedEncKey = await crypto.subtle.importKey("raw", raw, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
   return _cachedEncKey;
@@ -42,7 +43,7 @@ export async function getEncKey(): Promise<CryptoKey | null> {
 export async function getMacHashKey(): Promise<CryptoKey | null> {
   if (_cachedHashKey) return _cachedHashKey;
   // Same raw key material as getEncKey() — see rationale above.
-  const raw = hexToBytes(Deno.env.get("MODULAB_ENCRYPTION_KEY") ?? "");
+  const raw = hexToBytes(Deno.env.get("MODULAB_MODULE_PII_KEY") ?? "");
   if (!raw) return null;
   _cachedHashKey = await crypto.subtle.importKey("raw", raw, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   return _cachedHashKey;

@@ -1,5 +1,5 @@
 name: "recipes"
-version: "0.4.7"
+version: "0.4.8"
 display_name:
   en: "Recipes"
   de: "Rezepte"
@@ -39,7 +39,7 @@ storage:
 
 # AI nutrition provider API keys are stored and encrypted entirely inside
 # this module (own `ai_nutrition_providers` table, AES-256-GCM via
-# MODULAB_ENCRYPTION_KEY in handlers/crypto.ts) — no credentials block,
+# MODULAB_MODULE_PII_KEY in handlers/crypto.ts) — no credentials block,
 # same reasoning as unifi-network's gateways table. These four hosts are
 # fixed (unlike unifi-network's user-supplied gateway URLs), so a static
 # allowlist is sufficient — no runtime restartHosts/computeEgressHosts

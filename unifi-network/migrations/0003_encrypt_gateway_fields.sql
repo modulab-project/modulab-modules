@@ -5,7 +5,7 @@
 -- name (Standortname), base_url (interner Hostname) und created_by
 -- (E-Mail-Adresse) waren alle drei im Klartext lesbar.
 --
--- SQL-Migrationen haben keinen Zugriff auf MODULAB_ENCRYPTION_KEY (nur der
+-- SQL-Migrationen haben keinen Zugriff auf MODULAB_MODULE_PII_KEY (nur der
 -- Deno-Handler-Prozess kennt ihn) und können daher nicht selbst
 -- verschlüsseln. Nutzerentscheidung: bestehende Gateways werden nicht
 -- automatisch nachverschlüsselt (kein Backfill-Mechanismus) — der Nutzer legt

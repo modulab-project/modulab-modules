@@ -2,7 +2,7 @@
 -- entirely within this module (Nutzerentscheidung 2026-07-12: does NOT reuse
 -- Core's backend/internal/ai/ai.go provider system — mirrors unifi-network's
 -- gateways table pattern instead, own schema + own AES-256-GCM encryption via
--- MODULAB_ENCRYPTION_KEY, encrypted/decrypted only in handlers/crypto.ts).
+-- MODULAB_MODULE_PII_KEY, encrypted/decrypted only in handlers/crypto.ts).
 --
 -- One row per provider (openai/google/anthropic/deepseek); api_key_enc is
 -- NULL-able only in the sense that a provider simply has no row until an

@@ -145,7 +145,7 @@ async function pollSingleGateway(ctx: JobContext, gw: GatewayRow, notifications:
   const encKey = await getEncKey();
 
   if (!encKey) {
-    await markGatewayError(db, gw.id, "MODULAB_ENCRYPTION_KEY not configured on server", undefined, notifications);
+    await markGatewayError(db, gw.id, "MODULAB_MODULE_PII_KEY not configured on server", undefined, notifications);
     return;
   }
 

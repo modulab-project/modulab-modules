@@ -1,10 +1,11 @@
 // ── Encryption helpers ───────────────────────────────────────────────────────
 //
 // AES-256-GCM, same pattern as unifi-network/handlers/crypto.ts and
-// my-place/handlers/index.ts. Key source: MODULAB_ENCRYPTION_KEY env var
-// (64 hex chars = 32 bytes), set by Core and passed into every Deno worker's
+// my-place/handlers/index.ts. Key source: MODULAB_MODULE_PII_KEY env var
+// (64 hex chars = 32 bytes; renamed from MODULAB_ENCRYPTION_KEY 2026-07-16,
+// same key material), set by Core and passed into every Deno worker's
 // environment (see Core's deno.go moduleEnv). No module-specific key: a
-// compromised MODULAB_ENCRYPTION_KEY already means total loss across every
+// compromised MODULAB_MODULE_PII_KEY already means total loss across every
 // module that uses it, so a second key would add key-management overhead
 // without closing an additional attack path (same rationale as
 // unifi-network).
@@ -26,7 +27,7 @@ function hexToBytes(hexKey: string): Uint8Array | null {
 
 export async function getEncKey(): Promise<CryptoKey | null> {
   if (_cachedEncKey) return _cachedEncKey;
-  const raw = hexToBytes(Deno.env.get("MODULAB_ENCRYPTION_KEY") ?? "");
+  const raw = hexToBytes(Deno.env.get("MODULAB_MODULE_PII_KEY") ?? "");
   if (!raw) return null;
   _cachedEncKey = await crypto.subtle.importKey("raw", raw, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
   return _cachedEncKey;
