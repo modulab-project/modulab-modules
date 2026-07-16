@@ -65,8 +65,9 @@ import type {
   PendingAction,
   PendingDeviceChange,
   GatewayProvisionResult,
+  ModulePiiCrypto,
 } from "./types.ts";
-import { getEncKey, getMacHashKey, encrypt, decrypt, macHash, sanitizeMac, InvalidMacError } from "./crypto.ts";
+import { encrypt, decrypt, macHash, sanitizeMac, InvalidMacError } from "./crypto.ts";
 import {
   createRadiusAccount,
   updateRadiusAccount,
@@ -290,6 +291,8 @@ async function audit(
 
 export default async function handler(req: HandlerRequest): Promise<HandlerResponse> {
   const { method, path, body, auth, db } = req;
+  const encKey = req.crypto.key;
+  const macHashKey = req.crypto.hashKey;
 
   const qIdx = path.indexOf("?");
   const pathname = qIdx === -1 ? path : path.slice(0, qIdx);
@@ -297,15 +300,15 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
 
   // ── Gateways ────────────────────────────────────────────────────────────
 
-  if (route === "GET /gateways") return listGateways(db);
-  if (route === "POST /gateways") return createGateway(db, auth, body);
+  if (route === "GET /gateways") return listGateways(db, encKey);
+  if (route === "POST /gateways") return createGateway(db, auth, body, encKey);
   if (method === "PATCH" && pathname.match(/^\/gateways\/[^/]+$/))
-    return updateGateway(db, auth, segId(pathname), body);
+    return updateGateway(db, auth, segId(pathname), body, encKey);
   if (method === "DELETE" && pathname.match(/^\/gateways\/[^/]+$/))
-    return deleteGateway(db, auth, segId(pathname));
+    return deleteGateway(db, auth, segId(pathname), encKey);
   if (method === "POST" && pathname.match(/^\/gateways\/[^/]+\/refresh$/))
-    return refreshGateway(db, auth, segId(pathname, -2));
-  if (route === "POST /gateways/refresh-all") return refreshAllGateways(db, auth);
+    return refreshGateway(db, auth, segId(pathname, -2), req.crypto);
+  if (route === "POST /gateways/refresh-all") return refreshAllGateways(db, auth, req.crypto);
 
   // ── VLANs (Dropdown-Datengrundlage fürs Onboarding-Formular) ─────────────
 
@@ -315,37 +318,37 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
 
   // ── Devices (global RADIUS table) ────────────────────────────────────────
 
-  if (route === "GET /devices") return listDevices(db);
-  if (route === "POST /devices") return createDevice(db, auth, body as DeviceInput);
+  if (route === "GET /devices") return listDevices(db, encKey);
+  if (route === "POST /devices") return createDevice(db, auth, body as DeviceInput, encKey, macHashKey);
   if (method === "PATCH" && pathname.match(/^\/devices\/[^/]+\/gateways$/))
-    return updateDeviceGateways(db, auth, segId(pathname, -2), body as DeviceGatewaysInput);
+    return updateDeviceGateways(db, auth, segId(pathname, -2), body as DeviceGatewaysInput, encKey);
   if (method === "PATCH" && pathname.match(/^\/devices\/[^/]+$/))
-    return updateDevice(db, auth, segId(pathname), body);
+    return updateDevice(db, auth, segId(pathname), body, encKey);
   if (method === "DELETE" && pathname.match(/^\/devices\/[^/]+$/))
-    return deleteDevice(db, auth, segId(pathname));
+    return deleteDevice(db, auth, segId(pathname), encKey);
   if (method === "DELETE" && pathname.match(/^\/devices\/[^/]+\/gateways\/[^/]+$/))
-    return deleteDeviceFromGateway(db, auth, segId(pathname, -3), segId(pathname));
+    return deleteDeviceFromGateway(db, auth, segId(pathname, -3), segId(pathname), encKey);
 
   // ── Onboarding approval ───────────────────────────────────────────────────
 
-  if (route === "GET /devices/pending") return listPendingDevices(db, auth);
+  if (route === "GET /devices/pending") return listPendingDevices(db, auth, encKey);
   if (method === "POST" && pathname.match(/^\/devices\/[^/]+\/approve$/))
-    return approveDevice(db, auth, segId(pathname, -2));
+    return approveDevice(db, auth, segId(pathname, -2), encKey);
   if (method === "POST" && pathname.match(/^\/devices\/[^/]+\/reject$/))
-    return rejectDevice(db, auth, segId(pathname, -2));
+    return rejectDevice(db, auth, segId(pathname, -2), encKey);
 
   // ── Change requests on active devices (Admin only, Nutzerentscheidung 2026-07-05) ─
 
-  if (route === "GET /devices/pending-changes") return listPendingDeviceChanges(db, auth);
+  if (route === "GET /devices/pending-changes") return listPendingDeviceChanges(db, auth, encKey);
   if (method === "POST" && pathname.match(/^\/devices\/[^/]+\/approve-change$/))
-    return approveDeviceChange(db, auth, segId(pathname, -2));
+    return approveDeviceChange(db, auth, segId(pathname, -2), encKey);
   if (method === "POST" && pathname.match(/^\/devices\/[^/]+\/reject-change$/))
-    return rejectDeviceChange(db, auth, segId(pathname, -2));
+    return rejectDeviceChange(db, auth, segId(pathname, -2), encKey);
 
   // ── Note discrepancy resolution ──────────────────────────────────────────
 
   if (method === "POST" && pathname.match(/^\/devices\/[^/]+\/resolve-note$/))
-    return resolveNoteDiscrepancy(db, auth, segId(pathname, -2), body);
+    return resolveNoteDiscrepancy(db, auth, segId(pathname, -2), body, encKey);
 
   return notFound();
 }
@@ -412,17 +415,15 @@ export async function computeEgressHosts(db: ModuleDbClient, encKey: CryptoKey |
   return [...hosts];
 }
 
-async function listGateways(db: ModuleDbClient): Promise<HandlerResponse> {
+async function listGateways(db: ModuleDbClient, encKey: CryptoKey | null): Promise<HandlerResponse> {
   const rows = await db.query<GatewayRow>(`SELECT * FROM gateways LIMIT 500`);
-  const encKey = await getEncKey();
   const result = await Promise.all(rows.map((gw) => decryptGatewayForResponse(gw, encKey)));
   result.sort((a, b) => a.name.localeCompare(b.name));
   return ok(result);
 }
 
-async function createGateway(db: ModuleDbClient, auth: ModuleAuthContext, body: unknown): Promise<HandlerResponse> {
+async function createGateway(db: ModuleDbClient, auth: ModuleAuthContext, body: unknown, encKey: CryptoKey | null): Promise<HandlerResponse> {
   if (!isAdmin(auth)) return forbidden();
-  const encKey = await getEncKey();
   if (!encKey) return { status: 500, body: { error: "MODULAB_MODULE_PII_KEY not configured on server" } };
 
   const { name, base_url, api_key } = body as { name?: string; base_url?: string; api_key?: string };
@@ -449,11 +450,11 @@ async function updateGateway(
   auth: ModuleAuthContext,
   id: string,
   body: unknown,
+  encKey: CryptoKey | null,
 ): Promise<HandlerResponse> {
   if (!isAdmin(auth)) return forbidden();
   const { name, base_url, api_key } = body as { name?: string; base_url?: string; api_key?: string };
 
-  const encKey = await getEncKey();
   if (!encKey) return { status: 500, body: { error: "MODULAB_MODULE_PII_KEY not configured on server" } };
 
   const nameEnc = name ? await encrypt(encKey, name) : null;
@@ -492,17 +493,16 @@ async function updateGateway(
   return resp;
 }
 
-async function deleteGateway(db: ModuleDbClient, auth: ModuleAuthContext, id: string): Promise<HandlerResponse> {
+async function deleteGateway(db: ModuleDbClient, auth: ModuleAuthContext, id: string, encKey: CryptoKey | null): Promise<HandlerResponse> {
   if (!isAdmin(auth)) return forbidden();
   await db.query(`DELETE FROM gateways WHERE id = $1`, [id]);
   await audit(db, auth.userEmail, "gateway.delete", "gateway", id);
-  const encKey = await getEncKey();
   const resp = ok({ ok: true });
   resp.restartHosts = await computeEgressHosts(db, encKey);
   return resp;
 }
 
-async function refreshGateway(db: ModuleDbClient, auth: ModuleAuthContext, id: string): Promise<HandlerResponse> {
+async function refreshGateway(db: ModuleDbClient, auth: ModuleAuthContext, id: string, piiCrypto: ModulePiiCrypto): Promise<HandlerResponse> {
   // Bugfix (2026-07-05): this handler took no `auth` at all and performed no
   // check — any authenticated user could trigger a manual poll. It's a
   // diagnostic/re-provisioning trigger, not a data mutation a user requests
@@ -519,11 +519,11 @@ async function refreshGateway(db: ModuleDbClient, auth: ModuleAuthContext, id: s
   if (!gw) return notFound();
   // includePaused: true — see refreshAllGateways() for why a manual refresh
   // click should retry paused gateways instead of skipping them.
-  await pollGateways({ db }, { includePaused: true });
+  await pollGateways({ db, crypto: piiCrypto }, { includePaused: true });
   return ok({ ok: true });
 }
 
-async function refreshAllGateways(db: ModuleDbClient, auth: ModuleAuthContext): Promise<HandlerResponse> {
+async function refreshAllGateways(db: ModuleDbClient, auth: ModuleAuthContext, piiCrypto: ModulePiiCrypto): Promise<HandlerResponse> {
   // Bugfix (2026-07-05): same missing check as refreshGateway() above.
   if (!isAdmin(auth)) return forbidden();
   const { default: pollGateways } = await import("../jobs/poll-gateways.ts");
@@ -533,7 +533,7 @@ async function refreshAllGateways(db: ModuleDbClient, auth: ModuleAuthContext): 
   // A gateway that responds successfully this time un-pauses itself
   // automatically (pollSingleGateway resets consecutive_failures on
   // success) — no need to open and re-save each paused gateway by hand.
-  await pollGateways({ db }, { includePaused: true });
+  await pollGateways({ db, crypto: piiCrypto }, { includePaused: true });
   return ok({ ok: true });
 }
 
@@ -559,9 +559,8 @@ async function listVlanNamesForGateway(db: ModuleDbClient, gatewayId: string): P
 
 // ── Device handlers ──────────────────────────────────────────────────────────
 
-async function listDevices(db: ModuleDbClient): Promise<HandlerResponse> {
+async function listDevices(db: ModuleDbClient, encKey: CryptoKey | null): Promise<HandlerResponse> {
   const devices = await db.query<DeviceRow>(`SELECT * FROM devices WHERE status = 'active' ORDER BY created_at DESC LIMIT 500`);
-  const encKey = await getEncKey();
 
   // Bugfix (2026-07-05): this used to run one device_gateways/gateways JOIN
   // query per device (N+1) — a single batched query with
@@ -624,6 +623,8 @@ async function createDevice(
   db: ModuleDbClient,
   auth: ModuleAuthContext,
   input: DeviceInput,
+  encKey: CryptoKey | null,
+  macHashKey: CryptoKey | null,
 ): Promise<HandlerResponse> {
   let sanitized: string;
   try {
@@ -639,8 +640,6 @@ async function createDevice(
     return badRequest("note is required");
   }
 
-  const encKey = await getEncKey();
-  const macHashKey = await getMacHashKey();
   if (!encKey || !macHashKey) {
     return { status: 500, body: { error: "Encryption keys not configured on server" } };
   }
@@ -729,6 +728,7 @@ async function updateDevice(
   auth: ModuleAuthContext,
   id: string,
   body: unknown,
+  encKey: CryptoKey | null,
 ): Promise<HandlerResponse> {
   const [device] = await db.query<DeviceRow>(`SELECT * FROM devices WHERE id = $1`, [id]);
   if (!device) return notFound();
@@ -737,13 +737,13 @@ async function updateDevice(
   const input = body as DeviceEditInput;
 
   if (device.status === "active" && !admin) {
-    return requestDeviceChange(db, auth, device, "edit", input);
+    return requestDeviceChange(db, auth, device, "edit", input, encKey);
   }
   if (device.status === "pending_approval" && device.created_by !== auth.userEmail && !admin) {
     return forbidden();
   }
 
-  return applyDeviceEdit(db, auth, device, input);
+  return applyDeviceEdit(db, auth, device, input, encKey);
 }
 
 async function applyDeviceEdit(
@@ -751,6 +751,7 @@ async function applyDeviceEdit(
   auth: ModuleAuthContext,
   device: DeviceRow,
   input: DeviceEditInput,
+  encKey: CryptoKey | null,
 ): Promise<HandlerResponse> {
   const id = device.id;
   // "alias" entfernt (2026-07-01): note ist das einzige Freitextfeld.
@@ -763,8 +764,6 @@ async function applyDeviceEdit(
   if (note !== undefined && note.trim().length === 0) {
     return badRequest("note cannot be empty");
   }
-
-  const encKey = await getEncKey();
 
   // Bugfix (2026-07-01): updateDevice() speicherte die Notiz bisher nur in
   // der eigenen DB (note_enc), schrieb sie aber nie an UniFi zurück — ein
@@ -859,6 +858,7 @@ async function updateDeviceGateways(
   auth: ModuleAuthContext,
   id: string,
   input: DeviceGatewaysInput,
+  encKey: CryptoKey | null,
 ): Promise<HandlerResponse> {
   const [device] = await db.query<DeviceRow>(`SELECT * FROM devices WHERE id = $1`, [id]);
   if (!device) return notFound();
@@ -868,13 +868,13 @@ async function updateDeviceGateways(
   // Nicht-Admins jetzt eine Freigabe-Anfrage aus statt direkt 403.
   const admin = isAdmin(auth);
   if (device.status === "active" && !admin) {
-    return requestDeviceChange(db, auth, device, "gateway_change", input.target_gateway_ids);
+    return requestDeviceChange(db, auth, device, "gateway_change", input.target_gateway_ids, encKey);
   }
   if (device.status === "pending_approval" && device.created_by !== auth.userEmail && !admin) {
     return forbidden();
   }
 
-  return applyDeviceGatewayChange(db, auth, device, input);
+  return applyDeviceGatewayChange(db, auth, device, input, encKey);
 }
 
 async function applyDeviceGatewayChange(
@@ -882,9 +882,9 @@ async function applyDeviceGatewayChange(
   auth: ModuleAuthContext,
   device: DeviceRow,
   input: DeviceGatewaysInput,
+  encKey: CryptoKey | null,
 ): Promise<HandlerResponse> {
   const id = device.id;
-  const encKey = await getEncKey();
   if (!encKey) return { status: 500, body: { error: "MODULAB_MODULE_PII_KEY not configured on server" } };
 
   const currentRows = await db.query<DeviceGatewayRow>(`SELECT * FROM device_gateways WHERE device_id = $1`, [id]);
@@ -904,10 +904,10 @@ async function applyDeviceGatewayChange(
     const note = await decrypt(encKey, device.note_enc).catch(() => undefined);
 
     for (const gatewayId of toAdd) {
-      results.push(await provisionOnGateway(db, gatewayId, id, mac, device.target_vlan_name, note));
+      results.push(await provisionOnGateway(db, gatewayId, id, mac, device.target_vlan_name, encKey, note));
     }
     for (const dg of toRemove) {
-      await queueOrExecuteDeletion(db, id, dg.gateway_id, dg.radius_account_id, dg.user_alias_id);
+      await queueOrExecuteDeletion(db, id, dg.gateway_id, dg.radius_account_id, dg.user_alias_id, encKey);
       const [removedGw] = await db.query<GatewayRow>(`SELECT * FROM gateways WHERE id = $1`, [dg.gateway_id]);
       const removedGwName = removedGw ? await decrypt(encKey, removedGw.name_enc).catch(() => "???") : "?";
       results.push({ gateway_id: dg.gateway_id, gateway_name: removedGwName, status: "ok" });
@@ -957,7 +957,7 @@ async function applyDeviceGatewayChange(
   return resp;
 }
 
-async function deleteDevice(db: ModuleDbClient, auth: ModuleAuthContext, id: string): Promise<HandlerResponse> {
+async function deleteDevice(db: ModuleDbClient, auth: ModuleAuthContext, id: string, encKey: CryptoKey | null): Promise<HandlerResponse> {
   const [device] = await db.query<DeviceRow>(`SELECT * FROM devices WHERE id = $1`, [id]);
   if (!device) return notFound();
 
@@ -967,19 +967,20 @@ async function deleteDevice(db: ModuleDbClient, auth: ModuleAuthContext, id: str
   // own not-yet-approved submission directly, unchanged.
   const admin = isAdmin(auth);
   if (device.status === "active" && !admin) {
-    return requestDeviceChange(db, auth, device, "delete", null);
+    return requestDeviceChange(db, auth, device, "delete", null, encKey);
   }
   if (device.status === "pending_approval" && device.created_by !== auth.userEmail && !admin) {
     return forbidden();
   }
 
-  return applyDeviceDeletion(db, auth, device);
+  return applyDeviceDeletion(db, auth, device, encKey);
 }
 
 async function applyDeviceDeletion(
   db: ModuleDbClient,
   auth: ModuleAuthContext,
   device: DeviceRow,
+  encKeyForNotify: CryptoKey | null,
 ): Promise<HandlerResponse> {
   const id = device.id;
   const gatewayRows = await db.query<DeviceGatewayRow>(`SELECT * FROM device_gateways WHERE device_id = $1`, [id]);
@@ -988,14 +989,13 @@ async function applyDeviceDeletion(
   // rows disappear as part of that (queueOrExecuteDeletion / the delete
   // itself), so this is the last point they're cheaply available for the
   // notification text.
-  const encKeyForNotify = await getEncKey();
   const deletedGatewayNames: string[] = [];
   for (const dg of gatewayRows) {
     if (encKeyForNotify) {
       const [gw] = await db.query<GatewayRow>(`SELECT * FROM gateways WHERE id = $1`, [dg.gateway_id]);
       if (gw) deletedGatewayNames.push(await decrypt(encKeyForNotify, gw.name_enc).catch(() => "???"));
     }
-    await queueOrExecuteDeletion(db, id, dg.gateway_id, dg.radius_account_id, dg.user_alias_id);
+    await queueOrExecuteDeletion(db, id, dg.gateway_id, dg.radius_account_id, dg.user_alias_id, encKeyForNotify);
   }
 
   await db.query(`DELETE FROM devices WHERE id = $1`, [id]);
@@ -1024,6 +1024,7 @@ async function deleteDeviceFromGateway(
   auth: ModuleAuthContext,
   deviceId: string,
   gatewayId: string,
+  encKey: CryptoKey | null,
 ): Promise<HandlerResponse> {
   // Entscheidungsvorlage 4.6: partial delete, same workflow as full delete but
   // scoped to a single gateway.
@@ -1046,7 +1047,7 @@ async function deleteDeviceFromGateway(
       [deviceId],
     );
     const proposedIds = currentRows.map((r) => r.gateway_id).filter((gid) => gid !== gatewayId);
-    return requestDeviceChange(db, auth, device, "gateway_change", proposedIds);
+    return requestDeviceChange(db, auth, device, "gateway_change", proposedIds, encKey);
   }
   if (device.status === "pending_approval" && device.created_by !== auth.userEmail && !admin) {
     return forbidden();
@@ -1058,12 +1059,11 @@ async function deleteDeviceFromGateway(
   );
   if (!dg) return notFound();
 
-  await queueOrExecuteDeletion(db, deviceId, gatewayId, dg.radius_account_id, dg.user_alias_id);
+  await queueOrExecuteDeletion(db, deviceId, gatewayId, dg.radius_account_id, dg.user_alias_id, encKey);
   await audit(db, auth.userEmail, "device.gateway_remove", "device", deviceId, gatewayId);
 
   // Reported 2026-07-04: removing a device from a single gateway (partial
   // delete) produced no notification, unlike deleting it everywhere.
-  const encKey = await getEncKey();
   const resp = ok({ ok: true });
   if (encKey) {
     const [device] = await db.query<DeviceRow>(`SELECT * FROM devices WHERE id = $1`, [deviceId]);
@@ -1085,8 +1085,8 @@ async function queueOrExecuteDeletion(
   gatewayId: string,
   radiusAccountId: string,
   userAliasId: string | null,
+  encKey: CryptoKey | null,
 ): Promise<void> {
-  const encKey = await getEncKey();
   const [gw] = await db.query<GatewayRow>(`SELECT * FROM gateways WHERE id = $1`, [gatewayId]);
 
   if (!encKey || !gw || gw.status === "paused" || gw.status === "config_error") {
@@ -1151,6 +1151,7 @@ async function requestDeviceChange(
   device: DeviceRow,
   action: Exclude<PendingAction, null>,
   payload: DeviceEditInput | string[] | null,
+  encKey: CryptoKey | null,
 ): Promise<HandlerResponse> {
   if (device.pending_action) {
     return badRequest("A change is already pending approval for this device.");
@@ -1164,7 +1165,6 @@ async function requestDeviceChange(
     const input = payload as DeviceEditInput;
     if (input.note !== undefined) {
       if (input.note.trim().length === 0) return badRequest("note cannot be empty");
-      const encKey = await getEncKey();
       if (!encKey) return { status: 500, body: { error: "MODULAB_MODULE_PII_KEY not configured on server" } };
       noteEnc = await encrypt(encKey, input.note);
     }
@@ -1199,9 +1199,8 @@ async function requestDeviceChange(
 
   await audit(db, auth.userEmail, `device.change_requested.${action}`, "device", device.id);
 
-  const encKeyForNotify = await getEncKey();
-  const note = encKeyForNotify ? await decrypt(encKeyForNotify, device.note_enc).catch(() => "?") : "?";
-  const mac = encKeyForNotify ? await decrypt(encKeyForNotify, device.mac_enc).catch(() => "?") : "?";
+  const note = encKey ? await decrypt(encKey, device.note_enc).catch(() => "?") : "?";
+  const mac = encKey ? await decrypt(encKey, device.mac_enc).catch(() => "?") : "?";
 
   const resp = ok({ ok: true, pending_action: action });
   resp.notifications = [{
@@ -1211,12 +1210,11 @@ async function requestDeviceChange(
   return resp;
 }
 
-async function listPendingDeviceChanges(db: ModuleDbClient, auth: ModuleAuthContext): Promise<HandlerResponse> {
+async function listPendingDeviceChanges(db: ModuleDbClient, auth: ModuleAuthContext, encKey: CryptoKey | null): Promise<HandlerResponse> {
   if (!isAdmin(auth)) return forbidden();
   const rows = await db.query<DeviceRow>(
     `SELECT * FROM devices WHERE pending_action IS NOT NULL ORDER BY pending_requested_at`,
   );
-  const encKey = await getEncKey();
 
   // Bugfix (2026-07-05): pending_target_gateway_ids used to be resolved to
   // names with one SELECT per gateway id per row (N+1, nested inside the
@@ -1273,7 +1271,7 @@ async function listPendingDeviceChanges(db: ModuleDbClient, auth: ModuleAuthCont
 // Admin path, so there is exactly one code path per action kind that ever
 // touches RADIUS/UniFi, whether an Admin acted directly or approved a
 // request.
-async function approveDeviceChange(db: ModuleDbClient, auth: ModuleAuthContext, id: string): Promise<HandlerResponse> {
+async function approveDeviceChange(db: ModuleDbClient, auth: ModuleAuthContext, id: string, encKey: CryptoKey | null): Promise<HandlerResponse> {
   if (!isAdmin(auth)) return forbidden();
   const [device] = await db.query<DeviceRow>(`SELECT * FROM devices WHERE id = $1`, [id]);
   if (!device) return notFound();
@@ -1282,7 +1280,6 @@ async function approveDeviceChange(db: ModuleDbClient, auth: ModuleAuthContext, 
   const action = device.pending_action;
   const requestedBy = device.pending_requested_by ?? "?";
 
-  const encKey = await getEncKey();
   const noteForNotify = encKey ? await decrypt(encKey, device.note_enc).catch(() => "?") : "?";
   const macForNotify = encKey ? await decrypt(encKey, device.mac_enc).catch(() => "?") : "?";
 
@@ -1326,13 +1323,13 @@ async function approveDeviceChange(db: ModuleDbClient, auth: ModuleAuthContext, 
       note: device.pending_note_enc && encKey ? await decrypt(encKey, device.pending_note_enc).catch(() => undefined) : undefined,
       target_vlan_name: device.pending_target_vlan_name ?? undefined,
     };
-    applyResp = await applyDeviceEdit(db, auth, clearedDevice, input);
+    applyResp = await applyDeviceEdit(db, auth, clearedDevice, input, encKey);
   } else if (action === "delete") {
-    applyResp = await applyDeviceDeletion(db, auth, clearedDevice);
+    applyResp = await applyDeviceDeletion(db, auth, clearedDevice, encKey);
   } else {
     applyResp = await applyDeviceGatewayChange(db, auth, clearedDevice, {
       target_gateway_ids: device.pending_target_gateway_ids ?? [],
-    });
+    }, encKey);
   }
 
   await audit(db, auth.userEmail, `device.change_approved.${action}`, "device", id, requestedBy);
@@ -1349,7 +1346,7 @@ async function approveDeviceChange(db: ModuleDbClient, auth: ModuleAuthContext, 
   return { ...applyResp, notifications };
 }
 
-async function rejectDeviceChange(db: ModuleDbClient, auth: ModuleAuthContext, id: string): Promise<HandlerResponse> {
+async function rejectDeviceChange(db: ModuleDbClient, auth: ModuleAuthContext, id: string, encKey: CryptoKey | null): Promise<HandlerResponse> {
   if (!isAdmin(auth)) return forbidden();
   const [device] = await db.query<DeviceRow>(`SELECT * FROM devices WHERE id = $1`, [id]);
   if (!device) return notFound();
@@ -1381,7 +1378,6 @@ async function rejectDeviceChange(db: ModuleDbClient, auth: ModuleAuthContext, i
 
   await audit(db, auth.userEmail, `device.change_rejected.${action}`, "device", id, requestedBy);
 
-  const encKey = await getEncKey();
   const note = encKey ? await decrypt(encKey, device.note_enc).catch(() => "?") : "?";
   const mac = encKey ? await decrypt(encKey, device.mac_enc).catch(() => "?") : "?";
 
@@ -1395,10 +1391,9 @@ async function rejectDeviceChange(db: ModuleDbClient, auth: ModuleAuthContext, i
 
 // ── Onboarding approval (Entscheidungsvorlage 4.7) ──────────────────────────
 
-async function listPendingDevices(db: ModuleDbClient, auth: ModuleAuthContext): Promise<HandlerResponse> {
+async function listPendingDevices(db: ModuleDbClient, auth: ModuleAuthContext, encKey: CryptoKey | null): Promise<HandlerResponse> {
   if (!isAdmin(auth)) return forbidden();
   const rows = await db.query<DeviceRow>(`SELECT * FROM devices WHERE status = 'pending_approval' ORDER BY created_at`);
-  const encKey = await getEncKey();
 
   // Bugfix (2026-07-05): one device_gateways/gateways JOIN query per pending
   // device (N+1) — batched into a single ANY($1) query, then grouped back
@@ -1446,14 +1441,13 @@ async function listPendingDevices(db: ModuleDbClient, auth: ModuleAuthContext): 
   return ok(result);
 }
 
-async function approveDevice(db: ModuleDbClient, auth: ModuleAuthContext, id: string): Promise<HandlerResponse> {
+async function approveDevice(db: ModuleDbClient, auth: ModuleAuthContext, id: string, encKey: CryptoKey | null): Promise<HandlerResponse> {
   if (!isAdmin(auth)) return forbidden();
 
   const [device] = await db.query<DeviceRow>(`SELECT * FROM devices WHERE id = $1`, [id]);
   if (!device) return notFound();
   if (device.status !== "pending_approval") return badRequest("Device is not pending approval");
 
-  const encKey = await getEncKey();
   if (!encKey) return { status: 500, body: { error: "MODULAB_MODULE_PII_KEY not configured on server" } };
 
   const mac = await decrypt(encKey, device.mac_enc);
@@ -1470,7 +1464,7 @@ async function approveDevice(db: ModuleDbClient, auth: ModuleAuthContext, id: st
   // a VLAN-not-found (or any other) failure on one gateway does not block
   // provisioning on the others (partial success, reported per gateway).
   for (const { gateway_id } of targetGateways) {
-    results.push(await provisionOnGateway(db, gateway_id, device.id, mac, device.target_vlan_name, note));
+    results.push(await provisionOnGateway(db, gateway_id, device.id, mac, device.target_vlan_name, encKey, note));
   }
 
   await db.query(`UPDATE devices SET status = 'active', approved_by = $1, approved_at = now() WHERE id = $2`, [
@@ -1500,12 +1494,12 @@ async function provisionOnGateway(
   deviceId: string,
   mac: string,
   targetVlanName: string,
+  encKey: CryptoKey | null,
   note?: string,
 ): Promise<GatewayProvisionResult> {
   const [gw] = await db.query<GatewayRow>(`SELECT * FROM gateways WHERE id = $1`, [gatewayId]);
   if (!gw) return { gateway_id: gatewayId, gateway_name: "?", status: "error", error: "Gateway not found" };
 
-  const encKey = await getEncKey();
   if (!encKey) return { gateway_id: gatewayId, gateway_name: "???", status: "error", error: "Encryption key missing" };
 
   const gwName = await decrypt(encKey, gw.name_enc).catch(() => "???");
@@ -1593,7 +1587,7 @@ async function provisionOnGateway(
   }
 }
 
-async function rejectDevice(db: ModuleDbClient, auth: ModuleAuthContext, id: string): Promise<HandlerResponse> {
+async function rejectDevice(db: ModuleDbClient, auth: ModuleAuthContext, id: string, encKey: CryptoKey | null): Promise<HandlerResponse> {
   if (!isAdmin(auth)) return forbidden();
   // No API calls were ever made for a pending_approval device — safe to just discard.
   //
@@ -1616,7 +1610,6 @@ async function rejectDevice(db: ModuleDbClient, auth: ModuleAuthContext, id: str
   await db.query(`DELETE FROM devices WHERE id = $1`, [id]);
   await audit(db, auth.userEmail, "device.reject", "device", id);
 
-  const encKey = await getEncKey();
   const note = encKey ? await decrypt(encKey, device.note_enc).catch(() => "?") : "?";
   const mac = encKey ? await decrypt(encKey, device.mac_enc).catch(() => "?") : "?";
   const resp = ok({ status: "rejected" });
@@ -1639,11 +1632,11 @@ async function resolveNoteDiscrepancy(
   auth: ModuleAuthContext,
   deviceId: string,
   body: unknown,
+  encKey: CryptoKey | null,
 ): Promise<HandlerResponse> {
   const { canonical_note } = body as { canonical_note?: string };
   if (!canonical_note || canonical_note.trim().length === 0) return badRequest("canonical_note is required");
 
-  const encKey = await getEncKey();
   if (!encKey) return { status: 500, body: { error: "MODULAB_MODULE_PII_KEY not configured on server" } };
 
   // Loaded before the update so the notification below can mention the

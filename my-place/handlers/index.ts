@@ -28,44 +28,14 @@
  */
 
 import type { HandlerRequest, HandlerResponse, ModuleDbClient } from "./types.ts";
-
-// ── Encryption helpers (AES-256-GCM) ─────────────────────────────────────────
-// Key source: MODULAB_MODULE_PII_KEY env var (64 hex chars = 32 bytes), set by Core.
-// (renamed from MODULAB_ENCRYPTION_KEY 2026-07-16, same key material)
-
-let _cachedKey: CryptoKey | null = null;
-
-async function getEncKey(): Promise<CryptoKey | null> {
-  if (_cachedKey) return _cachedKey;
-  const hexKey = Deno.env.get("MODULAB_MODULE_PII_KEY") ?? "";
-  if (hexKey.length !== 64) return null;
-  const raw = new Uint8Array(32);
-  for (let i = 0; i < 32; i++) raw[i] = parseInt(hexKey.slice(i * 2, i * 2 + 2), 16);
-  _cachedKey = await crypto.subtle.importKey("raw", raw, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
-  return _cachedKey;
-}
-
-async function encrypt(key: CryptoKey, plaintext: string): Promise<string> {
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(plaintext));
-  const buf = new Uint8Array(12 + ct.byteLength);
-  buf.set(iv, 0);
-  buf.set(new Uint8Array(ct), 12);
-  return btoa(String.fromCharCode(...buf));
-}
-
-async function decrypt(key: CryptoKey, ciphertext: string): Promise<string> {
-  const buf = Uint8Array.from(atob(ciphertext), (c) => c.charCodeAt(0));
-  const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: buf.slice(0, 12) }, key, buf.slice(12));
-  return new TextDecoder().decode(pt);
-}
+import { encrypt, decrypt } from "./crypto.ts";
 
 // ── Main handler ──────────────────────────────────────────────────────────────
 
 export default async function handler(req: HandlerRequest): Promise<HandlerResponse> {
-  const { method, path, body, auth, db } = req;
+  const { method, path, body, auth, db, crypto: piiCrypto } = req;
 
-  const encKey = await getEncKey();
+  const encKey = piiCrypto.key;
 
   const qIdx = path.indexOf("?");
   const pathname = qIdx === -1 ? path : path.slice(0, qIdx);

@@ -1,5 +1,5 @@
 name: "unifi-network"
-version: "0.3.29"
+version: "0.4.0"
 display_name:
   en: "UniFi Network"
   de: "UniFi Netzwerk"

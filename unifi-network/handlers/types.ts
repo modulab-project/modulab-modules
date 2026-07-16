@@ -17,6 +17,24 @@ export interface HandlerRequest {
   auth: ModuleAuthContext;
   db: ModuleDbClient;
   storage: ModuleStorageClient;
+  crypto: ModulePiiCrypto;
+}
+
+// ModulePiiCrypto carries the module-scoped PII encryption key material,
+// built once by Core's bootstrap script (backend/internal/modules/deno.go's
+// loadPiiCrypto) from MODULAB_MODULE_PII_KEY and passed explicitly into
+// every handler/job call - never read from an env var or any global by this
+// module's own code. key/hashKey are null if the env var is unset or
+// malformed on Core's side; module code must treat that as "not configured"
+// (same contract getEncKey()/getMacHashKey() -> null had before this was
+// moved to Core, 2026-07-16).
+export interface ModulePiiCrypto {
+  key: CryptoKey | null;
+  // hashKey (HMAC-SHA256) backs mac_hash, the deterministic blind index used
+  // for MAC lookups alongside probabilistic AES-GCM encryption - see
+  // handlers/crypto.ts's doc comment for why this reuses the same raw key
+  // material as `key` instead of a second, separate env var.
+  hashKey: CryptoKey | null;
 }
 
 export interface HandlerResponse {
@@ -75,6 +93,7 @@ export interface ModuleStorageClient {
 
 export interface JobContext {
   db: ModuleDbClient;
+  crypto: ModulePiiCrypto;
 }
 
 // ── Domain types ─────────────────────────────────────────────────────────────

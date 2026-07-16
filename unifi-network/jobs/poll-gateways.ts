@@ -38,7 +38,7 @@
 // is used and surfaced in the UI so an admin can fill in a real note later.
 
 import type { JobContext, GatewayRow, DeviceRow, ModuleNotification } from "../handlers/types.ts";
-import { getEncKey, getMacHashKey, encrypt, decrypt, macHash, sanitizeMac } from "../handlers/crypto.ts";
+import { encrypt, decrypt, macHash, sanitizeMac } from "../handlers/crypto.ts";
 import {
   fetchVlans,
   fetchRadiusAccounts,
@@ -142,10 +142,10 @@ export default async function pollGateways(
 
 async function pollSingleGateway(ctx: JobContext, gw: GatewayRow, notifications: ModuleNotification[]): Promise<void> {
   const { db } = ctx;
-  const encKey = await getEncKey();
+  const encKey = ctx.crypto.key;
 
   if (!encKey) {
-    await markGatewayError(db, gw.id, "MODULAB_MODULE_PII_KEY not configured on server", undefined, notifications);
+    await markGatewayError(ctx, gw.id, "MODULAB_MODULE_PII_KEY not configured on server", undefined, notifications);
     return;
   }
 
@@ -156,7 +156,7 @@ async function pollSingleGateway(ctx: JobContext, gw: GatewayRow, notifications:
     // Entscheidungsvorlage Abschnitt 2: a key that fails to decrypt must never
     // be sent to the UniFi API as a literal string — mark config_error and
     // skip the call entirely.
-    await markGatewayError(db, gw.id, "Failed to decrypt API key (config_error)", "config_error", notifications);
+    await markGatewayError(ctx, gw.id, "Failed to decrypt API key (config_error)", "config_error", notifications);
     return;
   }
 
@@ -166,7 +166,7 @@ async function pollSingleGateway(ctx: JobContext, gw: GatewayRow, notifications:
     gwName = await decrypt(encKey, gw.name_enc);
     baseUrl = await decrypt(encKey, gw.base_url_enc);
   } catch {
-    await markGatewayError(db, gw.id, "Failed to decrypt gateway name/base_url (config_error)", "config_error", notifications);
+    await markGatewayError(ctx, gw.id, "Failed to decrypt gateway name/base_url (config_error)", "config_error", notifications);
     return;
   }
 
@@ -197,7 +197,7 @@ async function pollSingleGateway(ctx: JobContext, gw: GatewayRow, notifications:
     const userByMac = new Map(users.map((u) => [u.mac.toLowerCase(), u]));
     const historyByMac = new Map(history.map((h) => [h.mac.toLowerCase(), h]));
 
-    const macHashKey = await getMacHashKey();
+    const macHashKey = ctx.crypto.hashKey;
 
     // Counts discrepancies found THIS run for a single bundled notification
     // at the end of this gateway's loop, rather than one per device — a
@@ -221,7 +221,11 @@ async function pollSingleGateway(ctx: JobContext, gw: GatewayRow, notifications:
       const activeMacHashKey: CryptoKey = macHashKey;
       const hash = await macHash(activeMacHashKey, sanitized);
 
-      let [device] = await db.query<DeviceRow>(`SELECT * FROM devices WHERE mac_hash = $1`, [hash]);
+      const [foundDevice] = await db.query<DeviceRow>(`SELECT * FROM devices WHERE mac_hash = $1`, [hash]);
+      // Explicit `| null` (not just the `| undefined` array destructuring
+      // gives us): adoptExistingRadiusAccount below returns DeviceRow | null,
+      // and this variable is reassigned from that call further down.
+      let device: DeviceRow | null = foundDevice ?? null;
 
       if (!device) {
         // Auto-adopt: RADIUS account exists on the controller but this module
@@ -247,15 +251,18 @@ async function pollSingleGateway(ctx: JobContext, gw: GatewayRow, notifications:
       // vergleichen. `undefined` bei user?.note bedeutet "auf UniFi noch nie
       // gesetzt" — wird NICHT als Abweichung gewertet (kein Vergleichswert
       // vorhanden), sondern nur als "unbekannt" gespeichert.
-      const encKeyForNote = await getEncKey();
+      // encKey is the same non-null value checked at the top of this
+      // function (pollSingleGateway returns early if it's null) - reused
+      // here rather than re-reading it, unlike before 2026-07-16 when each
+      // call site called getEncKey() independently.
       let canonicalNote = "";
-      if (encKeyForNote) {
-        canonicalNote = await decrypt(encKeyForNote, device.note_enc).catch(() => "");
+      if (encKey) {
+        canonicalNote = await decrypt(encKey, device.note_enc).catch(() => "");
       }
       const gatewayNote = user?.note ?? null;
       const noteDiscrepancy = gatewayNote !== null && gatewayNote !== canonicalNote;
       const gatewayNoteEnc =
-        gatewayNote !== null && encKeyForNote ? await encrypt(encKeyForNote, gatewayNote).catch(() => null) : null;
+        gatewayNote !== null && encKey ? await encrypt(encKey, gatewayNote).catch(() => null) : null;
 
       // Only count a discrepancy toward this run's notification if it's
       // NEWLY found (wasn't already flagged before this poll) — otherwise
@@ -322,7 +329,7 @@ async function pollSingleGateway(ctx: JobContext, gw: GatewayRow, notifications:
     // docker logs without a DB query — see markGatewayError's own logging
     // for why this matters (2026-07-03).
     console.error(`[unifi-network] poll_gateways: "${gwName}" (${baseUrl}) threw during poll:`, err);
-    await markGatewayError(ctx.db, gw.id, String(err), undefined, notifications);
+    await markGatewayError(ctx, gw.id, String(err), undefined, notifications);
   }
 }
 
@@ -390,12 +397,13 @@ async function adoptExistingRadiusAccount(
 }
 
 async function markGatewayError(
-  db: JobContext["db"],
+  ctx: JobContext,
   gatewayId: string,
   errorMessage: string,
   explicitStatus?: "config_error",
   notifications?: ModuleNotification[],
 ): Promise<void> {
+  const { db } = ctx;
   const [gw] = await db.query<GatewayRow>(`SELECT consecutive_failures, status FROM gateways WHERE id = $1`, [gatewayId]);
   const failures = (gw?.consecutive_failures ?? 0) + 1;
   const status = explicitStatus ?? (failures >= CIRCUIT_BREAKER_THRESHOLD ? "paused" : "offline");
@@ -425,7 +433,7 @@ async function markGatewayError(
   // otherwise fire up to CIRCUIT_BREAKER_THRESHOLD times per gateway before
   // the real, actionable moment (an admin needs to check configuration).
   if (status === "paused" && gw?.status !== "paused" && notifications) {
-    const encKey = await getEncKey();
+    const encKey = ctx.crypto.key;
     const [row] = await db.query<GatewayRow>(`SELECT name_enc FROM gateways WHERE id = $1`, [gatewayId]);
     const gwName = row && encKey ? await decrypt(encKey, row.name_enc).catch(() => "?") : "?";
     notifications.push({
@@ -439,7 +447,7 @@ async function markGatewayError(
 
 async function processPendingDeletions(ctx: JobContext): Promise<void> {
   const { db } = ctx;
-  const encKey = await getEncKey();
+  const encKey = ctx.crypto.key;
   if (!encKey) return;
 
   const pending = await db.query<{

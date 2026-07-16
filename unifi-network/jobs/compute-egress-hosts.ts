@@ -22,9 +22,7 @@
 // comment on job handlers optionally returning a response body.
 import type { JobContext } from "../handlers/types.ts";
 import { computeEgressHosts } from "../handlers/index.ts";
-import { getEncKey } from "../handlers/crypto.ts";
 
-export default async function ({ db }: JobContext): Promise<string[]> {
-  const encKey = await getEncKey();
-  return computeEgressHosts(db, encKey);
+export default async function ({ db, crypto }: JobContext): Promise<string[]> {
+  return computeEgressHosts(db, crypto.key);
 }

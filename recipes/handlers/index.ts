@@ -55,8 +55,8 @@
  *   DELETE /meal-plan/:weekStart/:day/:slot     clear entry
  */
 
-import type { HandlerRequest, HandlerResponse, ModuleDbClient, ModuleAuthContext } from "./types.ts";
-import { getEncKey, encrypt, decrypt } from "./crypto.ts";
+import type { HandlerRequest, HandlerResponse, ModuleDbClient, ModuleAuthContext, ModulePiiCrypto } from "./types.ts";
+import { encrypt, decrypt } from "./crypto.ts";
 import {
   callNutritionAi,
   listAvailableModels,
@@ -67,7 +67,7 @@ import {
 } from "./ai-providers.ts";
 
 export default async function handler(req: HandlerRequest): Promise<HandlerResponse> {
-  const { method, path, body, auth, db } = req;
+  const { method, path, body, auth, db, crypto: piiCrypto } = req;
 
   // path may include a query string (e.g. "/recipes?search=foo").
   // Split it so route matching works on the pathname only, while filter
@@ -259,21 +259,21 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
     return listAiProviders(db, auth);
   }
   if (method === "PUT" && pathname.match(/^\/ai-providers\/[^/]+$/)) {
-    return upsertAiProvider(db, auth, segId(pathname), body);
+    return upsertAiProvider(db, auth, segId(pathname), body, piiCrypto);
   }
   if (method === "DELETE" && pathname.match(/^\/ai-providers\/[^/]+$/)) {
     return deleteAiProvider(db, auth, segId(pathname));
   }
   if (method === "GET" && pathname.match(/^\/ai-providers\/[^/]+\/models$/)) {
     const provider = pathname.split("/")[2];
-    return listAiProviderModels(db, auth, provider);
+    return listAiProviderModels(db, auth, provider, piiCrypto);
   }
 
   // ── AI nutrition estimation ──────────────────────────────────────────────
 
   if (method === "POST" && pathname.match(/^\/recipes\/[^/]+\/nutrition\/ai$/)) {
     const id = pathname.split("/")[2];
-    return estimateNutritionWithAi(db, id, body as { provider?: string } | undefined);
+    return estimateNutritionWithAi(db, id, body as { provider?: string } | undefined, piiCrypto);
   }
 
   return { status: 404, body: { error: "not found" } };
@@ -700,12 +700,13 @@ async function upsertAiProvider(
   auth: ModuleAuthContext,
   provider: string,
   body: unknown,
+  piiCrypto: ModulePiiCrypto,
 ): Promise<HandlerResponse> {
   if (!isAdmin(auth)) return forbidden();
   if (!AI_PROVIDER_NAMES.includes(provider as AiProviderName)) {
     return badRequest(`provider must be one of: ${AI_PROVIDER_NAMES.join(", ")}`);
   }
-  const encKey = await getEncKey();
+  const encKey = piiCrypto.key;
   if (!encKey) return { status: 500, body: { error: "MODULAB_MODULE_PII_KEY not configured on server" } };
 
   const { api_key, model, enabled, is_default } = body as {
@@ -785,6 +786,7 @@ async function listAiProviderModels(
   db: ModuleDbClient,
   auth: ModuleAuthContext,
   provider: string,
+  piiCrypto: ModulePiiCrypto,
 ): Promise<HandlerResponse> {
   if (!isAdmin(auth)) return forbidden();
   if (!AI_PROVIDER_NAMES.includes(provider as AiProviderName)) {
@@ -792,7 +794,7 @@ async function listAiProviderModels(
   }
 
   try {
-    const encKey = await getEncKey();
+    const encKey = piiCrypto.key;
     if (!encKey) return { status: 500, body: { error: "MODULAB_MODULE_PII_KEY not configured on server" } };
 
     const [existing] = await db.query<AiProviderRow>(
@@ -820,6 +822,7 @@ async function estimateNutritionWithAi(
   db: ModuleDbClient,
   recipeId: string,
   input: { provider?: string } | undefined,
+  piiCrypto: ModulePiiCrypto,
 ): Promise<HandlerResponse> {
   // Bugfix (2026-07-12, still reproducing after the first pass at this):
   // the whole function body is now one try/catch, not just the decrypt+
@@ -867,7 +870,7 @@ async function estimateNutritionWithAi(
       );
     }
 
-    const encKey = await getEncKey();
+    const encKey = piiCrypto.key;
     if (!encKey) return { status: 500, body: { error: "MODULAB_MODULE_PII_KEY not configured on server" } };
 
     const apiKey = await decrypt(encKey, row.api_key_enc);
@@ -888,7 +891,7 @@ async function estimateNutritionWithAi(
       fiber_g: totals.fiber_g / servings,
     };
 
-    const [updated] = await db.query(
+    const [updated] = await db.query<Record<string, unknown>>(
       `UPDATE recipes SET
          kcal_per_serving      = $2,
          protein_g_per_serving = $3,
