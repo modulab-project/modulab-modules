@@ -48,6 +48,30 @@
     "browse_url": "https://github.com/modulab-project/modulab-modules/tree/main/notes"
   },
   {
+    "name": "pantry",
+    "version": "0.1.0",
+    "release_url": "https://github.com/modulab-project/modulab-modules/releases/download/pantry-v0.1.0/pantry-v0.1.0.zip",
+    "sha256": "870a0934de909c6cf6c91a61ed6ec2596a00ae9a6364487906d11b81c33c78ac",
+    "cosign_sig_url": "https://github.com/modulab-project/modulab-modules/releases/download/pantry-v0.1.0/pantry-v0.1.0.zip.cosign.bundle",
+    "category": "productivity",
+    "description": {
+      "en": "Household pantry inventory with expiry tracking and AI receipt scanning",
+      "de": "Haushalts-Vorratsverwaltung mit Ablauf-Tracking und KI-Kassenbon-Scan",
+      "es": "Inventario de despensa con seguimiento de caducidad y escaneo de recibos por IA",
+      "fr": "Inventaire du garde-manger avec suivi des dates de p\u00e9remption et scan de tickets par IA",
+      "nl": "Voorraadbeheer met houdbaarheidsbewaking en AI-kassabonscan"
+    },
+    "display_name": {
+      "en": "Pantry",
+      "de": "Vorrats-Liste",
+      "fr": "Garde-manger",
+      "es": "Despensa",
+      "nl": "Voorraadkast"
+    },
+    "logo_url": "",
+    "browse_url": "https://github.com/modulab-project/modulab-modules/tree/main/pantry"
+  },
+  {
     "name": "recipes",
     "version": "0.6.0",
     "release_url": "https://github.com/modulab-project/modulab-modules/releases/download/recipes-v0.6.0/recipes-v0.6.0.zip",
