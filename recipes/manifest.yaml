@@ -1,5 +1,5 @@
 name: "recipes"
-version: "0.5.0"
+version: "0.6.0"
 display_name:
   en: "Recipes"
   de: "Rezepte"
@@ -18,7 +18,7 @@ license: "AGPL-3.0"
 category: "productivity"
 min_core_api: "v1"
 min_core_ui: "v1"
-tier: 2
+tier: 3
 scope: "per-location"
 startup: "eager"
 
