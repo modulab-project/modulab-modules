@@ -25,10 +25,10 @@
   },
   {
     "name": "recipes",
-    "version": "0.5.0",
-    "release_url": "https://github.com/modulab-project/modulab-modules/releases/download/recipes-v0.5.0/recipes-v0.5.0.zip",
-    "sha256": "07b9e93c02a693e50502e37f41b24fd17cd535c28cf7bd35e1beabf74a12477c",
-    "cosign_sig_url": "https://github.com/modulab-project/modulab-modules/releases/download/recipes-v0.5.0/recipes-v0.5.0.zip.cosign.bundle",
+    "version": "0.6.0",
+    "release_url": "https://github.com/modulab-project/modulab-modules/releases/download/recipes-v0.6.0/recipes-v0.6.0.zip",
+    "sha256": "3f7ba3c22696f3873e04cbb754a5e366b17ad88cf7abee036988fe9561b633ab",
+    "cosign_sig_url": "https://github.com/modulab-project/modulab-modules/releases/download/recipes-v0.6.0/recipes-v0.6.0.zip.cosign.bundle",
     "category": "productivity",
     "description": {
       "en": "Recipe collection with weekly meal plan",
