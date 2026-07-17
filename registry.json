@@ -1,5 +1,29 @@
 [
   {
+    "name": "modulab-mod-notes",
+    "version": "1.0.0",
+    "release_url": "https://github.com/modulab-project/modulab-modules/releases/download/modulab-mod-notes-v1.0.0/modulab-mod-notes-v1.0.0.zip",
+    "sha256": "81decb2dd501e70c0f3a363f344a55cc1ba824d639a0cf41486a5643ecaaf06f",
+    "cosign_sig_url": "https://github.com/modulab-project/modulab-modules/releases/download/modulab-mod-notes-v1.0.0/modulab-mod-notes-v1.0.0.zip.cosign.bundle",
+    "category": "productivity",
+    "description": {
+      "en": "A simple private notepad - jot down notes only you can see",
+      "de": "Ein einfacher privater Notizblock - Notizen, die nur du sehen kannst",
+      "es": "Un bloc de notas privado sencillo - anota notas que solo tu puedes ver",
+      "fr": "Un simple bloc-notes prive - notez des notes que vous seul pouvez voir",
+      "nl": "Een eenvoudig priveblocnote - noteer notities die alleen jij kunt zien"
+    },
+    "display_name": {
+      "en": "Notes",
+      "de": "Notizblock",
+      "es": "Notas",
+      "fr": "Notes",
+      "nl": "Notities"
+    },
+    "logo_url": "",
+    "browse_url": "https://github.com/modulab-project/modulab-modules/tree/main/notes"
+  },
+  {
     "name": "my-places",
     "version": "0.2.0",
     "release_url": "https://github.com/modulab-project/modulab-modules/releases/download/my-places-v0.2.0/my-places-v0.2.0.zip",
