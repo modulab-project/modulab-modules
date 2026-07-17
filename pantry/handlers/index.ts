@@ -29,12 +29,17 @@
  *                                            (requires the key to already be saved)
  *
  * Receipt scan
- *   POST   /scan                  body: { file_path, provider? } — Core has already written the
- *                                  uploaded photo to this module's storage dir (same upload flow as
- *                                  /items/:id/image); this reads it back off disk, sends it to the
- *                                  configured (or requested) AI provider, and returns suggested
- *                                  items WITHOUT persisting them — the UI shows them for review,
- *                                  then calls POST /items/bulk once the user confirms/edits.
+ *   POST   /scan                  body: { file_base64, file_mime_type, provider? } — a multipart
+ *                                  upload to this same route (fd.append("file", photo)). Core's
+ *                                  ModuleProxyHandler (router.go) writes the file to this module's
+ *                                  storage dir AND base64-encodes the same bytes into the JSON body
+ *                                  it forwards here (2026-07-18 change - see router.go's
+ *                                  saveUploadedFile/uploadedFile) — this handler never touches the
+ *                                  filesystem itself, it just reads file_base64 straight off the
+ *                                  request. Sends the image to the configured (or requested) AI
+ *                                  provider and returns suggested items WITHOUT persisting them —
+ *                                  the UI shows them for review, then calls POST /items/bulk once
+ *                                  the user confirms/edits.
  */
 
 import type { HandlerRequest, HandlerResponse, ModuleDbClient, ModuleAuthContext, ModulePiiCrypto } from "./types.ts";
@@ -47,19 +52,6 @@ import {
   AI_PROVIDER_DEFAULT_MODELS,
   type AiProviderName,
 } from "./ai-providers.ts";
-
-// ASSUMPTION, not yet confirmed against Core's actual Deno-worker mount
-// details (backend/internal/modules/deno.go / storage handling): the module's
-// own storage directory is mounted at this fixed path inside the worker,
-// matching the Pflichtenheft's "/modulab-data/modules/{name}/" convention
-// (→ 4.7 "Bereitstellung"). recipes never needed to read a file's bytes
-// server-side (it only ever hands the stored relative path back to the
-// browser, which resolves it against Core's own /storage endpoint) - this is
-// the first module in this collection that does. Verify this path against a
-// real deployment before relying on it; if it's wrong, POST /scan will throw
-// a clear "could not read uploaded file" error rather than silently
-// misbehaving (see readUploadedImage below).
-const MODULE_STORAGE_ROOT = "/modulab-data/modules/pantry";
 
 export default async function handler(req: HandlerRequest): Promise<HandlerResponse> {
   const { method, path, body, auth, db, crypto: piiCrypto } = req;
@@ -159,7 +151,7 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
   // ── Receipt scan ──────────────────────────────────────────────────────────
 
   if (route === "POST /scan") {
-    return scanReceipt(db, body as { file_path?: string; provider?: string } | undefined, piiCrypto);
+    return scanReceipt(db, body as { file_base64?: string; file_mime_type?: string; provider?: string } | undefined, piiCrypto);
   }
 
   return { status: 404, body: { error: "not found" } };
@@ -484,54 +476,38 @@ async function listAiProviderModels(
 
 const MAX_SCAN_IMAGE_BYTES = 8 * 1024 * 1024; // 8 MB - generous for a phone photo of a receipt
 
-function mimeTypeForPath(path: string): string | null {
-  const ext = path.split(".").pop()?.toLowerCase();
-  switch (ext) {
-    case "jpg":
-    case "jpeg":
-      return "image/jpeg";
-    case "png":
-      return "image/png";
-    case "webp":
-      return "image/webp";
-    default:
-      return null;
-  }
-}
-
-async function readUploadedImage(filePath: string): Promise<{ b64: string; mimeType: string }> {
-  const mimeType = mimeTypeForPath(filePath);
-  if (!mimeType) throw new AiProviderError(`unsupported image type for ${filePath} (expected jpg/png/webp)`);
-
-  const absolutePath = `${MODULE_STORAGE_ROOT}/${filePath}`;
-  let bytes: Uint8Array;
-  try {
-    bytes = await Deno.readFile(absolutePath);
-  } catch (err) {
-    // Surfaces the MODULE_STORAGE_ROOT assumption (see top-of-file comment)
-    // as a clear, actionable error instead of an opaque worker crash if that
-    // path convention turns out to be wrong on a real deployment.
-    throw new AiProviderError(`could not read uploaded file at ${absolutePath}: ${String(err)}`);
-  }
-  if (bytes.byteLength > MAX_SCAN_IMAGE_BYTES) {
-    throw new AiProviderError(`uploaded image is too large (${bytes.byteLength} bytes, max ${MAX_SCAN_IMAGE_BYTES})`);
-  }
-  let binary = "";
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-  return { b64: btoa(binary), mimeType };
-}
+const SUPPORTED_SCAN_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 async function scanReceipt(
   db: ModuleDbClient,
-  input: { file_path?: string; provider?: string } | undefined,
+  input: { file_base64?: string; file_mime_type?: string; provider?: string } | undefined,
   piiCrypto: ModulePiiCrypto,
 ): Promise<HandlerResponse> {
   // Whole body in one try/catch - same 2026-07-12 hardening rationale as
   // recipes' estimateNutritionWithAi: any unexpected failure here must
   // become a structured JSON response, never an uncaught exception.
   try {
-    const filePath = input?.file_path;
-    if (!filePath || !isSafeFilePath(filePath)) return badRequest("file_path is required and must be a relative path");
+    // file_base64/file_mime_type come straight from the multipart upload -
+    // Core's ModuleProxyHandler (router.go) writes the file to this
+    // module's storage dir itself AND includes the same bytes, base64-
+    // encoded, in this request's JSON body (2026-07-18 change, see
+    // saveUploadedFile/uploadedFile in router.go). This handler never reads
+    // from the filesystem - no assumption about this worker's own storage
+    // path or dataDir layout needed.
+    const fileB64 = input?.file_base64;
+    const mimeType = input?.file_mime_type;
+    if (!fileB64 || !mimeType) return badRequest("a receipt photo upload (multipart field \"file\") is required");
+    if (!SUPPORTED_SCAN_MIME_TYPES.has(mimeType)) {
+      return badRequest(`unsupported image type ${mimeType} (expected jpg/png/webp)`);
+    }
+    // Rough byte-size check on the base64 string (4/3 expansion) rather than
+    // decoding first - cheap rejection of an oversized upload before doing
+    // any real work. Core's own MaxUploadBodyBytes already caps the multipart
+    // upload itself; this is a second, receipt-scan-specific ceiling since a
+    // huge image is mostly wasted provider tokens, not a security concern.
+    if (fileB64.length * 0.75 > MAX_SCAN_IMAGE_BYTES) {
+      return badRequest(`uploaded image is too large (max ${MAX_SCAN_IMAGE_BYTES} bytes)`);
+    }
 
     const requestedProvider = input?.provider;
     if (requestedProvider && !AI_PROVIDER_NAMES.includes(requestedProvider as AiProviderName)) {
@@ -553,8 +529,7 @@ async function scanReceipt(
     if (!encKey) return { status: 500, body: { error: "MODULAB_MODULE_PII_KEY not configured on server" } };
 
     const apiKey = await decrypt(encKey, row.api_key_enc);
-    const { b64, mimeType } = await readUploadedImage(filePath);
-    const items = await scanReceiptWithAi(row.provider, apiKey, row.model, b64, mimeType);
+    const items = await scanReceiptWithAi(row.provider, apiKey, row.model, fileB64, mimeType);
 
     if (items.length === 0) {
       return badRequest("the AI provider could not identify any items on this receipt");
