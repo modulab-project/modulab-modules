@@ -1,0 +1,77 @@
+{
+  "error_server": "Erreur serveur (statut {{status}}). Veuillez réessayer.",
+
+  "nav_items": "Garde-manger",
+  "nav_scan": "Scanner un ticket",
+  "nav_categories": "Catégories",
+  "nav_settings": "Paramètres",
+
+  "btn_new_item": "Nouvel article",
+
+  "metric_total": "Articles au total",
+  "metric_expiring": "Expirent bientôt",
+  "metric_low_stock": "Stock faible",
+
+  "search_placeholder": "Rechercher…",
+  "all_categories": "Toutes les catégories",
+  "filter_low_stock": "Stock faible",
+  "filter_expiring_soon": "Expire bientôt",
+
+  "loading": "Chargement…",
+  "no_items": "Aucun article pour le moment",
+  "item_delete_confirm": "Vraiment supprimer cet article ?",
+  "added_via_ai_scan": "Ajouté via scan de ticket par IA",
+  "uncategorized": "Sans catégorie",
+
+  "badge_expired": "expiré",
+  "badge_expiring_in": "expire dans {{count}} j",
+  "badge_expiry_date": "à consommer avant le {{date}}",
+  "badge_low_stock": "stock faible",
+
+  "back": "Retour",
+  "edit_item": "Modifier l'article",
+  "new_item": "Nouvel article",
+  "name_required": "Le nom est requis",
+
+  "field_name": "Nom",
+  "field_category": "Catégorie",
+  "field_location": "Lieu de stockage",
+  "field_location_placeholder": "Cave, réfrigérateur, garde-manger…",
+  "field_quantity": "Quantité",
+  "field_unit": "Unité",
+  "field_expiry_date": "Date d'expiration",
+  "field_min_stock": "Stock minimum",
+  "field_min_stock_placeholder": "optionnel",
+  "field_notes": "Notes",
+
+  "cancel": "Annuler",
+  "save": "Enregistrer",
+  "saving": "Enregistrement…",
+
+  "scan_title": "Scanner un ticket de caisse",
+  "scan_description": "Photographiez un ticket de caisse et laissez l'IA suggérer des articles à ajouter à votre garde-manger — rien n'est enregistré avant confirmation.",
+  "scan_in_progress": "Lecture du ticket…",
+  "scan_upload_prompt": "Téléverser une photo du ticket",
+  "scan_result_meta": "{{count}} articles trouvés ({{provider}}, {{model}})",
+  "scan_confirm_add": "Ajouter {{count}} articles",
+
+  "categories_title": "Catégories",
+  "no_categories": "Aucune catégorie pour le moment",
+  "new_category": "Nouvelle catégorie",
+  "category_name_placeholder": "ex. Conserves",
+  "category_name_required": "Le nom est requis",
+  "category_delete_confirm": "Supprimer cette catégorie ? Les articles qu'elle contient ne seront pas supprimés.",
+
+  "ai_settings_title": "Scan de tickets par IA",
+  "ai_settings_description": "Configurez les clés API pour le scan de tickets par IA. Les clés sont chiffrées et stockées uniquement dans ce module, pas dans les paramètres IA de Core.",
+  "ai_settings_configured": "configuré",
+  "ai_settings_default": "Par défaut",
+  "ai_settings_disabled": "désactivé",
+  "ai_settings_make_default": "Définir par défaut",
+  "ai_settings_api_key": "Clé API",
+  "ai_settings_api_key_keep": "laisser inchangé",
+  "ai_settings_model": "Modèle",
+  "ai_settings_load_models": "Charger les modèles disponibles",
+  "ai_settings_enabled": "Activé",
+  "ai_settings_delete_confirm": "Vraiment supprimer ce fournisseur ? La clé API enregistrée sera supprimée."
+}

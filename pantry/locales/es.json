@@ -1,0 +1,77 @@
+{
+  "error_server": "Error del servidor (estado {{status}}). Inténtalo de nuevo.",
+
+  "nav_items": "Despensa",
+  "nav_scan": "Escanear recibo",
+  "nav_categories": "Categorías",
+  "nav_settings": "Ajustes",
+
+  "btn_new_item": "Nuevo artículo",
+
+  "metric_total": "Artículos en total",
+  "metric_expiring": "Caducan pronto",
+  "metric_low_stock": "Stock bajo",
+
+  "search_placeholder": "Buscar…",
+  "all_categories": "Todas las categorías",
+  "filter_low_stock": "Stock bajo",
+  "filter_expiring_soon": "Caduca pronto",
+
+  "loading": "Cargando…",
+  "no_items": "Aún no hay artículos",
+  "item_delete_confirm": "¿Eliminar este artículo?",
+  "added_via_ai_scan": "Añadido mediante escaneo de recibo por IA",
+  "uncategorized": "Sin categoría",
+
+  "badge_expired": "caducado",
+  "badge_expiring_in": "caduca en {{count}} días",
+  "badge_expiry_date": "caduca el {{date}}",
+  "badge_low_stock": "stock bajo",
+
+  "back": "Volver",
+  "edit_item": "Editar artículo",
+  "new_item": "Nuevo artículo",
+  "name_required": "El nombre es obligatorio",
+
+  "field_name": "Nombre",
+  "field_category": "Categoría",
+  "field_location": "Lugar de almacenamiento",
+  "field_location_placeholder": "Sótano, nevera, despensa…",
+  "field_quantity": "Cantidad",
+  "field_unit": "Unidad",
+  "field_expiry_date": "Fecha de caducidad",
+  "field_min_stock": "Stock mínimo",
+  "field_min_stock_placeholder": "opcional",
+  "field_notes": "Notas",
+
+  "cancel": "Cancelar",
+  "save": "Guardar",
+  "saving": "Guardando…",
+
+  "scan_title": "Escanear un recibo",
+  "scan_description": "Fotografía un recibo y deja que la IA sugiera artículos para tu despensa — no se guarda nada hasta que confirmes.",
+  "scan_in_progress": "Leyendo recibo…",
+  "scan_upload_prompt": "Subir foto del recibo",
+  "scan_result_meta": "{{count}} artículos encontrados ({{provider}}, {{model}})",
+  "scan_confirm_add": "Añadir {{count}} artículos",
+
+  "categories_title": "Categorías",
+  "no_categories": "Aún no hay categorías",
+  "new_category": "Nueva categoría",
+  "category_name_placeholder": "p. ej. Conservas",
+  "category_name_required": "El nombre es obligatorio",
+  "category_delete_confirm": "¿Eliminar esta categoría? Los artículos en ella no se eliminarán.",
+
+  "ai_settings_title": "Escaneo de recibos con IA",
+  "ai_settings_description": "Configura las claves API para el escaneo de recibos con IA. Las claves se cifran y se guardan solo en este módulo, no en los ajustes de IA de Core.",
+  "ai_settings_configured": "configurado",
+  "ai_settings_default": "Predeterminado",
+  "ai_settings_disabled": "desactivado",
+  "ai_settings_make_default": "Establecer como predeterminado",
+  "ai_settings_api_key": "Clave API",
+  "ai_settings_api_key_keep": "dejar sin cambios",
+  "ai_settings_model": "Modelo",
+  "ai_settings_load_models": "Cargar modelos disponibles",
+  "ai_settings_enabled": "Activado",
+  "ai_settings_delete_confirm": "¿Eliminar este proveedor? Se borrará la clave API guardada."
+}

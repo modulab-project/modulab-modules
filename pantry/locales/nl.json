@@ -1,0 +1,77 @@
+{
+  "error_server": "Serverfout (status {{status}}). Probeer het opnieuw.",
+
+  "nav_items": "Voorraad",
+  "nav_scan": "Bon scannen",
+  "nav_categories": "Categorieën",
+  "nav_settings": "Instellingen",
+
+  "btn_new_item": "Nieuw item",
+
+  "metric_total": "Items totaal",
+  "metric_expiring": "Verlopen binnenkort",
+  "metric_low_stock": "Lage voorraad",
+
+  "search_placeholder": "Zoeken…",
+  "all_categories": "Alle categorieën",
+  "filter_low_stock": "Lage voorraad",
+  "filter_expiring_soon": "Verloopt binnenkort",
+
+  "loading": "Bezig met laden…",
+  "no_items": "Nog geen items",
+  "item_delete_confirm": "Dit item echt verwijderen?",
+  "added_via_ai_scan": "Toegevoegd via AI-bonscan",
+  "uncategorized": "Zonder categorie",
+
+  "badge_expired": "verlopen",
+  "badge_expiring_in": "verloopt over {{count}} dagen",
+  "badge_expiry_date": "THT {{date}}",
+  "badge_low_stock": "lage voorraad",
+
+  "back": "Terug",
+  "edit_item": "Item bewerken",
+  "new_item": "Nieuw item",
+  "name_required": "Naam is verplicht",
+
+  "field_name": "Naam",
+  "field_category": "Categorie",
+  "field_location": "Opslaglocatie",
+  "field_location_placeholder": "Kelder, koelkast, voorraadkast…",
+  "field_quantity": "Hoeveelheid",
+  "field_unit": "Eenheid",
+  "field_expiry_date": "Houdbaarheidsdatum",
+  "field_min_stock": "Minimale voorraad",
+  "field_min_stock_placeholder": "optioneel",
+  "field_notes": "Notities",
+
+  "cancel": "Annuleren",
+  "save": "Opslaan",
+  "saving": "Bezig met opslaan…",
+
+  "scan_title": "Kassabon scannen",
+  "scan_description": "Fotografeer een kassabon en laat AI items voorstellen voor je voorraadkast — er wordt niets opgeslagen totdat je bevestigt.",
+  "scan_in_progress": "Bon wordt gelezen…",
+  "scan_upload_prompt": "Bonfoto uploaden",
+  "scan_result_meta": "{{count}} items gevonden ({{provider}}, {{model}})",
+  "scan_confirm_add": "{{count}} items toevoegen",
+
+  "categories_title": "Categorieën",
+  "no_categories": "Nog geen categorieën",
+  "new_category": "Nieuwe categorie",
+  "category_name_placeholder": "bijv. Blikvoeding",
+  "category_name_required": "Naam is verplicht",
+  "category_delete_confirm": "Deze categorie verwijderen? Items erin worden niet verwijderd.",
+
+  "ai_settings_title": "AI-bonscan",
+  "ai_settings_description": "Configureer API-sleutels voor AI-gebaseerde bonscan. Sleutels worden versleuteld en uitsluitend in deze module opgeslagen, niet in Core's AI-instellingen.",
+  "ai_settings_configured": "geconfigureerd",
+  "ai_settings_default": "Standaard",
+  "ai_settings_disabled": "uitgeschakeld",
+  "ai_settings_make_default": "Als standaard instellen",
+  "ai_settings_api_key": "API-sleutel",
+  "ai_settings_api_key_keep": "ongewijzigd laten",
+  "ai_settings_model": "Model",
+  "ai_settings_load_models": "Beschikbare modellen laden",
+  "ai_settings_enabled": "Ingeschakeld",
+  "ai_settings_delete_confirm": "Deze provider echt verwijderen? De opgeslagen API-sleutel wordt gewist."
+}

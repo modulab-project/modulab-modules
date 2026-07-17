@@ -1,0 +1,77 @@
+{
+  "error_server": "Server error (status {{status}}). Please try again.",
+
+  "nav_items": "Items",
+  "nav_scan": "Scan receipt",
+  "nav_categories": "Categories",
+  "nav_settings": "Settings",
+
+  "btn_new_item": "New item",
+
+  "metric_total": "Items total",
+  "metric_expiring": "Expiring soon",
+  "metric_low_stock": "Low stock",
+
+  "search_placeholder": "Search…",
+  "all_categories": "All categories",
+  "filter_low_stock": "Low stock",
+  "filter_expiring_soon": "Expiring soon",
+
+  "loading": "Loading…",
+  "no_items": "No items yet",
+  "item_delete_confirm": "Really delete this item?",
+  "added_via_ai_scan": "Added via AI receipt scan",
+  "uncategorized": "Uncategorized",
+
+  "badge_expired": "expired",
+  "badge_expiring_in": "expires in {{count}}d",
+  "badge_expiry_date": "best before {{date}}",
+  "badge_low_stock": "low stock",
+
+  "back": "Back",
+  "edit_item": "Edit item",
+  "new_item": "New item",
+  "name_required": "Name is required",
+
+  "field_name": "Name",
+  "field_category": "Category",
+  "field_location": "Storage location",
+  "field_location_placeholder": "Cellar, fridge, pantry shelf…",
+  "field_quantity": "Quantity",
+  "field_unit": "Unit",
+  "field_expiry_date": "Expiry date",
+  "field_min_stock": "Minimum stock",
+  "field_min_stock_placeholder": "optional",
+  "field_notes": "Notes",
+
+  "cancel": "Cancel",
+  "save": "Save",
+  "saving": "Saving…",
+
+  "scan_title": "Scan a receipt",
+  "scan_description": "Photograph a receipt and let AI suggest items to add to your pantry — nothing is saved until you confirm.",
+  "scan_in_progress": "Reading receipt…",
+  "scan_upload_prompt": "Upload a receipt photo",
+  "scan_result_meta": "{{count}} items found ({{provider}}, {{model}})",
+  "scan_confirm_add": "Add {{count}} items",
+
+  "categories_title": "Categories",
+  "no_categories": "No categories yet",
+  "new_category": "New category",
+  "category_name_placeholder": "e.g. Canned goods",
+  "category_name_required": "Name is required",
+  "category_delete_confirm": "Delete this category? Items in it will not be deleted.",
+
+  "ai_settings_title": "AI receipt scanning",
+  "ai_settings_description": "Configure API keys for AI-based receipt scanning. Keys are encrypted and stored inside this module, not in Core's AI settings.",
+  "ai_settings_configured": "configured",
+  "ai_settings_default": "Default",
+  "ai_settings_disabled": "disabled",
+  "ai_settings_make_default": "Make default",
+  "ai_settings_api_key": "API key",
+  "ai_settings_api_key_keep": "leave unchanged",
+  "ai_settings_model": "Model",
+  "ai_settings_load_models": "Load available models",
+  "ai_settings_enabled": "Enabled",
+  "ai_settings_delete_confirm": "Really remove this provider? The stored API key will be deleted."
+}

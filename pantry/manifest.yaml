@@ -1,0 +1,57 @@
+name: "pantry"
+version: "0.1.0"
+display_name:
+  en: "Pantry"
+  de: "Vorrats-Liste"
+  fr: "Garde-manger"
+  es: "Despensa"
+  nl: "Voorraadkast"
+description:
+  en: "Household pantry inventory with expiry tracking and AI receipt scanning"
+  de: "Haushalts-Vorratsverwaltung mit Ablauf-Tracking und KI-Kassenbon-Scan"
+  es: "Inventario de despensa con seguimiento de caducidad y escaneo de recibos por IA"
+  fr: "Inventaire du garde-manger avec suivi des dates de péremption et scan de tickets par IA"
+  nl: "Voorraadbeheer met houdbaarheidsbewaking en AI-kassabonscan"
+icon: "ti-shopping-cart"
+author: "modulab-project"
+license: "AGPL-3.0"
+category: "productivity"
+min_core_api: "v1"
+min_core_ui: "v1"
+tier: 3
+startup: "lazy"
+
+handler: "handlers/index.ts"
+
+resources:
+  memory: "256m"
+  # 60s, same reasoning as recipes' manifest.yaml: a receipt-scan vision call
+  # to a provider can take noticeably longer than a plain text completion
+  # (larger payload, image tokens). The in-module fetch timeout
+  # (handlers/ai-providers.ts REQUEST_TIMEOUT_MS) is 55s, kept below this so
+  # the module's own timeout/error handling always gets to run before Core's
+  # worker-level timeout would cut the request instead (see recipes'
+  # 2026-07-12 postmortem comment on the same tradeoff).
+  timeout: "60s"
+
+storage:
+  quota: "1g"
+
+# AI provider API keys are stored and encrypted entirely inside this module
+# (own ai_pantry_providers table, AES-256-GCM via MODULAB_MODULE_PII_KEY in
+# handlers/crypto.ts) — same pattern as recipes' ai_nutrition_providers, no
+# credentials block, no reuse of Core's own AI-provider config (project
+# decision 2026-07-18: modules build their own AI logic when needed).
+#
+# Only vision-capable providers are listed — DeepSeek is deliberately left
+# out here (unlike recipes' four-provider text-only nutrition estimate):
+# receipt scanning sends an image, and DeepSeek's current models don't have
+# reliable vision support. If a text-only AI feature is added to this module
+# later (e.g. auto-categorizing an item from its name alone), DeepSeek could
+# be added back in for that specific call.
+egress_allowlist:
+  - "api.openai.com"
+  - "generativelanguage.googleapis.com"
+  - "api.anthropic.com"
+
+requested_scopes: []
