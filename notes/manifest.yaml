@@ -1,0 +1,35 @@
+name: "modulab-mod-notes"
+version: "1.0.0"
+author: "ModuLab"
+license: "AGPL-3.0"
+category: "productivity"
+min_core: "v1"
+tier: 1
+
+display_name:
+  en: "Notes"
+  de: "Notizblock"
+  es: "Notas"
+  fr: "Notes"
+  nl: "Notities"
+description:
+  en: "A simple private notepad - jot down notes only you can see"
+  de: "Ein einfacher privater Notizblock - Notizen, die nur du sehen kannst"
+  es: "Un bloc de notas privado sencillo - anota notas que solo tu puedes ver"
+  fr: "Un simple bloc-notes prive - notez des notes que vous seul pouvez voir"
+  nl: "Een eenvoudig priveblocnote - noteer notities die alleen jij kunt zien"
+
+# Tier 1: config-driven CRUD, no handler code, no ui/bundle.js. Core generates
+# the REST API and fallback UI (CrudModuleView) directly from this block. See
+# modulab-module-sdk's GUIDE.md, chapter "Tier 1: config-driven CRUD".
+crud:
+  table: "notes"
+  owner_scoped: true
+  fields:
+    - name: "title"
+      type: "string"
+      required: true
+    - name: "body"
+      type: "text"
+      required: false
+      encrypted: true
