@@ -515,7 +515,7 @@ function ItemList({
                     always-visible green/amber/red indicator right next to the
                     quantity it's about; null (no min_stock set) shows nothing. */}
                 <StockDot status={item.stock_status} t={t} />
-                <span className="text-sm text-gray-600 dark:text-gray-300">{formatQty(item.quantity)} {item.unit ?? ""}</span>
+                <span className="text-sm text-gray-600 dark:text-gray-300">{formatQty(item.quantity)} {displayUnit(item.unit, t)}</span>
                 <button type="button" onClick={() => handleConsume(item.id)} disabled={item.quantity <= 0}
                   title={t("consume_one") as string}
                   className="flex-none rounded-lg p-1.5 text-gray-400 hover:bg-gray-200 hover:text-gray-700 disabled:opacity-30 dark:hover:bg-gray-700">
@@ -556,6 +556,22 @@ function formatQty(v: number | string | null | undefined): string {
   const n = typeof v === "number" ? v : parseFloat(v);
   if (Number.isNaN(n)) return "";
   return String(Math.round(n * 1000) / 1000);
+}
+
+// unit is a deliberately free-text field (custom units like "1,25l" from a
+// multi-pack must stay exactly as typed/guessed - see UNIT_CODES's doc
+// comment), so it's never translated at the DB layer. But when the stored
+// value happens to exactly match one of the app's own canonical codes -
+// which is exactly what the AI receipt scan returns for a plain-count unit,
+// see ai-providers.ts's buildSystemPrompt - showing that raw English code
+// verbatim reads wrong in a non-English UI (2026-07-19 bug report: "pcs"
+// stayed "pcs" instead of becoming "Stk" in German). This translates only
+// an exact code match; anything else (a multi-pack size, a custom typed
+// unit) is shown exactly as stored.
+function displayUnit(unit: string | null | undefined, t: (key: string) => string): string {
+  if (!unit) return "";
+  const code = UNIT_CODES.find((u) => u.toLowerCase() === unit.trim().toLowerCase());
+  return code ? t(`unit_${code}`) : unit;
 }
 
 function MetricCard({ label, value, tone }: { label: string; value: number; tone?: "warning" | "danger" }) {
@@ -653,7 +669,7 @@ function ItemEditor({
     const it = await api.get<PantryItemDetail>(`/items/${id}`);
     setName(it.name);
     setCategoryId(it.category_id ?? "");
-    setUnit(it.unit ?? "");
+    setUnit(displayUnit(it.unit, t));
     setMinStock(it.min_stock != null ? formatQty(it.min_stock) : "");
     setNotes(it.notes ?? "");
     setBatches(it.batches);
@@ -926,7 +942,10 @@ function ScanView({ api, onDone }: { api: ReturnType<typeof useApi>; onDone: () 
       const fd = new FormData();
       fd.append("file", file);
       const res = await api.upload<{ items: ScannedItem[]; ai_provider: string; ai_model: string }>("/scan", fd);
-      setSuggestions(res.items);
+      // Translate the AI's raw unit code (e.g. "pcs") before it's ever shown
+      // - 2026-07-19 bug report: it stayed the English word "pcs" instead of
+      // becoming "Stk" in German, right from the scan-review screen onward.
+      setSuggestions(res.items.map((it) => ({ ...it, unit: displayUnit(it.unit, t) || it.unit })));
       setAiMeta({ provider: res.ai_provider, model: res.ai_model });
       // Best-effort category match by name - the AI only returns a free-text
       // guess, so pre-select a real category where the name matches exactly,

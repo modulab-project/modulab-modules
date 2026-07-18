@@ -74,15 +74,40 @@ const MODELS_LIST_TIMEOUT_MS = 15_000; // GET .../models is cheap/fast - no reas
 //     (normalizeResult's str() already turns "" into null). The frontend
 //     lets the user create a genuinely new category inline when none fits,
 //     which then becomes selectable for the rest of that scan's rows too.
+//  5. "Coke Zero 6x1,25l ... anstatt 1 pcs, ... 6 pcs" / "JT Eier 10er ...
+//     anstatt 1 pcs, 10 pcs" (2026-07-19) - multi-pack retail units ("6x1,25l",
+//     "4er Pack", "10er", "Sixpack", crates/"Kasten") were defaulting to
+//     quantity 1 (the "assume 1 if no count shown" fallback firing even
+//     though a count WAS shown, just not as a plain standalone number). The
+//     prompt now explicitly calls out this pattern: quantity becomes the
+//     pack count, unit becomes the per-unit size/descriptor. Applies
+//     generally to any such multi-pack line, not just soda/eggs - crates of
+//     water or beer, yogurt 4-packs, toilet paper/kitchen roll packs,
+//     battery packs, diapers, etc. all follow the same "Nx..." or "N-er"
+//     notation on a German receipt.
 function buildSystemPrompt(knownItemNames: string[], knownCategoryNames: string[]): string {
   let prompt =
     "You are a receipt-parsing assistant for a household pantry app. Given a " +
     "photo or PDF of a grocery store receipt, extract every purchased " +
     "grocery/household item as a separate entry. For each item, give your " +
     "best guess for: name (short, human-readable, not the receipt's " +
-    "abbreviated code), quantity (a number - assume 1 if the receipt " +
-    "doesn't show a count), unit (e.g. \"pcs\", \"kg\", \"l\" - your best " +
-    "guess, can be null if unclear), and category. Skip " +
+    "abbreviated code), quantity (a number), unit (e.g. \"pcs\", \"kg\", " +
+    "\"l\" - your best guess, can be null if unclear), and category. " +
+    "Pay close attention to multi-pack retail units, which are extremely " +
+    "common on German receipts and must NOT default to quantity 1: a " +
+    "notation like \"6x1,25l\" or \"6 x 1.5L\" means quantity 6 and unit " +
+    "\"1,25l\" (the per-bottle size becomes the unit, the pack count becomes " +
+    "the quantity) - e.g. \"Coke Zero 6x1,25l\" is quantity 6, unit " +
+    "\"1,25l\", name \"Coke Zero\", NOT quantity 1 with unit \"pcs\". A " +
+    "notation like \"10er\", \"4er Pack\", \"Sixpack\", or \"8-Pack\" (a pure " +
+    "count multipack with no separate per-unit measurement, e.g. a carton " +
+    "of eggs or a pack of toilet paper rolls) means quantity equals that " +
+    "count and unit \"pcs\" - e.g. \"JT Eier 10er\" is quantity 10, unit " +
+    "\"pcs\", name \"Eier\", NOT quantity 1. The same applies to crates " +
+    "(\"Kasten\"/\"Kiste\") of bottled drinks - use the crate's stated " +
+    "bottle count as quantity. Only fall back to quantity 1 when the " +
+    "receipt genuinely shows no count or multi-pack notation for that line " +
+    "at all. Skip " +
     "every line that is not an actual purchased grocery/household product, " +
     "including but not limited to: subtotal/total/sum lines, tax/VAT lines, " +
     "payment method and change given, loyalty/rewards points, store name/" +
