@@ -4,7 +4,9 @@
   "nav_items": "Items",
   "nav_scan": "Scan receipt",
   "nav_categories": "Categories",
+  "nav_locations": "Locations",
   "nav_settings": "Settings",
+  "nav_info": "Info",
 
   "btn_new_item": "New item",
 
@@ -14,6 +16,7 @@
 
   "search_placeholder": "Search…",
   "all_categories": "All categories",
+  "all_locations": "All locations",
   "filter_low_stock": "Low stock",
   "filter_expiring_soon": "Expiring soon",
 
@@ -22,6 +25,8 @@
   "item_delete_confirm": "Really delete this item?",
   "added_via_ai_scan": "Added via AI receipt scan",
   "uncategorized": "Uncategorized",
+  "no_location": "No location",
+  "batch_count": "{{count}} batches",
 
   "badge_expired": "expired",
   "badge_expiring_in": "expires in {{count}}d",
@@ -44,6 +49,19 @@
   "field_min_stock_placeholder": "optional",
   "field_notes": "Notes",
 
+  "batches_title": "Batches",
+  "add_batch": "Add batch",
+  "no_batches": "No batches yet",
+
+  "unit_pcs": "pcs",
+  "unit_kg": "kg",
+  "unit_g": "g",
+  "unit_l": "l",
+  "unit_ml": "ml",
+  "unit_pack": "pack",
+  "unit_can": "can",
+  "unit_bottle": "bottle",
+
   "cancel": "Cancel",
   "save": "Save",
   "saving": "Saving…",
@@ -62,6 +80,13 @@
   "category_name_required": "Name is required",
   "category_delete_confirm": "Delete this category? Items in it will not be deleted.",
 
+  "locations_title": "Locations",
+  "no_locations": "No locations yet",
+  "new_location": "New location",
+  "location_name_placeholder": "e.g. Cellar",
+  "location_name_required": "Name is required",
+  "location_delete_confirm": "Delete this location? Items in it will not be deleted.",
+
   "ai_settings_title": "AI receipt scanning",
   "ai_settings_description": "Configure API keys for AI-based receipt scanning. Keys are encrypted and stored inside this module, not in Core's AI settings.",
   "ai_settings_configured": "configured",
@@ -73,5 +98,21 @@
   "ai_settings_model": "Model",
   "ai_settings_load_models": "Load available models",
   "ai_settings_enabled": "Enabled",
-  "ai_settings_delete_confirm": "Really remove this provider? The stored API key will be deleted."
+  "ai_settings_delete_confirm": "Really remove this provider? The stored API key will be deleted.",
+
+  "info_title": "Module info",
+  "info_load_error": "Could not load module information.",
+  "info_description": "Track pantry stock with expiry dates, storage locations, and optional AI-powered receipt scanning.",
+  "info_version": "Version",
+  "info_update_available": "Update available",
+  "info_tier": "Tier",
+  "info_category": "Category",
+  "info_author": "Author",
+  "info_license": "License",
+  "info_network_access_core": "Network access (backend)",
+  "info_network_access_frontend": "Network access (frontend)",
+  "info_no_network_access": "None",
+  "info_installed_at": "Installed",
+  "info_updated_at": "Last updated",
+  "info_github_link": "View source on GitHub"
 }

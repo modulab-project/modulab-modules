@@ -4,7 +4,9 @@
   "nav_items": "Despensa",
   "nav_scan": "Escanear recibo",
   "nav_categories": "Categorías",
+  "nav_locations": "Ubicaciones",
   "nav_settings": "Ajustes",
+  "nav_info": "Info",
 
   "btn_new_item": "Nuevo artículo",
 
@@ -14,6 +16,7 @@
 
   "search_placeholder": "Buscar…",
   "all_categories": "Todas las categorías",
+  "all_locations": "Todas las ubicaciones",
   "filter_low_stock": "Stock bajo",
   "filter_expiring_soon": "Caduca pronto",
 
@@ -22,6 +25,8 @@
   "item_delete_confirm": "¿Eliminar este artículo?",
   "added_via_ai_scan": "Añadido mediante escaneo de recibo por IA",
   "uncategorized": "Sin categoría",
+  "no_location": "Sin ubicación",
+  "batch_count": "{{count}} lotes",
 
   "badge_expired": "caducado",
   "badge_expiring_in": "caduca en {{count}} días",
@@ -44,6 +49,19 @@
   "field_min_stock_placeholder": "opcional",
   "field_notes": "Notas",
 
+  "batches_title": "Lotes",
+  "add_batch": "Añadir lote",
+  "no_batches": "Aún no hay lotes",
+
+  "unit_pcs": "uds",
+  "unit_kg": "kg",
+  "unit_g": "g",
+  "unit_l": "l",
+  "unit_ml": "ml",
+  "unit_pack": "paquete",
+  "unit_can": "lata",
+  "unit_bottle": "botella",
+
   "cancel": "Cancelar",
   "save": "Guardar",
   "saving": "Guardando…",
@@ -62,6 +80,13 @@
   "category_name_required": "El nombre es obligatorio",
   "category_delete_confirm": "¿Eliminar esta categoría? Los artículos en ella no se eliminarán.",
 
+  "locations_title": "Ubicaciones",
+  "no_locations": "Aún no hay ubicaciones",
+  "new_location": "Nueva ubicación",
+  "location_name_placeholder": "p. ej. Bodega",
+  "location_name_required": "El nombre es obligatorio",
+  "location_delete_confirm": "¿Eliminar esta ubicación? Los artículos en ella no se eliminarán.",
+
   "ai_settings_title": "Escaneo de recibos con IA",
   "ai_settings_description": "Configura las claves API para el escaneo de recibos con IA. Las claves se cifran y se guardan solo en este módulo, no en los ajustes de IA de Core.",
   "ai_settings_configured": "configurado",
@@ -73,5 +98,21 @@
   "ai_settings_model": "Modelo",
   "ai_settings_load_models": "Cargar modelos disponibles",
   "ai_settings_enabled": "Activado",
-  "ai_settings_delete_confirm": "¿Eliminar este proveedor? Se borrará la clave API guardada."
+  "ai_settings_delete_confirm": "¿Eliminar este proveedor? Se borrará la clave API guardada.",
+
+  "info_title": "Información del módulo",
+  "info_load_error": "No se pudo cargar la información del módulo.",
+  "info_description": "Controla las existencias de la despensa con fechas de caducidad, ubicaciones de almacenamiento y escaneo de recibos con IA opcional.",
+  "info_version": "Versión",
+  "info_update_available": "Actualización disponible",
+  "info_tier": "Nivel",
+  "info_category": "Categoría",
+  "info_author": "Autor",
+  "info_license": "Licencia",
+  "info_network_access_core": "Acceso a red (backend)",
+  "info_network_access_frontend": "Acceso a red (frontend)",
+  "info_no_network_access": "Ninguno",
+  "info_installed_at": "Instalado",
+  "info_updated_at": "Última actualización",
+  "info_github_link": "Ver código fuente en GitHub"
 }

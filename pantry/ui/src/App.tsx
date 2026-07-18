@@ -1,15 +1,27 @@
 /**
- * Pantry module — React frontend  v0.1.0
+ * Pantry module — React frontend  v0.2.0
  *
  * Visual/structural pattern deliberately mirrors recipes/ui/src/App.tsx
  * (2026-07-18 user request: "same look as recipes' AI integration") -
  * the sparkles-icon AI action button, the Admin-only Settings tab
- * (AISettingsView) for provider API keys, the useApi/extractErrorMessage
- * helpers, and the isAdmin visibility-probe pattern are all carried over
- * near-verbatim. What's specific to this module: item list with low-stock/
- * expiry badges, and the receipt-scan review flow (upload -> AI suggests
- * items -> user edits/confirms -> bulk-create) instead of recipes'
- * per-recipe "estimate nutrition" call.
+ * (AISettingsView), the ModuleInfoView "Info" tab, the useApi/
+ * extractErrorMessage helpers, and the isAdmin visibility-probe pattern are
+ * all carried over near-verbatim.
+ *
+ * v0.2.0 changes (2026-07-18, user feedback round):
+ *  - Item/batch split: pantry_items is now a product record (name/category/
+ *    unit/min_stock/notes), quantity+expiry_date+location live on a
+ *    per-item batches array instead - "buy steaks twice with two different
+ *    best-before dates" no longer creates two separate list rows. See
+ *    handlers/index.ts and migrations/0001_initial.sql for the backend side.
+ *  - Locations are now an admin-managed list (LocationsView), same pattern
+ *    as Categories, instead of a free-text field.
+ *  - No seeded categories - the list starts empty.
+ *  - Units offered in the datalist are translated per-locale (see UNIT_CODES
+ *    below) instead of hardcoded English abbreviations.
+ *  - The "Scan receipt" tab only shows once at least one AI provider is
+ *    configured and enabled (probes the new, non-admin-gated
+ *    GET /ai-providers/status).
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -24,21 +36,43 @@ interface PantryItem {
   name: string;
   category_id: string | null;
   category_name: string | null;
-  quantity: number;
   unit: string | null;
-  location: string | null;
-  expiry_date: string | null;
   min_stock: number | null;
   notes: string | null;
   image_path: string | null;
-  added_via: "manual" | "ai_scan";
+  quantity: number; // aggregated SUM across this item's batches
+  expiry_date: string | null; // nearest (soonest) expiry_date across batches
+  batch_count: number;
+  added_via_ai_scan: boolean; // true if any batch was added via AI scan
   is_low_stock: boolean;
   is_expired: boolean;
   days_until_expiry: number | null;
   updated_at: string;
 }
 
+interface Batch {
+  id: string;
+  item_id: string;
+  quantity: number;
+  expiry_date: string | null;
+  location_id: string | null;
+  location_name: string | null;
+  added_via: "manual" | "ai_scan";
+  created_at: string;
+  updated_at: string;
+}
+
+interface PantryItemDetail extends PantryItem {
+  batches: Batch[];
+}
+
 interface Category {
+  id: string;
+  name: string;
+  sort_order: number;
+}
+
+interface Location {
   id: string;
   name: string;
   sort_order: number;
@@ -56,9 +90,15 @@ type View =
   | { type: "editor"; id?: string }
   | { type: "scan" }
   | { type: "categories" }
-  | { type: "settings" };
+  | { type: "locations" }
+  | { type: "settings" }
+  | { type: "info" };
 
-const UNITS = ["pcs", "kg", "g", "l", "ml", "pack", "can", "bottle"];
+// Unit suggestions, translated per-locale (2026-07-18 user request: "pcs"
+// should read "Stk" for a German user, not stay in English). The datalist's
+// option value IS the translated abbreviation - the field itself stays free
+// text underneath, so a custom unit can always be typed instead.
+const UNIT_CODES = ["pcs", "kg", "g", "l", "ml", "pack", "can", "bottle"] as const;
 
 // ── API helper ────────────────────────────────────────────────────────────────
 //
@@ -132,7 +172,7 @@ function useApi(apiBase: string, token: string) {
 
 const NS = "mod_pantry";
 
-export default function PantryApp({ apiBase, token }: ModuleComponentProps) {
+export default function PantryApp({ moduleName, apiBase, token }: ModuleComponentProps) {
   const { t } = useTranslation(NS);
   const [view, setView] = useState<View>({ type: "list" });
   const api = useApi(apiBase, token);
@@ -148,15 +188,32 @@ export default function PantryApp({ apiBase, token }: ModuleComponentProps) {
     if (view.type === "settings" && isAdmin === false) setView({ type: "list" });
   }, [view, isAdmin]);
 
+  // scanAvailable: whether any AI provider is configured+enabled, probed via
+  // the non-admin-gated /ai-providers/status - unlike isAdmin above, this
+  // gates a tab every user (not just Admins) would otherwise see, so it
+  // can't reuse the admin-only /ai-providers probe. null = not yet known,
+  // treated as "hidden" the same conservative way isAdmin is.
+  const [scanAvailable, setScanAvailable] = useState<boolean | null>(null);
+  useEffect(() => {
+    api.get<{ available: boolean }>("/ai-providers/status").then((r) => setScanAvailable(r.available)).catch(() => setScanAvailable(false));
+  }, [api]);
+  useEffect(() => {
+    if (view.type === "scan" && scanAvailable === false) setView({ type: "list" });
+  }, [view, scanAvailable]);
+
   return (
     <div className="p-4 sm:p-6">
       <nav className="mb-5 flex flex-wrap items-center gap-1 border-b border-gray-100 pb-3 dark:border-gray-800">
         <TabButton active={view.type === "list"} onClick={() => setView({ type: "list" })} icon="ti-shopping-cart" label={t("nav_items")} />
-        <TabButton active={view.type === "scan"} onClick={() => setView({ type: "scan" })} icon="ti-camera" label={t("nav_scan")} />
+        {scanAvailable && (
+          <TabButton active={view.type === "scan"} onClick={() => setView({ type: "scan" })} icon="ti-camera" label={t("nav_scan")} />
+        )}
         <TabButton active={view.type === "categories"} onClick={() => setView({ type: "categories" })} icon="ti-tag" label={t("nav_categories")} />
+        <TabButton active={view.type === "locations"} onClick={() => setView({ type: "locations" })} icon="ti-map-pin" label={t("nav_locations")} />
         {isAdmin && (
           <TabButton active={view.type === "settings"} onClick={() => setView({ type: "settings" })} icon="ti-settings" label={t("nav_settings")} />
         )}
+        <TabButton active={view.type === "info"} onClick={() => setView({ type: "info" })} icon="ti-info-circle" label={t("nav_info")} />
       </nav>
 
       {view.type === "list" && (
@@ -169,9 +226,11 @@ export default function PantryApp({ apiBase, token }: ModuleComponentProps) {
       {view.type === "editor" && (
         <ItemEditor api={api} id={view.id} onDone={() => setView({ type: "list" })} onBack={() => setView({ type: "list" })} />
       )}
-      {view.type === "scan" && <ScanView api={api} onDone={() => setView({ type: "list" })} />}
+      {view.type === "scan" && scanAvailable && <ScanView api={api} onDone={() => setView({ type: "list" })} />}
       {view.type === "categories" && <CategoriesView api={api} />}
+      {view.type === "locations" && <LocationsView api={api} />}
       {view.type === "settings" && isAdmin && <AISettingsView api={api} />}
+      {view.type === "info" && <ModuleInfoView moduleName={moduleName} token={token} />}
     </div>
   );
 }
@@ -206,8 +265,10 @@ function ItemList({
   const { t } = useTranslation(NS);
   const [items, setItems] = useState<PantryItem[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [locations, setLocations] = useState<Location[]>([]);
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
+  const [locationFilter, setLocationFilter] = useState("");
   const [lowStockOnly, setLowStockOnly] = useState(false);
   const [expiringSoonOnly, setExpiringSoonOnly] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -220,20 +281,23 @@ function ItemList({
       const params = new URLSearchParams();
       if (search) params.set("search", search);
       if (categoryFilter) params.set("category", categoryFilter);
+      if (locationFilter) params.set("location", locationFilter);
       if (lowStockOnly) params.set("low_stock", "true");
       if (expiringSoonOnly) params.set("expiring_soon", "true");
-      const [itemsResp, cats] = await Promise.all([
+      const [itemsResp, cats, locs] = await Promise.all([
         api.get<{ items: PantryItem[]; total: number }>(`/items?${params.toString()}`),
         api.get<Category[]>("/categories"),
+        api.get<Location[]>("/locations"),
       ]);
       setItems(itemsResp.items);
       setCategories(cats);
+      setLocations(locs);
     } catch (e) {
       setError(String(e));
     } finally {
       setLoading(false);
     }
-  }, [api, search, categoryFilter, lowStockOnly, expiringSoonOnly]);
+  }, [api, search, categoryFilter, locationFilter, lowStockOnly, expiringSoonOnly]);
 
   useEffect(() => {
     const timer = setTimeout(load, search ? 250 : 0); // debounce free-text search only
@@ -292,6 +356,17 @@ function ItemList({
             <option key={c.id} value={c.id}>{c.name}</option>
           ))}
         </select>
+        <select
+          value={locationFilter}
+          onChange={(e) => setLocationFilter(e.target.value)}
+          className="rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900"
+          style={{ fontSize: "16px" }}
+        >
+          <option value="">{t("all_locations")}</option>
+          {locations.map((l) => (
+            <option key={l.id} value={l.id}>{l.name}</option>
+          ))}
+        </select>
         <button
           type="button"
           onClick={() => setLowStockOnly((v) => !v)}
@@ -339,13 +414,13 @@ function ItemList({
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <p className="truncate text-sm font-medium">{item.name}</p>
-                {item.added_via === "ai_scan" && (
+                {item.added_via_ai_scan && (
                   <i className="ti ti-sparkles text-[12px] text-teal-500" title={t("added_via_ai_scan") as string} />
                 )}
               </div>
               <p className="truncate text-xs text-gray-400">
                 {item.category_name ?? t("uncategorized")}
-                {item.location && ` · ${item.location}`}
+                {item.batch_count > 1 && ` · ${t("batch_count", { count: item.batch_count })}`}
               </p>
             </div>
             <span className="flex-none text-sm text-gray-500 dark:text-gray-400">
@@ -396,6 +471,18 @@ function Badge({ tone, children }: { tone: "neutral" | "warning" | "danger"; chi
 }
 
 // ── ItemEditor ────────────────────────────────────────────────────────────────
+//
+// Edits item-level fields (name/category/unit/min_stock/notes) plus the
+// item's batches (quantity/expiry_date/location) inline - same "embedded
+// list, replaced/added row by row" pattern as recipes' ingredients editor,
+// except batches are individually addressable (POST/PATCH/DELETE) rather
+// than a wholesale PUT-replace-all, since a batch can outlive edits to the
+// item itself and vice versa.
+//
+// For a brand-new item, exactly one blank batch row is offered by default -
+// matches the old single-table UX where "new item" always meant "some stock
+// of a new product," while still letting the user delete it down to zero
+// batches (a bare product definition with nothing in stock yet is valid).
 
 function ItemEditor({
   api,
@@ -410,58 +497,83 @@ function ItemEditor({
 }) {
   const { t } = useTranslation(NS);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [locations, setLocations] = useState<Location[]>([]);
   const [name, setName] = useState("");
   const [categoryId, setCategoryId] = useState("");
-  const [quantity, setQuantity] = useState("1");
   const [unit, setUnit] = useState("");
-  const [location, setLocation] = useState("");
-  const [expiryDate, setExpiryDate] = useState("");
   const [minStock, setMinStock] = useState("");
   const [notes, setNotes] = useState("");
+  const [batches, setBatches] = useState<Batch[]>([]);
+  const [newBatches, setNewBatches] = useState<{ quantity: string; expiry_date: string; location_id: string }[]>(
+    id ? [] : [{ quantity: "1", expiry_date: "", location_id: "" }],
+  );
   const [loading, setLoading] = useState(!!id);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     api.get<Category[]>("/categories").then(setCategories).catch(() => {});
+    api.get<Location[]>("/locations").then(setLocations).catch(() => {});
   }, [api]);
+
+  const reloadItem = useCallback(async () => {
+    if (!id) return;
+    const it = await api.get<PantryItemDetail>(`/items/${id}`);
+    setName(it.name);
+    setCategoryId(it.category_id ?? "");
+    setUnit(it.unit ?? "");
+    setMinStock(it.min_stock != null ? String(it.min_stock) : "");
+    setNotes(it.notes ?? "");
+    setBatches(it.batches);
+  }, [api, id]);
 
   useEffect(() => {
     if (!id) return;
-    api
-      .get<PantryItem>(`/items/${id}`)
-      .then((it) => {
-        setName(it.name);
-        setCategoryId(it.category_id ?? "");
-        setQuantity(String(it.quantity));
-        setUnit(it.unit ?? "");
-        setLocation(it.location ?? "");
-        setExpiryDate(it.expiry_date ?? "");
-        setMinStock(it.min_stock != null ? String(it.min_stock) : "");
-        setNotes(it.notes ?? "");
-      })
-      .catch((e) => setError(String(e)))
-      .finally(() => setLoading(false));
-  }, [api, id]);
+    reloadItem().catch((e) => setError(String(e))).finally(() => setLoading(false));
+  }, [id, reloadItem]);
 
   async function handleSave() {
     if (!name.trim()) { setError(t("name_required")); return; }
     setSaving(true);
     setError(null);
-    const payload = {
-      name: name.trim(),
-      category_id: categoryId || null,
-      quantity: parseFloat(quantity) || 0,
-      unit: unit.trim() || null,
-      location: location.trim() || null,
-      expiry_date: expiryDate || null,
-      min_stock: minStock.trim() ? parseFloat(minStock) : null,
-      notes: notes.trim() || null,
-    };
     try {
-      if (id) await api.mutate("PATCH", `/items/${id}`, payload);
-      else await api.mutate("POST", "/items", payload);
-      onDone();
+      if (id) {
+        await api.mutate("PATCH", `/items/${id}`, {
+          name: name.trim(),
+          category_id: categoryId || null,
+          unit: unit.trim() || null,
+          min_stock: minStock.trim() ? parseFloat(minStock) : null,
+          notes: notes.trim() || null,
+        });
+        onDone();
+      } else {
+        const validBatches = newBatches.filter((b) => b.quantity.trim() || b.expiry_date || b.location_id);
+        const created = await api.mutate<{ id: string }>("POST", "/items", {
+          name: name.trim(),
+          category_id: categoryId || null,
+          unit: unit.trim() || null,
+          min_stock: minStock.trim() ? parseFloat(minStock) : null,
+          notes: notes.trim() || null,
+          batch: validBatches[0]
+            ? {
+                quantity: parseFloat(validBatches[0].quantity) || 0,
+                expiry_date: validBatches[0].expiry_date || null,
+                location_id: validBatches[0].location_id || null,
+              }
+            : undefined,
+        });
+        // Any additional new-item batch rows beyond the first (rare, but the
+        // form allows adding more before the first save) are created as
+        // separate POST /items/:id/batches calls once the item itself exists.
+        for (const b of validBatches.slice(1)) {
+          await api.mutate("POST", `/items/${created.id}/batches`, {
+            quantity: parseFloat(b.quantity) || 0,
+            expiry_date: b.expiry_date || null,
+            location_id: b.location_id || null,
+          });
+        }
+        onDone();
+      }
     } catch (e) {
       setError(String(e));
     } finally {
@@ -469,7 +581,44 @@ function ItemEditor({
     }
   }
 
+  function addNewBatchRow() {
+    setNewBatches((prev) => [...prev, { quantity: "1", expiry_date: "", location_id: "" }]);
+  }
+  function updateNewBatchRow(i: number, patch: Partial<{ quantity: string; expiry_date: string; location_id: string }>) {
+    setNewBatches((prev) => prev.map((b, idx) => (idx === i ? { ...b, ...patch } : b)));
+  }
+  function removeNewBatchRow(i: number) {
+    setNewBatches((prev) => prev.filter((_, idx) => idx !== i));
+  }
+
+  async function handleAddBatch() {
+    if (!id) return;
+    try {
+      await api.mutate("POST", `/items/${id}/batches`, { quantity: 1, expiry_date: null, location_id: null });
+      await reloadItem();
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+  async function handleUpdateBatch(batchId: string, patch: Partial<{ quantity: number; expiry_date: string | null; location_id: string | null }>) {
+    try {
+      await api.mutate("PATCH", `/items/${id}/batches/${batchId}`, patch);
+      await reloadItem();
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+  async function handleDeleteBatch(batchId: string) {
+    try {
+      await api.mutate("DELETE", `/items/${id}/batches/${batchId}`);
+      await reloadItem();
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
   const inputCls = "w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 dark:border-gray-700 dark:bg-gray-900";
+  const smallInputCls = "rounded-lg border border-gray-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 dark:border-gray-700 dark:bg-gray-900";
 
   if (loading) return <p className="text-sm text-gray-400">{t("loading")}</p>;
 
@@ -503,38 +652,86 @@ function ItemEditor({
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">{t("field_location")}</label>
-            <input type="text" value={location} onChange={(e) => setLocation(e.target.value)} placeholder={t("field_location_placeholder") as string} className={inputCls} style={{ fontSize: "16px" }} />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">{t("field_quantity")}</label>
-            <input type="number" min={0} step="0.01" value={quantity} onChange={(e) => setQuantity(e.target.value)} className={inputCls} style={{ fontSize: "16px" }} />
-          </div>
-          <div>
             <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">{t("field_unit")}</label>
             <input type="text" list="pantry-units" value={unit} onChange={(e) => setUnit(e.target.value)} className={inputCls} style={{ fontSize: "16px" }} />
-            <datalist id="pantry-units">{UNITS.map((u) => <option key={u} value={u} />)}</datalist>
+            <datalist id="pantry-units">{UNIT_CODES.map((u) => <option key={u} value={t(`unit_${u}`)} />)}</datalist>
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">{t("field_expiry_date")}</label>
-            <input type="date" value={expiryDate} onChange={(e) => setExpiryDate(e.target.value)} className={inputCls} style={{ fontSize: "16px" }} />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">{t("field_min_stock")}</label>
-            <input type="number" min={0} step="0.01" value={minStock} onChange={(e) => setMinStock(e.target.value)} placeholder={t("field_min_stock_placeholder") as string} className={inputCls} style={{ fontSize: "16px" }} />
-          </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">{t("field_min_stock")}</label>
+          <input type="number" min={0} step="0.01" value={minStock} onChange={(e) => setMinStock(e.target.value)} placeholder={t("field_min_stock_placeholder") as string} className={inputCls} style={{ fontSize: "16px" }} />
         </div>
 
         <div>
           <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">{t("field_notes")}</label>
           <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className={inputCls} style={{ fontSize: "16px" }} />
         </div>
+      </div>
+
+      <div className="mt-5 border-t border-gray-100 pt-4 dark:border-gray-800">
+        <div className="mb-2 flex items-center justify-between">
+          <h2 className="text-sm font-semibold">{t("batches_title")}</h2>
+          {id && (
+            <button type="button" onClick={handleAddBatch}
+              className="flex items-center gap-1 text-xs text-teal-600 hover:underline dark:text-teal-400">
+              <i className="ti ti-plus text-[12px]" /> {t("add_batch")}
+            </button>
+          )}
+        </div>
+
+        {/* Existing item: batches are saved immediately, one API call per field change. */}
+        {id && batches.length === 0 && (
+          <p className="text-xs text-gray-400">{t("no_batches")}</p>
+        )}
+        {id && batches.map((b) => (
+          <div key={b.id} className="mb-2 flex items-center gap-2">
+            <input type="number" min={0} step="0.01" defaultValue={b.quantity}
+              onBlur={(e) => handleUpdateBatch(b.id, { quantity: parseFloat(e.target.value) || 0 })}
+              className={`w-20 ${smallInputCls}`} style={{ fontSize: "16px" }} />
+            <input type="date" defaultValue={b.expiry_date ?? ""}
+              onBlur={(e) => handleUpdateBatch(b.id, { expiry_date: e.target.value || null })}
+              className={smallInputCls} style={{ fontSize: "16px" }} />
+            <select defaultValue={b.location_id ?? ""}
+              onChange={(e) => handleUpdateBatch(b.id, { location_id: e.target.value || null })}
+              className={`flex-1 ${smallInputCls}`} style={{ fontSize: "16px" }}>
+              <option value="">{t("no_location")}</option>
+              {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+            </select>
+            {b.added_via === "ai_scan" && <i className="ti ti-sparkles text-[12px] text-teal-500" title={t("added_via_ai_scan") as string} />}
+            <button type="button" onClick={() => handleDeleteBatch(b.id)}
+              className="flex-none rounded-lg p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950">
+              <i className="ti ti-trash text-[14px]" />
+            </button>
+          </div>
+        ))}
+
+        {/* New item: batch rows are plain local state, sent along with the
+            initial POST /items call (see handleSave) rather than saved
+            immediately - there is no item id to attach them to yet. */}
+        {!id && newBatches.map((b, i) => (
+          <div key={i} className="mb-2 flex items-center gap-2">
+            <input type="number" min={0} step="0.01" value={b.quantity} onChange={(e) => updateNewBatchRow(i, { quantity: e.target.value })}
+              className={`w-20 ${smallInputCls}`} style={{ fontSize: "16px" }} />
+            <input type="date" value={b.expiry_date} onChange={(e) => updateNewBatchRow(i, { expiry_date: e.target.value })}
+              className={smallInputCls} style={{ fontSize: "16px" }} />
+            <select value={b.location_id} onChange={(e) => updateNewBatchRow(i, { location_id: e.target.value })}
+              className={`flex-1 ${smallInputCls}`} style={{ fontSize: "16px" }}>
+              <option value="">{t("no_location")}</option>
+              {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+            </select>
+            <button type="button" onClick={() => removeNewBatchRow(i)}
+              className="flex-none rounded-lg p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950">
+              <i className="ti ti-trash text-[14px]" />
+            </button>
+          </div>
+        ))}
+        {!id && (
+          <button type="button" onClick={addNewBatchRow}
+            className="flex items-center gap-1 text-xs text-teal-600 hover:underline dark:text-teal-400">
+            <i className="ti ti-plus text-[12px]" /> {t("add_batch")}
+          </button>
+        )}
       </div>
 
       <div className="mt-5 flex justify-end gap-2">
@@ -553,11 +750,12 @@ function ItemEditor({
 
 // ── ScanView ──────────────────────────────────────────────────────────────────
 //
-// Upload a receipt photo -> POST /scan (multipart; Core writes the file and
-// re-dispatches to the handler with { file_path } filled in, same pattern as
-// recipes' image upload) -> AI returns suggested items -> user edits/removes
-// rows -> POST /items/bulk to actually persist. Nothing is written to the
-// database until the user confirms.
+// Upload a receipt photo -> POST /scan (multipart; Core writes the file to
+// this module's storage dir AND base64-encodes the same bytes into the JSON
+// body it forwards, see router.go) -> AI returns suggested items -> user
+// edits/removes rows -> POST /items/bulk to actually persist (matches by
+// name server-side: adds a batch to an existing item, or creates a new one).
+// Nothing is written to the database until the user confirms.
 
 function ScanView({ api, onDone }: { api: ReturnType<typeof useApi>; onDone: () => void }) {
   const { t } = useTranslation(NS);
@@ -567,11 +765,14 @@ function ScanView({ api, onDone }: { api: ReturnType<typeof useApi>; onDone: () 
   const [suggestions, setSuggestions] = useState<ScannedItem[] | null>(null);
   const [aiMeta, setAiMeta] = useState<{ provider: string; model: string } | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [locations, setLocations] = useState<Location[]>([]);
   const [categoryChoices, setCategoryChoices] = useState<string[]>([]);
+  const [locationChoices, setLocationChoices] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     api.get<Category[]>("/categories").then(setCategories).catch(() => {});
+    api.get<Location[]>("/locations").then(setLocations).catch(() => {});
   }, [api]);
 
   async function handleFile(file: File) {
@@ -590,6 +791,7 @@ function ScanView({ api, onDone }: { api: ReturnType<typeof useApi>; onDone: () 
       setCategoryChoices(
         res.items.map((it) => categories.find((c) => c.name.toLowerCase() === (it.category ?? "").toLowerCase())?.id ?? ""),
       );
+      setLocationChoices(res.items.map(() => ""));
     } catch (e) {
       setError(String(e));
     } finally {
@@ -603,6 +805,7 @@ function ScanView({ api, onDone }: { api: ReturnType<typeof useApi>; onDone: () 
   function removeSuggestion(i: number) {
     setSuggestions((prev) => (prev ? prev.filter((_, idx) => idx !== i) : prev));
     setCategoryChoices((prev) => prev.filter((_, idx) => idx !== i));
+    setLocationChoices((prev) => prev.filter((_, idx) => idx !== i));
   }
 
   async function handleConfirm() {
@@ -614,6 +817,7 @@ function ScanView({ api, onDone }: { api: ReturnType<typeof useApi>; onDone: () 
         items: suggestions.map((it, i) => ({
           name: it.name,
           category_id: categoryChoices[i] || null,
+          location_id: locationChoices[i] || null,
           quantity: it.quantity ?? 1,
           unit: it.unit,
         })),
@@ -680,17 +884,22 @@ function ScanView({ api, onDone }: { api: ReturnType<typeof useApi>; onDone: () 
 
           <div className="space-y-2">
             {suggestions.map((it, i) => (
-              <div key={i} className="flex items-center gap-2 rounded-xl border border-gray-200 p-2.5 dark:border-gray-800">
+              <div key={i} className="flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 p-2.5 dark:border-gray-800">
                 <input type="text" value={it.name} onChange={(e) => updateSuggestion(i, { name: e.target.value })}
-                  className={`flex-1 ${inputCls}`} style={{ fontSize: "16px" }} />
+                  className={`flex-1 min-w-[100px] ${inputCls}`} style={{ fontSize: "16px" }} />
                 <input type="number" min={0} step="0.01" value={it.quantity ?? ""} onChange={(e) => updateSuggestion(i, { quantity: parseFloat(e.target.value) || null })}
                   className={`w-16 ${inputCls}`} style={{ fontSize: "16px" }} />
                 <input type="text" value={it.unit ?? ""} onChange={(e) => updateSuggestion(i, { unit: e.target.value })}
                   placeholder={t("field_unit") as string} className={`w-20 ${inputCls}`} style={{ fontSize: "16px" }} />
                 <select value={categoryChoices[i] ?? ""} onChange={(e) => setCategoryChoices((prev) => prev.map((v, idx) => (idx === i ? e.target.value : v)))}
-                  className={`w-32 ${inputCls}`} style={{ fontSize: "16px" }}>
+                  className={`w-28 ${inputCls}`} style={{ fontSize: "16px" }}>
                   <option value="">{it.category ?? t("uncategorized")}</option>
                   {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+                <select value={locationChoices[i] ?? ""} onChange={(e) => setLocationChoices((prev) => prev.map((v, idx) => (idx === i ? e.target.value : v)))}
+                  className={`w-28 ${inputCls}`} style={{ fontSize: "16px" }}>
+                  <option value="">{t("no_location")}</option>
+                  {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
                 </select>
                 <button type="button" onClick={() => removeSuggestion(i)}
                   className="flex-none rounded-lg p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950">
@@ -826,6 +1035,128 @@ function CategoriesView({ api }: { api: ReturnType<typeof useApi> }) {
               <i className="ti ti-pencil text-[14px]" />
             </button>
             <button type="button" onClick={() => handleDelete(cat.id)}
+              className="rounded-lg p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950">
+              <i className="ti ti-trash text-[14px]" />
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── LocationsView ─────────────────────────────────────────────────────────────
+//
+// Copy of CategoriesView's exact pattern (2026-07-18 user request: "Lagerort
+// Verwaltung wie Kategorien") - only the endpoint and copy differ.
+
+function LocationsView({ api }: { api: ReturnType<typeof useApi> }) {
+  const { t } = useTranslation(NS);
+  const [locations, setLocations] = useState<Location[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [name, setName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      setLocations(await api.get<Location[]>("/locations"));
+    } finally {
+      setLoading(false);
+    }
+  }, [api]);
+  useEffect(() => { load(); }, [load]);
+
+  function startNew() { setEditingId("new"); setName(""); setError(null); }
+  function startEdit(loc: Location) { setEditingId(loc.id); setName(loc.name); setError(null); }
+  function cancelEdit() { setEditingId(null); }
+
+  async function handleSave() {
+    if (!name.trim()) { setError(t("location_name_required")); return; }
+    setSaving(true);
+    setError(null);
+    try {
+      if (editingId === "new") await api.mutate("POST", "/locations", { name: name.trim() });
+      else await api.mutate("PATCH", `/locations/${editingId}`, { name: name.trim() });
+      setEditingId(null);
+      await load();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete(id: string) {
+    if (!window.confirm(t("location_delete_confirm"))) return;
+    try {
+      await api.mutate("DELETE", `/locations/${id}`);
+      await load();
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  const inputCls = "rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 dark:border-gray-700 dark:bg-gray-900";
+
+  return (
+    <div className="mx-auto max-w-lg">
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-lg font-semibold">{t("locations_title")}</h2>
+        {editingId === null && (
+          <button type="button" onClick={startNew}
+            className="flex items-center gap-1.5 rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700">
+            <i className="ti ti-plus text-[13px]" /> {t("new_location")}
+          </button>
+        )}
+      </div>
+
+      {error && (
+        <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+          {error}
+        </div>
+      )}
+
+      {editingId !== null && (
+        <div className="mb-4 rounded-2xl border border-teal-200 bg-teal-50 p-4 dark:border-teal-800 dark:bg-teal-950">
+          <input type="text" value={name} onChange={(e) => setName(e.target.value)}
+            placeholder={t("location_name_placeholder") as string} className={`w-full ${inputCls}`}
+            style={{ fontSize: "16px" }} autoFocus
+            onKeyDown={(e) => { if (e.key === "Enter") handleSave(); if (e.key === "Escape") cancelEdit(); }} />
+          <div className="mt-3 flex justify-end gap-2">
+            <button type="button" onClick={cancelEdit}
+              className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900">
+              {t("cancel")}
+            </button>
+            <button type="button" onClick={handleSave} disabled={saving}
+              className="flex items-center gap-1.5 rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50">
+              {saving ? <i className="ti ti-loader-2 animate-spin text-[13px]" /> : <i className="ti ti-check text-[13px]" />}
+              {t("save")}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {loading && <p className="text-sm text-gray-400">{t("loading")}</p>}
+
+      {!loading && locations.length === 0 && (
+        <div className="rounded-2xl border border-dashed border-gray-200 px-6 py-10 text-center dark:border-gray-800">
+          <i className="ti ti-map-pin text-[32px] text-gray-300 dark:text-gray-700" />
+          <p className="mt-2 text-sm text-gray-400">{t("no_locations")}</p>
+        </div>
+      )}
+
+      <div className="space-y-1.5">
+        {locations.map((loc) => (
+          <div key={loc.id} className="flex items-center gap-3 rounded-xl border border-gray-200 px-4 py-3 dark:border-gray-800">
+            <span className="flex-1 text-sm font-medium">{loc.name}</span>
+            <button type="button" onClick={() => startEdit(loc)}
+              className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800">
+              <i className="ti ti-pencil text-[14px]" />
+            </button>
+            <button type="button" onClick={() => handleDelete(loc.id)}
               className="rounded-lg p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950">
               <i className="ti ti-trash text-[14px]" />
             </button>
@@ -1081,3 +1412,149 @@ function AISettingsView({ api }: { api: ReturnType<typeof useApi> }) {
     </div>
   );
 }
+
+// ── ModuleInfoView ────────────────────────────────────────────────────────────
+//
+// Copied near-verbatim from recipes/ui/src/App.tsx's ModuleInfoView
+// (2026-07-18 user request: "Modul-Informationen wie bei Rezepte fehlt") -
+// calls Core's GET /v1/modules/{name} directly (Core's own route, not this
+// module's api/ proxy), same-origin fetch with the existing Bearer token.
+
+interface InstalledModuleInfo {
+  name: string;
+  version: string;
+  tier: number;
+  status: string;
+  installed_at: string;
+  updated_at: string;
+  available_version?: string | null;
+  manifest?: {
+    description?: string;
+    author?: string;
+    license?: string;
+    category?: string;
+    egress_allowlist?: string[];
+  };
+}
+
+function ModuleInfoView({ moduleName, token }: { moduleName: string; token: string }) {
+  const { t } = useTranslation(NS);
+  const [info, setInfo] = useState<InstalledModuleInfo | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const r = await fetch(`/v1/modules/${encodeURIComponent(moduleName)}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const data = await r.json();
+        if (!cancelled) setInfo(data);
+      } catch (e) {
+        if (!cancelled) setError(String(e));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [moduleName, token]);
+
+  const rowCls = "flex items-center justify-between gap-4 border-b border-gray-100 py-2 text-sm last:border-0 dark:border-gray-800";
+  const labelCls = "text-gray-500 dark:text-gray-400";
+  const valueCls = "text-right font-medium text-gray-800 dark:text-gray-100";
+
+  if (loading) return <p className="text-sm text-gray-400">{t("loading")}</p>;
+  if (error || !info) {
+    return (
+      <div className="rounded-2xl border border-dashed border-gray-200 px-6 py-12 text-center dark:border-gray-800">
+        <i className="ti ti-alert-circle text-gray-300 dark:text-gray-700" style={{ fontSize: "36px" }} />
+        <p className="mt-3 text-sm text-gray-400">{t("info_load_error")}</p>
+      </div>
+    );
+  }
+
+  const manifest = info.manifest ?? {};
+  const egressHosts = manifest.egress_allowlist ?? [];
+
+  return (
+    <div className="mx-auto max-w-lg">
+      <div className="mb-4 flex items-center gap-2">
+        <i className="ti ti-info-circle text-teal-600" style={{ fontSize: "20px" }} />
+        <h2 className="text-lg font-semibold">{t("info_title")}</h2>
+      </div>
+      <div className="rounded-2xl border border-gray-200 p-4 dark:border-gray-800">
+        {/* Localized description, not manifest.description from Core's API
+            (that field is a single hardcoded English string) - see
+            locales/*.json's info_description for the maintained, localized
+            text instead. */}
+        <p className="mb-3 text-sm text-gray-600 dark:text-gray-300">{t("info_description")}</p>
+        <div className={rowCls}>
+          <span className={labelCls}>{t("info_version")}</span>
+          <span className={valueCls}>{info.version}</span>
+        </div>
+        {info.available_version && (
+          <div className={rowCls}>
+            <span className={labelCls}>{t("info_update_available")}</span>
+            <span className={valueCls} style={{ color: "#d97706" }}>{info.available_version}</span>
+          </div>
+        )}
+        <div className={rowCls}>
+          <span className={labelCls}>{t("info_tier")}</span>
+          <span className={valueCls}>{info.tier}</span>
+        </div>
+        {manifest.category && (
+          <div className={rowCls}>
+            <span className={labelCls}>{t("info_category")}</span>
+            <span className={valueCls}>{manifest.category}</span>
+          </div>
+        )}
+        {manifest.author && (
+          <div className={rowCls}>
+            <span className={labelCls}>{t("info_author")}</span>
+            <span className={valueCls}>{manifest.author}</span>
+          </div>
+        )}
+        {manifest.license && (
+          <div className={rowCls}>
+            <span className={labelCls}>{t("info_license")}</span>
+            <span className={valueCls}>{manifest.license}</span>
+          </div>
+        )}
+        <div className={rowCls}>
+          <span className={labelCls}>{t("info_network_access_core")}</span>
+          <span className={valueCls}>
+            {egressHosts.length > 0 ? egressHosts.join(", ") : t("info_no_network_access")}
+          </span>
+        </div>
+        <div className={rowCls}>
+          <span className={labelCls}>{t("info_network_access_frontend")}</span>
+          <span className={valueCls}>{t("info_no_network_access")}</span>
+        </div>
+        <div className={rowCls}>
+          <span className={labelCls}>{t("info_installed_at")}</span>
+          <span className={valueCls}>{new Date(info.installed_at).toLocaleDateString()}</span>
+        </div>
+        <div className={rowCls}>
+          <span className={labelCls}>{t("info_updated_at")}</span>
+          <span className={valueCls}>{new Date(info.updated_at).toLocaleDateString()}</span>
+        </div>
+      </div>
+      <a
+        href={MODULE_SOURCE_REPO_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="mt-3 flex items-center justify-center gap-1.5 rounded-2xl border border-gray-200 p-3 text-sm text-gray-600 hover:bg-gray-50 dark:border-gray-800 dark:text-gray-300 dark:hover:bg-gray-800"
+      >
+        <i className="ti ti-brand-github" style={{ fontSize: "16px" }} />
+        {t("info_github_link")}
+      </a>
+    </div>
+  );
+}
+
+const MODULE_SOURCE_REPO_URL = "https://github.com/modulab-project/modulab-modules";

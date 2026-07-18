@@ -4,7 +4,9 @@
   "nav_items": "Garde-manger",
   "nav_scan": "Scanner un ticket",
   "nav_categories": "Catégories",
+  "nav_locations": "Emplacements",
   "nav_settings": "Paramètres",
+  "nav_info": "Infos",
 
   "btn_new_item": "Nouvel article",
 
@@ -14,6 +16,7 @@
 
   "search_placeholder": "Rechercher…",
   "all_categories": "Toutes les catégories",
+  "all_locations": "Tous les emplacements",
   "filter_low_stock": "Stock faible",
   "filter_expiring_soon": "Expire bientôt",
 
@@ -22,6 +25,8 @@
   "item_delete_confirm": "Vraiment supprimer cet article ?",
   "added_via_ai_scan": "Ajouté via scan de ticket par IA",
   "uncategorized": "Sans catégorie",
+  "no_location": "Aucun emplacement",
+  "batch_count": "{{count}} lots",
 
   "badge_expired": "expiré",
   "badge_expiring_in": "expire dans {{count}} j",
@@ -44,6 +49,19 @@
   "field_min_stock_placeholder": "optionnel",
   "field_notes": "Notes",
 
+  "batches_title": "Lots",
+  "add_batch": "Ajouter un lot",
+  "no_batches": "Aucun lot pour le moment",
+
+  "unit_pcs": "pcs",
+  "unit_kg": "kg",
+  "unit_g": "g",
+  "unit_l": "l",
+  "unit_ml": "ml",
+  "unit_pack": "paquet",
+  "unit_can": "boîte",
+  "unit_bottle": "bouteille",
+
   "cancel": "Annuler",
   "save": "Enregistrer",
   "saving": "Enregistrement…",
@@ -62,6 +80,13 @@
   "category_name_required": "Le nom est requis",
   "category_delete_confirm": "Supprimer cette catégorie ? Les articles qu'elle contient ne seront pas supprimés.",
 
+  "locations_title": "Emplacements",
+  "no_locations": "Aucun emplacement pour le moment",
+  "new_location": "Nouvel emplacement",
+  "location_name_placeholder": "ex. Cave",
+  "location_name_required": "Le nom est requis",
+  "location_delete_confirm": "Supprimer cet emplacement ? Les articles qu'il contient ne seront pas supprimés.",
+
   "ai_settings_title": "Scan de tickets par IA",
   "ai_settings_description": "Configurez les clés API pour le scan de tickets par IA. Les clés sont chiffrées et stockées uniquement dans ce module, pas dans les paramètres IA de Core.",
   "ai_settings_configured": "configuré",
@@ -73,5 +98,21 @@
   "ai_settings_model": "Modèle",
   "ai_settings_load_models": "Charger les modèles disponibles",
   "ai_settings_enabled": "Activé",
-  "ai_settings_delete_confirm": "Vraiment supprimer ce fournisseur ? La clé API enregistrée sera supprimée."
+  "ai_settings_delete_confirm": "Vraiment supprimer ce fournisseur ? La clé API enregistrée sera supprimée.",
+
+  "info_title": "Informations sur le module",
+  "info_load_error": "Impossible de charger les informations du module.",
+  "info_description": "Suivez votre stock de garde-manger avec dates de péremption, emplacements de stockage et scan de tickets par IA en option.",
+  "info_version": "Version",
+  "info_update_available": "Mise à jour disponible",
+  "info_tier": "Niveau",
+  "info_category": "Catégorie",
+  "info_author": "Auteur",
+  "info_license": "Licence",
+  "info_network_access_core": "Accès réseau (backend)",
+  "info_network_access_frontend": "Accès réseau (frontend)",
+  "info_no_network_access": "Aucun",
+  "info_installed_at": "Installé",
+  "info_updated_at": "Dernière mise à jour",
+  "info_github_link": "Voir le code source sur GitHub"
 }

@@ -4,7 +4,9 @@
   "nav_items": "Vorräte",
   "nav_scan": "Bon scannen",
   "nav_categories": "Kategorien",
+  "nav_locations": "Lagerorte",
   "nav_settings": "Einstellungen",
+  "nav_info": "Info",
 
   "btn_new_item": "Neuer Eintrag",
 
@@ -14,6 +16,7 @@
 
   "search_placeholder": "Suchen…",
   "all_categories": "Alle Kategorien",
+  "all_locations": "Alle Lagerorte",
   "filter_low_stock": "Niedriger Bestand",
   "filter_expiring_soon": "Läuft bald ab",
 
@@ -22,6 +25,8 @@
   "item_delete_confirm": "Diesen Eintrag wirklich löschen?",
   "added_via_ai_scan": "Per KI-Bon-Scan hinzugefügt",
   "uncategorized": "Ohne Kategorie",
+  "no_location": "Kein Lagerort",
+  "batch_count": "{{count}} Chargen",
 
   "badge_expired": "abgelaufen",
   "badge_expiring_in": "läuft in {{count}} Tagen ab",
@@ -44,6 +49,19 @@
   "field_min_stock_placeholder": "optional",
   "field_notes": "Notizen",
 
+  "batches_title": "Chargen",
+  "add_batch": "Charge hinzufügen",
+  "no_batches": "Noch keine Chargen",
+
+  "unit_pcs": "Stk",
+  "unit_kg": "kg",
+  "unit_g": "g",
+  "unit_l": "l",
+  "unit_ml": "ml",
+  "unit_pack": "Pack",
+  "unit_can": "Dose",
+  "unit_bottle": "Flasche",
+
   "cancel": "Abbrechen",
   "save": "Speichern",
   "saving": "Wird gespeichert…",
@@ -62,6 +80,13 @@
   "category_name_required": "Name ist erforderlich",
   "category_delete_confirm": "Diese Kategorie löschen? Einträge darin werden nicht gelöscht.",
 
+  "locations_title": "Lagerorte",
+  "no_locations": "Noch keine Lagerorte",
+  "new_location": "Neuer Lagerort",
+  "location_name_placeholder": "z.B. Keller",
+  "location_name_required": "Name ist erforderlich",
+  "location_delete_confirm": "Diesen Lagerort löschen? Einträge darin werden nicht gelöscht.",
+
   "ai_settings_title": "KI-Bon-Scan",
   "ai_settings_description": "API-Keys für den KI-gestützten Bon-Scan konfigurieren. Keys werden verschlüsselt und ausschließlich in diesem Modul gespeichert, nicht in den AI-Einstellungen von Core.",
   "ai_settings_configured": "konfiguriert",
@@ -73,5 +98,21 @@
   "ai_settings_model": "Modell",
   "ai_settings_load_models": "Verfügbare Modelle laden",
   "ai_settings_enabled": "Aktiviert",
-  "ai_settings_delete_confirm": "Diesen Provider wirklich entfernen? Der gespeicherte API-Key wird gelöscht."
+  "ai_settings_delete_confirm": "Diesen Provider wirklich entfernen? Der gespeicherte API-Key wird gelöscht.",
+
+  "info_title": "Modul-Informationen",
+  "info_load_error": "Modul-Informationen konnten nicht geladen werden.",
+  "info_description": "Vorrat mit Ablaufdaten, Lagerorten und optionalem KI-gestütztem Bon-Scan verwalten.",
+  "info_version": "Version",
+  "info_update_available": "Update verfügbar",
+  "info_tier": "Tier",
+  "info_category": "Kategorie",
+  "info_author": "Autor",
+  "info_license": "Lizenz",
+  "info_network_access_core": "Netzwerkzugriff (Backend)",
+  "info_network_access_frontend": "Netzwerkzugriff (Frontend)",
+  "info_no_network_access": "Keiner",
+  "info_installed_at": "Installiert",
+  "info_updated_at": "Zuletzt aktualisiert",
+  "info_github_link": "Quellcode auf GitHub ansehen"
 }

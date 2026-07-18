@@ -4,7 +4,9 @@
   "nav_items": "Voorraad",
   "nav_scan": "Bon scannen",
   "nav_categories": "Categorieën",
+  "nav_locations": "Locaties",
   "nav_settings": "Instellingen",
+  "nav_info": "Info",
 
   "btn_new_item": "Nieuw item",
 
@@ -14,6 +16,7 @@
 
   "search_placeholder": "Zoeken…",
   "all_categories": "Alle categorieën",
+  "all_locations": "Alle locaties",
   "filter_low_stock": "Lage voorraad",
   "filter_expiring_soon": "Verloopt binnenkort",
 
@@ -22,6 +25,8 @@
   "item_delete_confirm": "Dit item echt verwijderen?",
   "added_via_ai_scan": "Toegevoegd via AI-bonscan",
   "uncategorized": "Zonder categorie",
+  "no_location": "Geen locatie",
+  "batch_count": "{{count}} partijen",
 
   "badge_expired": "verlopen",
   "badge_expiring_in": "verloopt over {{count}} dagen",
@@ -44,6 +49,19 @@
   "field_min_stock_placeholder": "optioneel",
   "field_notes": "Notities",
 
+  "batches_title": "Partijen",
+  "add_batch": "Partij toevoegen",
+  "no_batches": "Nog geen partijen",
+
+  "unit_pcs": "stk",
+  "unit_kg": "kg",
+  "unit_g": "g",
+  "unit_l": "l",
+  "unit_ml": "ml",
+  "unit_pack": "pak",
+  "unit_can": "blik",
+  "unit_bottle": "fles",
+
   "cancel": "Annuleren",
   "save": "Opslaan",
   "saving": "Bezig met opslaan…",
@@ -62,6 +80,13 @@
   "category_name_required": "Naam is verplicht",
   "category_delete_confirm": "Deze categorie verwijderen? Items erin worden niet verwijderd.",
 
+  "locations_title": "Locaties",
+  "no_locations": "Nog geen locaties",
+  "new_location": "Nieuwe locatie",
+  "location_name_placeholder": "bijv. Kelder",
+  "location_name_required": "Naam is verplicht",
+  "location_delete_confirm": "Deze locatie verwijderen? Items erin worden niet verwijderd.",
+
   "ai_settings_title": "AI-bonscan",
   "ai_settings_description": "Configureer API-sleutels voor AI-gebaseerde bonscan. Sleutels worden versleuteld en uitsluitend in deze module opgeslagen, niet in Core's AI-instellingen.",
   "ai_settings_configured": "geconfigureerd",
@@ -73,5 +98,21 @@
   "ai_settings_model": "Model",
   "ai_settings_load_models": "Beschikbare modellen laden",
   "ai_settings_enabled": "Ingeschakeld",
-  "ai_settings_delete_confirm": "Deze provider echt verwijderen? De opgeslagen API-sleutel wordt gewist."
+  "ai_settings_delete_confirm": "Deze provider echt verwijderen? De opgeslagen API-sleutel wordt gewist.",
+
+  "info_title": "Module-informatie",
+  "info_load_error": "Module-informatie kon niet worden geladen.",
+  "info_description": "Houd je voorraad bij met houdbaarheidsdata, opslaglocaties en optionele AI-bonscan.",
+  "info_version": "Versie",
+  "info_update_available": "Update beschikbaar",
+  "info_tier": "Tier",
+  "info_category": "Categorie",
+  "info_author": "Auteur",
+  "info_license": "Licentie",
+  "info_network_access_core": "Netwerktoegang (backend)",
+  "info_network_access_frontend": "Netwerktoegang (frontend)",
+  "info_no_network_access": "Geen",
+  "info_installed_at": "Geïnstalleerd",
+  "info_updated_at": "Laatst bijgewerkt",
+  "info_github_link": "Broncode bekijken op GitHub"
 }

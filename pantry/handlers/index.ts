@@ -3,13 +3,24 @@
  *
  * Routes (all under /v1/modules/pantry/api/):
  *
- * Items
+ * Items (= products, one row per distinct product - see migrations/
+ * 0001_initial.sql's doc comment. quantity/expiry_date/location live on
+ * batches instead, see below)
  *   GET    /items                 list all (+ filter by category, location, search, low_stock, expiring_soon)
- *   GET    /items/:id             detail
- *   POST   /items                 create
- *   PATCH  /items/:id             update
- *   DELETE /items/:id             delete
- *   POST   /items/bulk            create many at once (used to confirm AI scan suggestions)
+ *                                  each row includes aggregated quantity (SUM of its batches) and
+ *                                  the nearest (soonest) expiry_date across its batches
+ *   GET    /items/:id             detail, including its batches array
+ *   POST   /items                 create an item, optionally with one initial batch
+ *   PATCH  /items/:id             update item-level fields (name/category/unit/min_stock/notes)
+ *   DELETE /items/:id             delete (cascades to its batches)
+ *   POST   /items/bulk            confirm AI scan suggestions: for each, adds a batch to an
+ *                                  existing item with a matching name (case-insensitive), or
+ *                                  creates a new item + first batch if none matches
+ *
+ * Batches (one physical lot of an item - quantity, expiry date, storage location)
+ *   POST   /items/:id/batches               add a batch to an existing item
+ *   PATCH  /items/:id/batches/:batchId       update a batch
+ *   DELETE /items/:id/batches/:batchId       remove a batch (e.g. fully used up)
  *
  * Item photo
  *   POST   /items/:id/image       attach uploaded photo (Core writes file, sends path)
@@ -21,12 +32,22 @@
  *   PATCH  /categories/:id        update
  *   DELETE /categories/:id        delete
  *
+ * Locations (storage spots within the one household - cellar, fridge, ...)
+ *   GET    /locations              list
+ *   POST   /locations              create
+ *   PATCH  /locations/:id          update
+ *   DELETE /locations/:id          delete
+ *
  * AI provider settings — Admin only (mirrors recipes' /ai-providers)
  *   GET    /ai-providers                    list configured providers (keys never returned)
  *   PUT    /ai-providers/:provider          upsert one provider's config
  *   DELETE /ai-providers/:provider          remove one provider's config
  *   GET    /ai-providers/:provider/models   list available models via the provider's own /models API
  *                                            (requires the key to already be saved)
+ *   GET    /ai-providers/status             {available: boolean} — NOT admin-gated (unlike the
+ *                                            routes above): lets every user's frontend decide
+ *                                            whether to show the "Scan receipt" tab at all, without
+ *                                            exposing which provider or any key material.
  *
  * Receipt scan
  *   POST   /scan                  body: { file_base64, file_mime_type, provider? } — a multipart
@@ -69,16 +90,31 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
     return getItem(db, segId(pathname));
   }
   if (route === "POST /items") {
-    return createItem(db, body as ItemInput, auth.userId, "manual");
+    return createItem(db, body as ItemInput, auth.userId);
   }
   if (route === "POST /items/bulk") {
-    return createItemsBulk(db, body as { items: ItemInput[] }, auth.userId);
+    return createItemsBulk(db, body as { items: ScanConfirmInput[] }, auth.userId);
   }
   if (method === "PATCH" && pathname.match(/^\/items\/[^/]+$/)) {
     return updateItem(db, segId(pathname), body as Partial<ItemInput>);
   }
   if (method === "DELETE" && pathname.match(/^\/items\/[^/]+$/)) {
     return deleteItem(db, segId(pathname));
+  }
+
+  // ── Batches ───────────────────────────────────────────────────────────────
+
+  if (method === "POST" && pathname.match(/^\/items\/[^/]+\/batches$/)) {
+    const itemId = pathname.split("/")[2];
+    return createBatch(db, itemId, body as BatchInput, auth.userId, "manual");
+  }
+  if (method === "PATCH" && pathname.match(/^\/items\/[^/]+\/batches\/[^/]+$/)) {
+    const parts = pathname.split("/");
+    return updateBatch(db, parts[2], parts[4], body as Partial<BatchInput>);
+  }
+  if (method === "DELETE" && pathname.match(/^\/items\/[^/]+\/batches\/[^/]+$/)) {
+    const parts = pathname.split("/");
+    return deleteBatch(db, parts[2], parts[4]);
   }
 
   // ── Item photo ────────────────────────────────────────────────────────────
@@ -132,8 +168,45 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
     return noContent();
   }
 
-  // ── AI provider settings (Admin only) ───────────────────────────────────
+  // ── Locations ─────────────────────────────────────────────────────────────
 
+  if (route === "GET /locations") {
+    const rows = await db.query(`SELECT * FROM locations ORDER BY sort_order ASC, name ASC`);
+    return ok(rows);
+  }
+  if (route === "POST /locations") {
+    const { name, sort_order } = body as { name: string; sort_order?: number };
+    if (!name || !name.trim()) return badRequest("name is required");
+    const [row] = await db.query(
+      `INSERT INTO locations (name, sort_order) VALUES ($1, $2) RETURNING *`,
+      [name.trim(), sort_order ?? 0],
+    );
+    return created(row);
+  }
+  if (method === "PATCH" && pathname.match(/^\/locations\/[^/]+$/)) {
+    const { name, sort_order } = body as { name?: string; sort_order?: number };
+    const [row] = await db.query(
+      `UPDATE locations SET
+        name       = COALESCE($2, name),
+        sort_order = COALESCE($3, sort_order)
+       WHERE id = $1 RETURNING *`,
+      [segId(pathname), name, sort_order],
+    );
+    if (!row) return notFound("location");
+    return ok(row);
+  }
+  if (method === "DELETE" && pathname.match(/^\/locations\/[^/]+$/)) {
+    await db.query(`DELETE FROM locations WHERE id = $1`, [segId(pathname)]);
+    return noContent();
+  }
+
+  // ── AI provider settings ─────────────────────────────────────────────────
+
+  // Not admin-gated (unlike every other /ai-providers route below) - lets
+  // any user's frontend decide whether to show the "Scan receipt" tab.
+  if (route === "GET /ai-providers/status") {
+    return aiProviderStatus(db);
+  }
   if (route === "GET /ai-providers") {
     return listAiProviders(db, auth);
   }
@@ -158,6 +231,12 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
 }
 
 // ── Item helpers ──────────────────────────────────────────────────────────────
+//
+// "Item" = product (pantry_items); quantity/expiry_date/location are always
+// aggregated from its batches (pantry_item_batches) here, never stored
+// directly on the item - see migrations/0001_initial.sql's doc comment for
+// why (2026-07-18 redesign, prompted by "two steaks batches shouldn't be two
+// list rows").
 
 async function listItems(db: ModuleDbClient, path: string): Promise<HandlerResponse> {
   const params = new URL("http://x" + path).searchParams;
@@ -184,17 +263,18 @@ async function listItems(db: ModuleDbClient, path: string): Promise<HandlerRespo
     idx++;
   }
   if (location) {
-    conditions.push(`i.location = $${idx}`);
+    // "This item has at least one batch stored at this location" - an item
+    // can legitimately have batches spread across several locations.
+    conditions.push(`EXISTS (SELECT 1 FROM pantry_item_batches pb WHERE pb.item_id = i.id AND pb.location_id = $${idx})`);
     args.push(location);
     idx++;
   }
   if (lowStockOnly) {
-    conditions.push(`i.min_stock IS NOT NULL AND i.quantity <= i.min_stock`);
+    conditions.push(`i.min_stock IS NOT NULL AND COALESCE(agg.total_quantity, 0) <= i.min_stock`);
   }
   if (expiringSoonOnly) {
-    // "Soon" = within 3 days, including already-expired items - matches the
-    // AISettingsView-adjacent "expires in N days" badge in the UI.
-    conditions.push(`i.expiry_date IS NOT NULL AND i.expiry_date <= (CURRENT_DATE + INTERVAL '3 days')`);
+    // "Soon" = within 3 days, including already-expired batches.
+    conditions.push(`agg.nearest_expiry_date IS NOT NULL AND agg.nearest_expiry_date <= (CURRENT_DATE + INTERVAL '3 days')`);
   }
 
   const where = conditions.length ? "WHERE " + conditions.join(" AND ") : "";
@@ -203,11 +283,23 @@ async function listItems(db: ModuleDbClient, path: string): Promise<HandlerRespo
   const rows = await db.query(
     `SELECT i.*,
             c.name AS category_name,
-            (i.min_stock IS NOT NULL AND i.quantity <= i.min_stock) AS is_low_stock,
-            (i.expiry_date IS NOT NULL AND i.expiry_date <= CURRENT_DATE) AS is_expired,
-            (i.expiry_date - CURRENT_DATE) AS days_until_expiry
+            COALESCE(agg.total_quantity, 0) AS quantity,
+            agg.nearest_expiry_date AS expiry_date,
+            COALESCE(agg.batch_count, 0) AS batch_count,
+            COALESCE(agg.has_ai_scan_batch, false) AS added_via_ai_scan,
+            (i.min_stock IS NOT NULL AND COALESCE(agg.total_quantity, 0) <= i.min_stock) AS is_low_stock,
+            (agg.nearest_expiry_date IS NOT NULL AND agg.nearest_expiry_date <= CURRENT_DATE) AS is_expired,
+            (agg.nearest_expiry_date - CURRENT_DATE) AS days_until_expiry
      FROM pantry_items i
      LEFT JOIN categories c ON c.id = i.category_id
+     LEFT JOIN LATERAL (
+       SELECT SUM(quantity) AS total_quantity,
+              MIN(expiry_date) AS nearest_expiry_date,
+              COUNT(*) AS batch_count,
+              bool_or(added_via = 'ai_scan') AS has_ai_scan_batch
+       FROM pantry_item_batches
+       WHERE item_id = i.id
+     ) agg ON true
      ${where}
      ORDER BY i.updated_at DESC
      LIMIT $${idx} OFFSET $${idx + 1}`,
@@ -215,7 +307,13 @@ async function listItems(db: ModuleDbClient, path: string): Promise<HandlerRespo
   );
 
   const [countRow] = await db.query<{ total: string }>(
-    `SELECT COUNT(*) AS total FROM pantry_items i ${where}`,
+    `SELECT COUNT(*) AS total
+     FROM pantry_items i
+     LEFT JOIN LATERAL (
+       SELECT SUM(quantity) AS total_quantity, MIN(expiry_date) AS nearest_expiry_date
+       FROM pantry_item_batches WHERE item_id = i.id
+     ) agg ON true
+     ${where}`,
     args.slice(0, -2),
   );
 
@@ -223,118 +321,161 @@ async function listItems(db: ModuleDbClient, path: string): Promise<HandlerRespo
 }
 
 async function getItem(db: ModuleDbClient, id: string): Promise<HandlerResponse> {
-  const [row] = await db.query(
-    `SELECT i.*,
-            c.name AS category_name,
-            (i.min_stock IS NOT NULL AND i.quantity <= i.min_stock) AS is_low_stock,
-            (i.expiry_date IS NOT NULL AND i.expiry_date <= CURRENT_DATE) AS is_expired,
-            (i.expiry_date - CURRENT_DATE) AS days_until_expiry
-     FROM pantry_items i
-     LEFT JOIN categories c ON c.id = i.category_id
-     WHERE i.id = $1`,
+  const [item] = await db.query(
+    `SELECT i.*, c.name AS category_name FROM pantry_items i LEFT JOIN categories c ON c.id = i.category_id WHERE i.id = $1`,
     [id],
   );
-  if (!row) return notFound("item");
-  return ok(row);
-}
+  if (!item) return notFound("item");
 
-async function createItem(
-  db: ModuleDbClient,
-  input: ItemInput,
-  userId: string,
-  addedVia: "manual" | "ai_scan",
-): Promise<HandlerResponse> {
-  if (!input.name || !input.name.trim()) return badRequest("name is required");
-  const [row] = await db.query(
-    `INSERT INTO pantry_items
-       (name, category_id, quantity, unit, location, expiry_date, min_stock, notes, added_via, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-     RETURNING *`,
-    [
-      input.name.trim(),
-      input.category_id ?? null,
-      input.quantity ?? 0,
-      input.unit ?? null,
-      input.location ?? null,
-      input.expiry_date ?? null,
-      input.min_stock ?? null,
-      input.notes ?? null,
-      addedVia,
-      userId,
-    ],
+  const batches = await db.query(
+    `SELECT b.*, l.name AS location_name
+     FROM pantry_item_batches b
+     LEFT JOIN locations l ON l.id = b.location_id
+     WHERE b.item_id = $1
+     ORDER BY b.expiry_date ASC NULLS LAST, b.created_at ASC`,
+    [id],
   );
-  return created(row);
+
+  return ok({ ...item, batches });
 }
 
-async function createItemsBulk(
-  db: ModuleDbClient,
-  input: { items: ItemInput[] } | undefined,
-  userId: string,
-): Promise<HandlerResponse> {
-  const items = input?.items ?? [];
-  if (items.length === 0) return badRequest("items must be a non-empty array");
-  const saved = [];
-  for (const it of items) {
-    if (!it.name || !it.name.trim()) continue; // skip rows the user cleared entirely before confirming
-    const [row] = await db.query(
-      `INSERT INTO pantry_items
-         (name, category_id, quantity, unit, location, expiry_date, min_stock, notes, added_via, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'ai_scan',$9)
-       RETURNING *`,
-      [
-        it.name.trim(),
-        it.category_id ?? null,
-        it.quantity ?? 0,
-        it.unit ?? null,
-        it.location ?? null,
-        it.expiry_date ?? null,
-        it.min_stock ?? null,
-        it.notes ?? null,
-        userId,
-      ],
+async function createItem(db: ModuleDbClient, input: ItemInput, userId: string): Promise<HandlerResponse> {
+  if (!input.name || !input.name.trim()) return badRequest("name is required");
+
+  const [existing] = await db.query<{ id: string }>(`SELECT id FROM pantry_items WHERE lower(name) = lower($1)`, [input.name.trim()]);
+  if (existing) return badRequest(`an item named "${input.name.trim()}" already exists - add a batch to it instead of creating a duplicate`);
+
+  const [item] = await db.query(
+    `INSERT INTO pantry_items (name, category_id, unit, min_stock, notes, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6)
+     RETURNING *`,
+    [input.name.trim(), input.category_id ?? null, input.unit ?? null, input.min_stock ?? null, input.notes ?? null, userId],
+  );
+
+  // An initial batch is optional (e.g. adding a bare product definition with
+  // nothing in stock yet) but the common case - the frontend's "New item"
+  // form always includes one, matching the old single-table UX.
+  if (input.batch && (input.batch.quantity != null || input.batch.expiry_date || input.batch.location_id)) {
+    await db.query(
+      `INSERT INTO pantry_item_batches (item_id, quantity, expiry_date, location_id, added_via, created_by)
+       VALUES ($1,$2,$3,$4,'manual',$5)`,
+      [item.id, input.batch.quantity ?? 0, input.batch.expiry_date ?? null, input.batch.location_id ?? null, userId],
     );
-    saved.push(row);
   }
-  return created(saved);
+
+  return created(await getItem(db, item.id).then((r) => r.body));
 }
 
 async function updateItem(db: ModuleDbClient, id: string, input: Partial<ItemInput>): Promise<HandlerResponse> {
   const n = (v: unknown) => (v === undefined || v === "" ? null : v);
 
   if (input.name !== undefined && !input.name.trim()) return badRequest("name cannot be empty");
+  if (input.name !== undefined) {
+    const [dup] = await db.query<{ id: string }>(`SELECT id FROM pantry_items WHERE lower(name) = lower($1) AND id != $2`, [input.name.trim(), id]);
+    if (dup) return badRequest(`an item named "${input.name.trim()}" already exists`);
+  }
 
   const [row] = await db.query(
     `UPDATE pantry_items SET
        name        = COALESCE($2, name),
        category_id = $3,
-       quantity    = COALESCE($4, quantity),
-       unit        = $5,
-       location    = $6,
-       expiry_date = $7,
-       min_stock   = $8,
-       notes       = $9,
+       unit        = $4,
+       min_stock   = $5,
+       notes       = $6,
        updated_at  = now()
      WHERE id = $1 RETURNING *`,
-    [
-      id,
-      n(input.name),
-      n(input.category_id),
-      n(input.quantity),
-      n(input.unit),
-      n(input.location),
-      n(input.expiry_date),
-      n(input.min_stock),
-      n(input.notes),
-    ],
+    [id, n(input.name), n(input.category_id), n(input.unit), n(input.min_stock), n(input.notes)],
   );
   if (!row) return notFound("item");
-  return ok(row);
+  return ok(await getItem(db, id).then((r) => r.body));
 }
 
 async function deleteItem(db: ModuleDbClient, id: string): Promise<HandlerResponse> {
   const rows = await db.query<{ id: string }>(`DELETE FROM pantry_items WHERE id = $1 RETURNING id`, [id]);
   if (rows.length === 0) return notFound("item");
   return noContent();
+}
+
+// ── Batch helpers ─────────────────────────────────────────────────────────────
+
+async function createBatch(
+  db: ModuleDbClient,
+  itemId: string,
+  input: BatchInput,
+  userId: string,
+  addedVia: "manual" | "ai_scan",
+): Promise<HandlerResponse> {
+  const [item] = await db.query<{ id: string }>(`SELECT id FROM pantry_items WHERE id = $1`, [itemId]);
+  if (!item) return notFound("item");
+
+  const [row] = await db.query(
+    `INSERT INTO pantry_item_batches (item_id, quantity, expiry_date, location_id, added_via, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6)
+     RETURNING *`,
+    [itemId, input.quantity ?? 0, input.expiry_date ?? null, input.location_id ?? null, addedVia, userId],
+  );
+  return created(row);
+}
+
+async function updateBatch(db: ModuleDbClient, itemId: string, batchId: string, input: Partial<BatchInput>): Promise<HandlerResponse> {
+  const n = (v: unknown) => (v === undefined || v === "" ? null : v);
+  const [row] = await db.query(
+    `UPDATE pantry_item_batches SET
+       quantity    = COALESCE($3, quantity),
+       expiry_date = $4,
+       location_id = $5,
+       updated_at  = now()
+     WHERE id = $1 AND item_id = $2 RETURNING *`,
+    [batchId, itemId, n(input.quantity), n(input.expiry_date), n(input.location_id)],
+  );
+  if (!row) return notFound("batch");
+  return ok(row);
+}
+
+async function deleteBatch(db: ModuleDbClient, itemId: string, batchId: string): Promise<HandlerResponse> {
+  const rows = await db.query<{ id: string }>(`DELETE FROM pantry_item_batches WHERE id = $1 AND item_id = $2 RETURNING id`, [batchId, itemId]);
+  if (rows.length === 0) return notFound("batch");
+  return noContent();
+}
+
+async function createItemsBulk(
+  db: ModuleDbClient,
+  input: { items: ScanConfirmInput[] } | undefined,
+  userId: string,
+): Promise<HandlerResponse> {
+  const items = input?.items ?? [];
+  if (items.length === 0) return badRequest("items must be a non-empty array");
+
+  const results = [];
+  for (const it of items) {
+    if (!it.name || !it.name.trim()) continue; // skip rows the user cleared entirely before confirming
+    const name = it.name.trim();
+
+    // Match-or-create by name (case-insensitive) - this is the whole point
+    // of the redesign: scanning the same product twice adds a second batch
+    // to the existing item instead of creating a duplicate item row.
+    const [existing] = await db.query<{ id: string }>(`SELECT id FROM pantry_items WHERE lower(name) = lower($1)`, [name]);
+
+    let itemId: string;
+    if (existing) {
+      itemId = existing.id;
+    } else {
+      const [newItem] = await db.query<{ id: string }>(
+        `INSERT INTO pantry_items (name, category_id, unit, created_by) VALUES ($1,$2,$3,$4) RETURNING id`,
+        [name, it.category_id ?? null, it.unit ?? null, userId],
+      );
+      itemId = newItem.id;
+    }
+
+    const [batch] = await db.query(
+      `INSERT INTO pantry_item_batches (item_id, quantity, expiry_date, location_id, added_via, created_by)
+       VALUES ($1,$2,$3,$4,'ai_scan',$5)
+       RETURNING *`,
+      [itemId, it.quantity ?? 1, it.expiry_date ?? null, it.location_id ?? null, userId],
+    );
+    results.push({ item_id: itemId, matched_existing_item: !!existing, batch });
+  }
+  return created(results);
 }
 
 // ── AI provider settings ─────────────────────────────────────────────────────
@@ -364,6 +505,11 @@ interface AiProviderRow {
   created_by_enc: string;
   created_at: string;
   updated_at: string;
+}
+
+async function aiProviderStatus(db: ModuleDbClient): Promise<HandlerResponse> {
+  const rows = await db.query<{ exists: number }>(`SELECT 1 AS exists FROM ai_pantry_providers WHERE enabled = true LIMIT 1`);
+  return ok({ available: rows.length > 0 });
 }
 
 async function listAiProviders(db: ModuleDbClient, auth: ModuleAuthContext): Promise<HandlerResponse> {
@@ -583,10 +729,25 @@ function isSafeFilePath(value: string): boolean {
 interface ItemInput {
   name: string;
   category_id?: string | null;
-  quantity?: number;
   unit?: string | null;
-  location?: string | null;
-  expiry_date?: string | null;
   min_stock?: number | null;
   notes?: string | null;
+  batch?: BatchInput; // only read by createItem, for the "new item + first batch" combined form
+}
+
+interface BatchInput {
+  quantity?: number;
+  expiry_date?: string | null;
+  location_id?: string | null;
+}
+
+// One suggested row from a receipt scan, as confirmed/edited by the user in
+// POST /items/bulk's request body.
+interface ScanConfirmInput {
+  name: string;
+  category_id?: string | null;
+  unit?: string | null;
+  quantity?: number;
+  expiry_date?: string | null;
+  location_id?: string | null;
 }
