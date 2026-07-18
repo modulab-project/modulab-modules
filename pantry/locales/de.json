@@ -53,6 +53,7 @@
   "no_location": "Kein Lagerort",
   "batch_count": "{{count}} Chargen",
   "consume_one": "1 Stück entnehmen",
+  "consume_choose_location_title": "Aus welchem Lagerort \"{{name}}\" entnehmen?",
 
   "badge_expired": "abgelaufen",
   "badge_expiring_in": "läuft in {{count}} Tagen ab",

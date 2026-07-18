@@ -53,6 +53,7 @@
   "no_location": "Geen locatie",
   "batch_count": "{{count}} partijen",
   "consume_one": "1 stuk uit voorraad halen",
+  "consume_choose_location_title": "\"{{name}}\" uit welke locatie halen?",
 
   "badge_expired": "verlopen",
   "badge_expiring_in": "verloopt over {{count}} dagen",

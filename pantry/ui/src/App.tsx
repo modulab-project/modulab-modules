@@ -343,6 +343,16 @@ function ItemList({
   const [expiringSoonOnly, setExpiringSoonOnly] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // "Mutti Tomaten: 5 in der Kammer, 2 in der Küche, 80 im Keller - wenn ich
+  // eins entnehme, wo entnimmt er es?" (2026-07-20 user request) - consuming
+  // used to be blind FEFO across every location. When an item's batches span
+  // more than one location, this holds the pending choice so the user picks
+  // which location to take from instead of it happening silently.
+  const [consumePicker, setConsumePicker] = useState<{
+    itemId: string;
+    itemName: string;
+    options: { location_id: string | null; location_name: string; quantity: number }[];
+  } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -388,9 +398,38 @@ function ItemList({
   // takes 1 unit out via FEFO (POST /items/:id/consume), no batch-picking
   // required. For removing more than 1 at once, or from a specific batch,
   // the item editor's batch list still supports editing/deleting by hand.
-  async function handleConsume(id: string) {
+  //
+  // (2026-07-20) When the item's batches span more than one location, FEFO
+  // alone can't tell which shelf to take from, so this now fetches the
+  // item's batches first, groups them by location, and only auto-consumes
+  // immediately when there's a single location (or none) to choose from -
+  // otherwise it opens the picker instead.
+  async function handleConsume(item: PantryItem) {
     try {
-      await api.mutate("POST", `/items/${id}/consume`, { quantity: 1 });
+      const detail = await api.get<PantryItemDetail>(`/items/${item.id}`);
+      const byLocation = new Map<string, { location_id: string | null; location_name: string; quantity: number }>();
+      for (const b of detail.batches) {
+        if (b.quantity <= 0) continue;
+        const key = b.location_id ?? "__none__";
+        const existing = byLocation.get(key);
+        if (existing) existing.quantity += b.quantity;
+        else byLocation.set(key, { location_id: b.location_id, location_name: b.location_name ?? (t("no_location") as string), quantity: b.quantity });
+      }
+      const options = [...byLocation.values()];
+      if (options.length <= 1) {
+        await consumeAt(item.id, options[0]?.location_id ?? null);
+      } else {
+        setConsumePicker({ itemId: item.id, itemName: item.name, options });
+      }
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function consumeAt(id: string, locationId: string | null) {
+    try {
+      await api.mutate("POST", `/items/${id}/consume`, { quantity: 1, location_id: locationId ?? undefined });
+      setConsumePicker(null);
       await load();
     } catch (e) {
       setError(String(e));
@@ -401,6 +440,7 @@ function ItemList({
   const expiringCount = items.filter((i) => i.days_until_expiry != null && i.days_until_expiry <= 3).length;
 
   return (
+    <>
     <div className="mx-auto max-w-3xl">
       {/* No local "new item" button here anymore - the + in the top nav
           (2026-07-18 user request) is reachable from every view, not just
@@ -547,7 +587,7 @@ function ItemList({
                     quantity it's about; null (no min_stock set) shows nothing. */}
                 <StockDot status={item.stock_status} t={t} />
                 <span className="text-sm text-gray-600 dark:text-gray-300">{formatQty(item.quantity)} {displayUnit(item.unit, t)}</span>
-                <button type="button" onClick={() => handleConsume(item.id)} disabled={item.quantity <= 0}
+                <button type="button" onClick={() => handleConsume(item)} disabled={item.quantity <= 0}
                   title={t("consume_one") as string}
                   className="flex-none rounded-lg p-1.5 text-gray-400 hover:bg-gray-200 hover:text-gray-700 disabled:opacity-30 dark:hover:bg-gray-700">
                   <i className="ti ti-minus text-[14px]" />
@@ -573,6 +613,46 @@ function ItemList({
         ))}
       </div>
     </div>
+
+    {/* Location picker for consuming an item that spans several storage
+        locations (2026-07-20 user request) - only ever rendered once
+        handleConsume finds more than one location to choose between. */}
+    {consumePicker && (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+        onClick={() => setConsumePicker(null)}
+      >
+        <div
+          className="w-full max-w-sm rounded-2xl bg-white p-4 shadow-xl dark:bg-gray-900"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <h2 className="mb-3 text-sm font-semibold">
+            {t("consume_choose_location_title", { name: consumePicker.itemName })}
+          </h2>
+          <div className="space-y-1.5">
+            {consumePicker.options.map((o) => (
+              <button
+                key={o.location_id ?? "none"}
+                type="button"
+                onClick={() => consumeAt(consumePicker.itemId, o.location_id)}
+                className="flex w-full items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
+              >
+                <span>{o.location_name}</span>
+                <span className="text-gray-400">{formatQty(o.quantity)}</span>
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={() => setConsumePicker(null)}
+            className="mt-3 w-full rounded-lg px-3 py-2 text-sm text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800"
+          >
+            {t("cancel")}
+          </button>
+        </div>
+      </div>
+    )}
+    </>
   );
 }
 

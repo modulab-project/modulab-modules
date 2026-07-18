@@ -53,6 +53,7 @@
   "no_location": "Aucun emplacement",
   "batch_count": "{{count}} lots",
   "consume_one": "Retirer 1 unité du stock",
+  "consume_choose_location_title": "Retirer \"{{name}}\" de quel emplacement ?",
 
   "badge_expired": "expiré",
   "badge_expiring_in": "expire dans {{count}} j",

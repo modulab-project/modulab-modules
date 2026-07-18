@@ -102,7 +102,7 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
     return createItemsBulk(db, body as { items: ScanConfirmInput[] }, auth.userId);
   }
   if (method === "POST" && pathname.match(/^\/items\/[^/]+\/consume$/)) {
-    return consumeItem(db, segId(pathname), body as { quantity?: number } | undefined);
+    return consumeItem(db, segId(pathname), body as { quantity?: number; location_id?: string } | undefined);
   }
   if (method === "PATCH" && pathname.match(/^\/items\/[^/]+$/)) {
     return updateItem(db, segId(pathname), body as Partial<ItemInput>);
@@ -520,17 +520,30 @@ async function createItemsBulk(
 // editing/deleting a batch by hand. This is the one-tap version: FEFO
 // (first-expiry-first-out), so using up whatever's closest to its best-before
 // date happens automatically instead of the user having to pick a batch.
-async function consumeItem(db: ModuleDbClient, itemId: string, input: { quantity?: number } | undefined): Promise<HandlerResponse> {
+//
+// "If an item sits in several locations, which one does consuming take from?"
+// (2026-07-20 follow-up) - FEFO alone ignored location entirely, so tapping
+// "-1" on "Mutti Tomaten" (5 in the pantry room, 2 in the kitchen, 80 in the
+// cellar) could silently drain the wrong shelf. `locationId` is now optional:
+// when given, consumption is scoped to that location's batches only (still
+// FEFO within it); when omitted, behavior is unchanged (FEFO across all
+// locations) for items that only live in one place.
+async function consumeItem(
+  db: ModuleDbClient,
+  itemId: string,
+  input: { quantity?: number; location_id?: string } | undefined,
+): Promise<HandlerResponse> {
   const amount = input?.quantity && input.quantity > 0 ? input.quantity : 1;
 
   const [item] = await db.query<{ id: string }>(`SELECT id FROM pantry_items WHERE id = $1`, [itemId]);
   if (!item) return notFound("item");
 
+  const locationId = input?.location_id ?? null;
   const batches = await db.query<{ id: string; quantity: unknown }>(
     `SELECT id, quantity FROM pantry_item_batches
-     WHERE item_id = $1 AND quantity > 0
+     WHERE item_id = $1 AND quantity > 0 AND ($2::uuid IS NULL OR location_id = $2)
      ORDER BY expiry_date ASC NULLS LAST, created_at ASC`,
-    [itemId],
+    [itemId, locationId],
   );
 
   let remaining = amount;
