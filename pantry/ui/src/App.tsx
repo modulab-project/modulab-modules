@@ -203,10 +203,12 @@ export default function PantryApp({ moduleName, apiBase, token }: ModuleComponen
 
   return (
     <div className="p-4 sm:p-6">
-      {/* Navigation bar — icon-only, same arrangement as recipes/ui/src/App.tsx
-          (2026-07-18 user request): scrollable row, active tab highlighted,
-          tooltip via title instead of a visible label, Info pushed to the
-          far right via a flex-1 spacer. */}
+      {/* Navigation bar — exact layout of recipes/ui/src/App.tsx's nav
+          (2026-07-18 user request): scrollable row of icon-only tabs
+          (tooltip via title), a flex-1 spacer pushing Info to the right,
+          then the primary "+ New" action always rightmost - reachable from
+          every view, not just the Items list, same as recipes' "+ New
+          Recipe" button. */}
       <div className="mb-4 flex items-center gap-1 overflow-x-auto pb-1">
         <button type="button" onClick={() => setView({ type: "list" })} className={navCls(view.type === "list")} title={t("nav_items") as string}>
           <i className="ti ti-shopping-cart text-[15px]" />
@@ -231,12 +233,20 @@ export default function PantryApp({ moduleName, apiBase, token }: ModuleComponen
         <button type="button" onClick={() => setView({ type: "info" })} className={navCls(view.type === "info")} title={t("nav_info") as string}>
           <i className="ti ti-info-circle text-[15px]" />
         </button>
+        <button
+          type="button"
+          onClick={() => setView({ type: "editor" })}
+          className="flex flex-none items-center gap-1.5 rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700"
+          title={t("btn_new_item") as string}
+        >
+          <i className="ti ti-plus" style={{ fontSize: "14px" }} />
+          <span className="hidden sm:inline">{t("btn_new_item")}</span>
+        </button>
       </div>
 
       {view.type === "list" && (
         <ItemList
           api={api}
-          onNew={() => setView({ type: "editor" })}
           onEdit={(id) => setView({ type: "editor", id })}
         />
       )}
@@ -266,11 +276,9 @@ function navCls(active: boolean) {
 
 function ItemList({
   api,
-  onNew,
   onEdit,
 }: {
   api: ReturnType<typeof useApi>;
-  onNew: () => void;
   onEdit: (id: string) => void;
 }) {
   const { t } = useTranslation(NS);
@@ -330,16 +338,10 @@ function ItemList({
 
   return (
     <div className="mx-auto max-w-3xl">
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <h1 className="text-lg font-semibold">{t("nav_items")}</h1>
-        <button
-          type="button"
-          onClick={onNew}
-          className="flex items-center gap-1.5 rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-700"
-        >
-          <i className="ti ti-plus text-[13px]" /> {t("btn_new_item")}
-        </button>
-      </div>
+      {/* No local "new item" button here anymore - the + in the top nav
+          (2026-07-18 user request) is reachable from every view, not just
+          this list, so it replaces this one. */}
+      <h1 className="mb-4 text-lg font-semibold">{t("nav_items")}</h1>
 
       <div className="mb-4 grid grid-cols-3 gap-3">
         <MetricCard label={t("metric_total")} value={items.length} />
