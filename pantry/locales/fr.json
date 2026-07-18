@@ -90,6 +90,11 @@
   "unit_pack": "paquet",
   "unit_can": "boîte",
   "unit_bottle": "bouteille",
+  "unit_crate": "casier",
+  "unit_bag": "sac",
+  "unit_jar": "bocal",
+  "unit_box": "carton",
+  "unit_roll": "rouleau",
 
   "cancel": "Annuler",
   "save": "Enregistrer",

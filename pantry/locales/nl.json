@@ -90,6 +90,11 @@
   "unit_pack": "pak",
   "unit_can": "blik",
   "unit_bottle": "fles",
+  "unit_crate": "krat",
+  "unit_bag": "zak",
+  "unit_jar": "pot",
+  "unit_box": "doos",
+  "unit_roll": "rol",
 
   "cancel": "Annuleren",
   "save": "Opslaan",

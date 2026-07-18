@@ -90,6 +90,11 @@
   "unit_pack": "pack",
   "unit_can": "can",
   "unit_bottle": "bottle",
+  "unit_crate": "crate",
+  "unit_bag": "bag",
+  "unit_jar": "jar",
+  "unit_box": "box",
+  "unit_roll": "roll",
 
   "cancel": "Cancel",
   "save": "Save",

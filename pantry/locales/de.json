@@ -90,6 +90,11 @@
   "unit_pack": "Pack",
   "unit_can": "Dose",
   "unit_bottle": "Flasche",
+  "unit_crate": "Kasten",
+  "unit_bag": "Beutel",
+  "unit_jar": "Glas",
+  "unit_box": "Karton",
+  "unit_roll": "Rolle",
 
   "cancel": "Abbrechen",
   "save": "Speichern",

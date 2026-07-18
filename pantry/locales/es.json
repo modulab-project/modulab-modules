@@ -90,6 +90,11 @@
   "unit_pack": "paquete",
   "unit_can": "lata",
   "unit_bottle": "botella",
+  "unit_crate": "caja",
+  "unit_bag": "bolsa",
+  "unit_jar": "tarro",
+  "unit_box": "caja de cartón",
+  "unit_roll": "rollo",
 
   "cancel": "Cancelar",
   "save": "Guardar",

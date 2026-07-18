@@ -102,7 +102,14 @@ type View =
 // should read "Stk" for a German user, not stay in English). The datalist's
 // option value IS the translated abbreviation - the field itself stays free
 // text underneath, so a custom unit can always be typed instead.
-const UNIT_CODES = ["pcs", "kg", "g", "l", "ml", "pack", "can", "bottle"] as const;
+//
+// Expanded 2026-07-19 ("gibt es noch mehr als nur pcs und stk?") - the
+// original 8 covered basic weight/volume/pcs but missed the common retail
+// pack types that actually show up on a German grocery receipt: crates of
+// bottled drinks ("Kasten"/"Kiste" - see ai-providers.ts's multi-pack
+// parsing), bags of produce ("Netz"/"Beutel"), jars ("Glas"), boxes/cartons
+// ("Karton"), and rolls of paper goods ("Rolle").
+const UNIT_CODES = ["pcs", "kg", "g", "l", "ml", "pack", "can", "bottle", "crate", "bag", "jar", "box", "roll"] as const;
 
 // ── API helper ────────────────────────────────────────────────────────────────
 //

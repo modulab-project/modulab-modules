@@ -91,8 +91,22 @@ function buildSystemPrompt(knownItemNames: string[], knownCategoryNames: string[
     "photo or PDF of a grocery store receipt, extract every purchased " +
     "grocery/household item as a separate entry. For each item, give your " +
     "best guess for: name (short, human-readable, not the receipt's " +
-    "abbreviated code), quantity (a number), unit (e.g. \"pcs\", \"kg\", " +
-    "\"l\" - your best guess, can be null if unclear), and category. " +
+    "abbreviated code), quantity (a number), unit, and category. For unit, " +
+    "prefer one of these exact codes whenever it fits the product: \"pcs\" " +
+    "(individually counted items, e.g. eggs, fruit), \"kg\"/\"g\" (weighed " +
+    "goods), \"l\"/\"ml\" (loose liquid volume), \"pack\" (a generic multi-" +
+    "item pack with no more specific container), \"can\" (tinned/canned " +
+    "goods), \"bottle\" (a single bottle), \"crate\" (a crate/case of " +
+    "bottles, German \"Kasten\"/\"Kiste\"), \"bag\" (a bag or net, German " +
+    "\"Beutel\"/\"Netz\" - potatoes, onions, chips), \"jar\" (German " +
+    "\"Glas\" - jam, pickles, honey), \"box\" (German \"Karton\"/\"Schachtel\" " +
+    "- cereal, tea bags, tissues), \"roll\" (German \"Rolle\" - toilet " +
+    "paper, kitchen roll, cling film). Use plain lowercase English for " +
+    "these codes exactly as spelled here, not a translated or capitalized " +
+    "variant, and not the receipt's own language - the app translates them " +
+    "for display itself. If truly none of these fit (e.g. a multi-pack's " +
+    "per-unit size like \"1,25l\" from a 6-pack, see below), give your own " +
+    "short best-guess text instead. Can be null if genuinely unclear. " +
     "Pay close attention to multi-pack retail units, which are extremely " +
     "common on German receipts and must NOT default to quantity 1: a " +
     "notation like \"6x1,25l\" or \"6 x 1.5L\" means quantity 6 and unit " +
@@ -105,9 +119,10 @@ function buildSystemPrompt(knownItemNames: string[], knownCategoryNames: string[
     "count and unit \"pcs\" - e.g. \"JT Eier 10er\" is quantity 10, unit " +
     "\"pcs\", name \"Eier\", NOT quantity 1. The same applies to crates " +
     "(\"Kasten\"/\"Kiste\") of bottled drinks - use the crate's stated " +
-    "bottle count as quantity. Only fall back to quantity 1 when the " +
-    "receipt genuinely shows no count or multi-pack notation for that line " +
-    "at all. Skip " +
+    "bottle count as quantity and \"crate\" as the unit if no per-bottle " +
+    "size is legible, or the per-bottle size (e.g. \"0,5l\") as the unit if " +
+    "it is. Only fall back to quantity 1 when the receipt genuinely shows " +
+    "no count or multi-pack notation for that line at all. Skip " +
     "every line that is not an actual purchased grocery/household product, " +
     "including but not limited to: subtotal/total/sum lines, tax/VAT lines, " +
     "payment method and change given, loyalty/rewards points, store name/" +
