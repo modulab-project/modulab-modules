@@ -588,11 +588,18 @@ function Badge({ tone, children }: { tone: "neutral" | "warning" | "danger"; chi
 // threshold to show a light for.
 function StockDot({ status, t }: { status: "ok" | "warning" | "critical" | null; t: (key: string) => string }) {
   if (!status) return null;
-  const color =
-    status === "critical" ? "bg-red-500" : status === "warning" ? "bg-amber-500" : "bg-green-500";
+  // Inline style, not a Tailwind bg-*-500 class (2026-07-19 bug report:
+  // orange/red showed but green didn't) - modules ship no Tailwind compiler
+  // of their own, only classes Core's own build already uses survive the
+  // shared stylesheet's purge (confirmed OK: teal/gray/red/amber; green was
+  // never on that list, so bg-green-500 had no matching CSS rule at all and
+  // rendered as an invisible, colorless dot). An inline hex color sidesteps
+  // the purge question entirely - it always renders, regardless of what
+  // Core's own Tailwind build happens to include.
+  const color = status === "critical" ? "#ef4444" : status === "warning" ? "#f59e0b" : "#22c55e";
   const label =
     status === "critical" ? t("stock_status_critical") : status === "warning" ? t("stock_status_warning") : t("stock_status_ok");
-  return <span className={`h-2 w-2 flex-none rounded-full ${color}`} title={label} />;
+  return <span className="h-2 w-2 flex-none rounded-full" style={{ backgroundColor: color }} title={label} />;
 }
 
 // ── ItemEditor ────────────────────────────────────────────────────────────────
