@@ -262,10 +262,12 @@ export default function PantryApp({ moduleName, apiBase, token }: ModuleComponen
   );
 }
 
-// Same helper/style as recipes/ui/src/App.tsx's navCls - icon-only tab
-// buttons, active tab gets a filled background instead of a text label.
+// Identical to recipes/ui/src/App.tsx's navCls (same px-3 py-1.5 padding,
+// same whitespace-nowrap/transition classes) - only the visible <span> text
+// label is omitted here, the button's own spacing is untouched so the
+// active-tab box and gaps between icons match recipes exactly.
 function navCls(active: boolean) {
-  return `flex flex-none items-center justify-center rounded-lg p-2 transition-colors ${
+  return `flex flex-none items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors whitespace-nowrap ${
     active
       ? "bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-gray-100"
       : "text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
