@@ -111,6 +111,24 @@ function extractErrorMessage(status: number, txt: string): string {
   if (looksLikeHtml || !txt.trim()) {
     return i18next.t(`${NS}:error_server`, { status }) as string;
   }
+  // 2026-07-19 ("nichts festes alles über locales") - the backend now sends
+  // a stable { error_code, params? } body instead of a hardcoded English
+  // sentence (see handlers/index.ts's errorResponse). Translate it through
+  // this module's own locale files; anything that doesn't parse into this
+  // shape (an older/unexpected response, or a bare-text error from
+  // something in front of Core entirely) falls through to the raw text
+  // exactly as before - never a hard failure just because a message
+  // couldn't be localized.
+  try {
+    const parsed = JSON.parse(txt);
+    if (parsed && typeof parsed === "object" && typeof parsed.error_code === "string") {
+      const key = `${NS}:error_${parsed.error_code}`;
+      const translated = i18next.t(key, parsed.params ?? {});
+      if (translated !== key) return translated as string;
+    }
+  } catch {
+    // not JSON - fall through to raw text below
+  }
   return txt;
 }
 
@@ -441,45 +459,65 @@ function ItemList({
         {items.map((item) => (
           <div
             key={item.id}
-            className="flex items-center gap-3 border-b border-gray-100 px-4 py-3 last:border-b-0 dark:border-gray-800"
+            className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-gray-100 px-4 py-3 last:border-b-0 dark:border-gray-800"
           >
-            <i className="ti ti-package text-[18px] text-gray-400" />
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <p className="truncate text-sm font-medium">{item.name}</p>
-                {item.added_via_ai_scan && (
-                  <i className="ti ti-sparkles text-[12px] text-teal-500" title={t("added_via_ai_scan") as string} />
-                )}
+            {/* Name/category block: full row width on narrow screens
+                (basis-full) so everything below always wraps onto its own
+                line instead of being squeezed or clipped off - the mobile
+                layout bug reported 2026-07-19 ("auf einem mobile device
+                passt nichts", "ich finde nicht die Funktion wenn ich etwas
+                entnehme"): this row used to be a single non-wrapping flex
+                line, so on a narrow screen the quantity/consume/badges/edit/
+                delete controls either got squeezed unreadably or clipped
+                outside the list's rounded (overflow-hidden) container
+                entirely - not just illegible, actually inaccessible. */}
+            <div className="flex min-w-0 basis-full items-center gap-2 sm:basis-auto sm:flex-1">
+              <i className="ti ti-package flex-none text-[18px] text-gray-400" />
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <p className="truncate text-sm font-medium">{item.name}</p>
+                  {item.added_via_ai_scan && (
+                    <i className="ti ti-sparkles flex-none text-[12px] text-teal-500" title={t("added_via_ai_scan") as string} />
+                  )}
+                </div>
+                <p className="truncate text-xs text-gray-400">
+                  {item.category_name ?? t("uncategorized")}
+                  {item.batch_count > 1 && ` · ${t("batch_count", { count: item.batch_count })}`}
+                </p>
               </div>
-              <p className="truncate text-xs text-gray-400">
-                {item.category_name ?? t("uncategorized")}
-                {item.batch_count > 1 && ` · ${t("batch_count", { count: item.batch_count })}`}
-              </p>
             </div>
-            <span className="flex-none text-sm text-gray-500 dark:text-gray-400">
-              {formatQty(item.quantity)} {item.unit ?? ""}
-            </span>
-            <button type="button" onClick={() => handleConsume(item.id)} disabled={item.quantity <= 0}
-              title={t("consume_one") as string}
-              className="flex-none rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 disabled:opacity-30 dark:hover:bg-gray-800">
-              <i className="ti ti-minus text-[14px]" />
-            </button>
-            {item.is_expired ? (
-              <Badge tone="danger">{t("badge_expired")}</Badge>
-            ) : item.days_until_expiry != null && item.days_until_expiry <= 3 ? (
-              <Badge tone="warning">{t("badge_expiring_in", { count: item.days_until_expiry })}</Badge>
-            ) : item.expiry_date ? (
-              <Badge tone="neutral">{t("badge_expiry_date", { date: item.expiry_date })}</Badge>
-            ) : null}
-            {item.is_low_stock && <Badge tone="danger">{t("badge_low_stock")}</Badge>}
-            <button type="button" onClick={() => onEdit(item.id)}
-              className="flex-none rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800">
-              <i className="ti ti-pencil text-[14px]" />
-            </button>
-            <button type="button" onClick={() => handleDelete(item.id)}
-              className="flex-none rounded-lg p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950">
-              <i className="ti ti-trash text-[14px]" />
-            </button>
+
+            {/* Actions block wraps as its own unit onto a new line on
+                mobile, never gets clipped - quantity and the "-1" consume
+                button are grouped into one pill so it reads as "take one of
+                this quantity out" rather than a lone, easy-to-miss icon
+                floating among other icon buttons. */}
+            <div className="ml-auto flex flex-wrap items-center gap-2 sm:ml-0">
+              <div className="flex flex-none items-center gap-1 rounded-lg bg-gray-50 py-1 pl-2.5 pr-1 dark:bg-gray-800">
+                <span className="text-sm text-gray-600 dark:text-gray-300">{formatQty(item.quantity)} {item.unit ?? ""}</span>
+                <button type="button" onClick={() => handleConsume(item.id)} disabled={item.quantity <= 0}
+                  title={t("consume_one") as string}
+                  className="flex-none rounded-lg p-1.5 text-gray-400 hover:bg-gray-200 hover:text-gray-700 disabled:opacity-30 dark:hover:bg-gray-700">
+                  <i className="ti ti-minus text-[14px]" />
+                </button>
+              </div>
+              {item.is_expired ? (
+                <Badge tone="danger">{t("badge_expired")}</Badge>
+              ) : item.days_until_expiry != null && item.days_until_expiry <= 3 ? (
+                <Badge tone="warning">{t("badge_expiring_in", { count: item.days_until_expiry })}</Badge>
+              ) : item.expiry_date ? (
+                <Badge tone="neutral">{t("badge_expiry_date", { date: item.expiry_date })}</Badge>
+              ) : null}
+              {item.is_low_stock && <Badge tone="danger">{t("badge_low_stock")}</Badge>}
+              <button type="button" onClick={() => onEdit(item.id)}
+                className="flex-none rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800">
+                <i className="ti ti-pencil text-[14px]" />
+              </button>
+              <button type="button" onClick={() => handleDelete(item.id)}
+                className="flex-none rounded-lg p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950">
+                <i className="ti ti-trash text-[14px]" />
+              </button>
+            </div>
           </div>
         ))}
       </div>

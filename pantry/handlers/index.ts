@@ -131,13 +131,13 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
   if (method === "POST" && pathname.match(/^\/items\/[^/]+\/image$/)) {
     const id = pathname.split("/")[2];
     const { file_path, file_mime_type } = body as { file_path: string; file_mime_type?: string };
-    if (!isSafeFilePath(file_path)) return badRequest("invalid file_path");
+    if (!isSafeFilePath(file_path)) return badRequest("invalid_file_path");
     // Core's upload proxy now also accepts application/pdf (2026-07-19,
     // added for receipt scanning) - an item photo specifically must still be
     // an actual image, so reject a PDF here even though Core's own allowlist
     // would let it through.
     if (file_mime_type && file_mime_type === "application/pdf") {
-      return badRequest("item photo must be an image, not a PDF");
+      return badRequest("item_photo_must_be_image");
     }
     const rows = await db.query(
       `UPDATE pantry_items SET image_path = $1, updated_at = now() WHERE id = $2 RETURNING id`,
@@ -160,7 +160,7 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
   }
   if (route === "POST /categories") {
     const { name, sort_order } = body as { name: string; sort_order?: number };
-    if (!name || !name.trim()) return badRequest("name is required");
+    if (!name || !name.trim()) return badRequest("name_required");
     const [row] = await db.query(
       `INSERT INTO categories (name, sort_order) VALUES ($1, $2) RETURNING *`,
       [name.trim(), sort_order ?? 0],
@@ -192,7 +192,7 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
   }
   if (route === "POST /locations") {
     const { name, sort_order } = body as { name: string; sort_order?: number };
-    if (!name || !name.trim()) return badRequest("name is required");
+    if (!name || !name.trim()) return badRequest("name_required");
     const [row] = await db.query(
       `INSERT INTO locations (name, sort_order) VALUES ($1, $2) RETURNING *`,
       [name.trim(), sort_order ?? 0],
@@ -243,7 +243,7 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
     return scanReceipt(db, body as { file_base64?: string; file_mime_type?: string; provider?: string } | undefined, piiCrypto);
   }
 
-  return { status: 404, body: { error: "not found" } };
+  return errorResponse(404, "route_not_found");
 }
 
 // ── Item helpers ──────────────────────────────────────────────────────────────
@@ -364,10 +364,10 @@ async function getItem(db: ModuleDbClient, id: string): Promise<HandlerResponse>
 }
 
 async function createItem(db: ModuleDbClient, input: ItemInput, userId: string): Promise<HandlerResponse> {
-  if (!input.name || !input.name.trim()) return badRequest("name is required");
+  if (!input.name || !input.name.trim()) return badRequest("name_required");
 
   const [existing] = await db.query<{ id: string }>(`SELECT id FROM pantry_items WHERE lower(name) = lower($1)`, [input.name.trim()]);
-  if (existing) return badRequest(`an item named "${input.name.trim()}" already exists - add a batch to it instead of creating a duplicate`);
+  if (existing) return badRequest("item_name_exists_create", { name: input.name.trim() });
 
   const [item] = await db.query(
     `INSERT INTO pantry_items (name, category_id, unit, min_stock, notes, created_by)
@@ -393,10 +393,10 @@ async function createItem(db: ModuleDbClient, input: ItemInput, userId: string):
 async function updateItem(db: ModuleDbClient, id: string, input: Partial<ItemInput>): Promise<HandlerResponse> {
   const n = (v: unknown) => (v === undefined || v === "" ? null : v);
 
-  if (input.name !== undefined && !input.name.trim()) return badRequest("name cannot be empty");
+  if (input.name !== undefined && !input.name.trim()) return badRequest("name_required");
   if (input.name !== undefined) {
     const [dup] = await db.query<{ id: string }>(`SELECT id FROM pantry_items WHERE lower(name) = lower($1) AND id != $2`, [input.name.trim(), id]);
-    if (dup) return badRequest(`an item named "${input.name.trim()}" already exists`);
+    if (dup) return badRequest("item_name_exists_update", { name: input.name.trim() });
   }
 
   const [row] = await db.query(
@@ -468,7 +468,7 @@ async function createItemsBulk(
   userId: string,
 ): Promise<HandlerResponse> {
   const items = input?.items ?? [];
-  if (items.length === 0) return badRequest("items must be a non-empty array");
+  if (items.length === 0) return badRequest("bulk_items_empty");
 
   const results = [];
   for (const it of items) {
@@ -552,7 +552,7 @@ function isAdmin(auth: ModuleAuthContext): boolean {
 }
 
 function forbidden(): HandlerResponse {
-  return { status: 403, body: { error: "Forbidden" } };
+  return errorResponse(403, "forbidden");
 }
 
 interface AiProviderRow {
@@ -596,10 +596,10 @@ async function upsertAiProvider(
 ): Promise<HandlerResponse> {
   if (!isAdmin(auth)) return forbidden();
   if (!AI_PROVIDER_NAMES.includes(provider as AiProviderName)) {
-    return badRequest(`provider must be one of: ${AI_PROVIDER_NAMES.join(", ")}`);
+    return badRequest("provider_invalid", { providers: AI_PROVIDER_NAMES.join(", ") });
   }
   const encKey = piiCrypto.key;
-  if (!encKey) return { status: 500, body: { error: "MODULAB_MODULE_PII_KEY not configured on server" } };
+  if (!encKey) return errorResponse(500, "pii_key_missing");
 
   const { api_key, model, enabled, is_default } = body as {
     api_key?: string;
@@ -609,7 +609,7 @@ async function upsertAiProvider(
   };
 
   const [existing] = await db.query<AiProviderRow>(`SELECT * FROM ai_pantry_providers WHERE provider = $1`, [provider]);
-  if (!existing && !api_key) return badRequest("api_key is required when configuring a provider for the first time");
+  if (!existing && !api_key) return badRequest("api_key_required_first_time");
 
   const resolvedModel = (model && model.trim()) || existing?.model || AI_PROVIDER_DEFAULT_MODELS[provider as AiProviderName];
   const resolvedEnabled = enabled ?? existing?.enabled ?? true;
@@ -643,7 +643,7 @@ async function upsertAiProvider(
 async function deleteAiProvider(db: ModuleDbClient, auth: ModuleAuthContext, provider: string): Promise<HandlerResponse> {
   if (!isAdmin(auth)) return forbidden();
   const rows = await db.query<{ provider: string }>(`DELETE FROM ai_pantry_providers WHERE provider = $1 RETURNING provider`, [provider]);
-  if (rows.length === 0) return notFound("provider config");
+  if (rows.length === 0) return notFound("provider_config");
   return noContent();
 }
 
@@ -655,7 +655,7 @@ async function listAiProviderModels(
 ): Promise<HandlerResponse> {
   if (!isAdmin(auth)) return forbidden();
   if (!AI_PROVIDER_NAMES.includes(provider as AiProviderName)) {
-    return badRequest(`provider must be one of: ${AI_PROVIDER_NAMES.join(", ")}`);
+    return badRequest("provider_invalid", { providers: AI_PROVIDER_NAMES.join(", ") });
   }
 
   // Whole body in one try/catch (same hardening as recipes, 2026-07-12
@@ -663,10 +663,10 @@ async function listAiProviderModels(
   // error that the frontend can't extract a message from at all).
   try {
     const encKey = piiCrypto.key;
-    if (!encKey) return { status: 500, body: { error: "MODULAB_MODULE_PII_KEY not configured on server" } };
+    if (!encKey) return errorResponse(500, "pii_key_missing");
 
     const [existing] = await db.query<AiProviderRow>(`SELECT * FROM ai_pantry_providers WHERE provider = $1`, [provider]);
-    if (!existing) return { status: 503, body: { error: "no API key configured for this provider" } };
+    if (!existing) return errorResponse(503, "provider_key_not_configured");
 
     const apiKey = await decrypt(encKey, existing.api_key_enc);
     const models = await listAvailableModels(provider as AiProviderName, apiKey);
@@ -674,7 +674,7 @@ async function listAiProviderModels(
   } catch (err) {
     console.error(`[pantry] listAiProviderModels(${provider}) failed:`, err);
     const message = err instanceof AiProviderError ? err.message : String(err);
-    return { status: 502, body: { error: `could not list models (${provider}): ${message}` } };
+    return errorResponse(502, "models_list_failed", { provider, message });
   }
 }
 
@@ -708,9 +708,9 @@ async function scanReceipt(
     // path or dataDir layout needed.
     const fileB64 = input?.file_base64;
     const mimeType = input?.file_mime_type;
-    if (!fileB64 || !mimeType) return badRequest("a receipt photo upload (multipart field \"file\") is required");
+    if (!fileB64 || !mimeType) return badRequest("scan_file_required");
     if (!SUPPORTED_SCAN_MIME_TYPES.has(mimeType)) {
-      return badRequest(`unsupported image type ${mimeType} (expected jpg/png/webp)`);
+      return badRequest("scan_unsupported_mime", { mimeType });
     }
     // Rough byte-size check on the base64 string (4/3 expansion) rather than
     // decoding first - cheap rejection of an oversized upload before doing
@@ -718,27 +718,25 @@ async function scanReceipt(
     // upload itself; this is a second, receipt-scan-specific ceiling since a
     // huge image is mostly wasted provider tokens, not a security concern.
     if (fileB64.length * 0.75 > MAX_SCAN_IMAGE_BYTES) {
-      return badRequest(`uploaded image is too large (max ${MAX_SCAN_IMAGE_BYTES} bytes)`);
+      return badRequest("scan_image_too_large", { maxBytes: MAX_SCAN_IMAGE_BYTES });
     }
 
     const requestedProvider = input?.provider;
     if (requestedProvider && !AI_PROVIDER_NAMES.includes(requestedProvider as AiProviderName)) {
-      return badRequest(`provider must be one of: ${AI_PROVIDER_NAMES.join(", ")}`);
+      return badRequest("provider_invalid", { providers: AI_PROVIDER_NAMES.join(", ") });
     }
 
     const [row] = requestedProvider
       ? await db.query<AiProviderRow>(`SELECT * FROM ai_pantry_providers WHERE provider = $1 AND enabled = true`, [requestedProvider])
       : await db.query<AiProviderRow>(`SELECT * FROM ai_pantry_providers WHERE enabled = true ORDER BY is_default DESC, updated_at DESC LIMIT 1`);
     if (!row) {
-      return badRequest(
-        requestedProvider
-          ? `provider "${requestedProvider}" is not configured or disabled - set it up under Settings first`
-          : "no AI provider is configured - set one up under Settings first",
-      );
+      return requestedProvider
+        ? badRequest("scan_provider_not_configured", { provider: requestedProvider })
+        : badRequest("scan_no_provider_configured");
     }
 
     const encKey = piiCrypto.key;
-    if (!encKey) return { status: 500, body: { error: "MODULAB_MODULE_PII_KEY not configured on server" } };
+    if (!encKey) return errorResponse(500, "pii_key_missing");
 
     const apiKey = await decrypt(encKey, row.api_key_enc);
 
@@ -763,14 +761,14 @@ async function scanReceipt(
     const items = await scanReceiptWithAi(row.provider, apiKey, row.model, fileB64, mimeType, knownItemNames, knownCategoryNames);
 
     if (items.length === 0) {
-      return badRequest("the AI provider could not identify any items on this receipt");
+      return badRequest("scan_no_items_found");
     }
 
     return ok({ items, ai_provider: row.provider, ai_model: row.model });
   } catch (err) {
     console.error(`[pantry] scanReceipt failed:`, err);
     const message = err instanceof AiProviderError ? err.message : String(err);
-    return { status: 502, body: { error: `receipt scan failed: ${message}` } };
+    return errorResponse(502, "scan_failed", { message });
   }
 }
 
@@ -790,11 +788,27 @@ function created(body: unknown): HandlerResponse {
 function noContent(): HandlerResponse {
   return { status: 204, body: null };
 }
-function notFound(what: string): HandlerResponse {
-  return { status: 404, body: { error: `${what} not found` } };
+
+// 2026-07-19 ("nichts festes alles über locales") - every error response used
+// to carry a hardcoded English sentence that the frontend showed verbatim,
+// regardless of the user's chosen language. errorResponse/badRequest/
+// notFound now send a stable `error_code` (+ optional `params` for string
+// interpolation) instead; the frontend's extractErrorMessage looks up
+// `error_${error_code}` in this module's own locale files and only falls
+// back to raw text if that lookup fails (e.g. an unrecognized code, or a
+// non-JSON response from something in front of Core entirely). The one
+// unavoidable exception is upstream AI-provider error text (see
+// scanReceipt/listAiProviderModels below) - that's dynamic content from a
+// third-party API response and can't be pre-translated, only the sentence
+// wrapped around it is localized.
+function errorResponse(status: number, code: string, params?: Record<string, unknown>): HandlerResponse {
+  return { status, body: params ? { error_code: code, params } : { error_code: code } };
 }
-function badRequest(message: string): HandlerResponse {
-  return { status: 400, body: { error: message } };
+function badRequest(code: string, params?: Record<string, unknown>): HandlerResponse {
+  return errorResponse(400, code, params);
+}
+function notFound(what: "item" | "category" | "location" | "batch" | "provider_config"): HandlerResponse {
+  return errorResponse(404, `${what}_not_found`);
 }
 
 // Postgres NUMERIC(10,3) columns (quantity, min_stock) come back from the
