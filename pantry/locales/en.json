@@ -72,6 +72,7 @@
   "scan_in_progress": "Reading receipt…",
   "scan_upload_prompt": "Upload a receipt",
   "scan_upload_hint": "Photo or PDF",
+  "scan_expiry_estimate_hint": "The receipt doesn't print an expiry date — enter it below for each item where you know it.",
   "scan_result_meta": "{{count}} items found ({{provider}}, {{model}})",
   "scan_confirm_add": "Add {{count}} items",
 

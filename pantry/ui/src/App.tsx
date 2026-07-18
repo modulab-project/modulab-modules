@@ -819,7 +819,18 @@ function ScanView({ api, onDone }: { api: ReturnType<typeof useApi>; onDone: () 
   const [locations, setLocations] = useState<Location[]>([]);
   const [categoryChoices, setCategoryChoices] = useState<string[]>([]);
   const [locationChoices, setLocationChoices] = useState<string[]>([]);
+  const [expiryChoices, setExpiryChoices] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+
+  // Inline "create a new category" for a suggestion row (2026-07-19 - "wenn
+  // es keine passende Kategorie gibt, wäre es gut wenn ich sie direkt beim
+  // Artikel eintragen kann und danach direkt im Bon bei anderen Artikeln
+  // auswählen kann"). Only one row can be in "creating" mode at a time.
+  // Newly created categories are appended to `categories` (not refetched),
+  // so every other row's dropdown offers it immediately without a round trip.
+  const [newCategoryRowIndex, setNewCategoryRowIndex] = useState<number | null>(null);
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [newCategorySaving, setNewCategorySaving] = useState(false);
 
   useEffect(() => {
     api.get<Category[]>("/categories").then(setCategories).catch(() => {});
@@ -843,6 +854,12 @@ function ScanView({ api, onDone }: { api: ReturnType<typeof useApi>; onDone: () 
         res.items.map((it) => categories.find((c) => c.name.toLowerCase() === (it.category ?? "").toLowerCase())?.id ?? ""),
       );
       setLocationChoices(res.items.map(() => ""));
+      // Left blank on purpose (2026-07-19) - a receipt never prints a
+      // best-before date, and an AI shelf-life guess was tried and
+      // explicitly rejected ("ich möchte das das MHD nicht geschätzt wird,
+      // sondern das ich es vor dem Import eintragen kann") - the user enters
+      // it by hand below, where they know it, before importing.
+      setExpiryChoices(res.items.map(() => ""));
     } catch (e) {
       setError(String(e));
     } finally {
@@ -857,6 +874,34 @@ function ScanView({ api, onDone }: { api: ReturnType<typeof useApi>; onDone: () 
     setSuggestions((prev) => (prev ? prev.filter((_, idx) => idx !== i) : prev));
     setCategoryChoices((prev) => prev.filter((_, idx) => idx !== i));
     setLocationChoices((prev) => prev.filter((_, idx) => idx !== i));
+    setExpiryChoices((prev) => prev.filter((_, idx) => idx !== i));
+  }
+
+  function startNewCategory(i: number) {
+    setNewCategoryRowIndex(i);
+    setNewCategoryName("");
+  }
+  function cancelNewCategory() {
+    setNewCategoryRowIndex(null);
+    setNewCategoryName("");
+  }
+  async function confirmNewCategory() {
+    if (newCategoryRowIndex === null || !newCategoryName.trim()) return;
+    setNewCategorySaving(true);
+    setError(null);
+    try {
+      const row = await api.mutate<Category>("POST", "/categories", { name: newCategoryName.trim() });
+      // Appended locally (not refetched) so it's immediately selectable for
+      // every other row in this same scan, not just the one it was created
+      // from - the whole point of the request.
+      setCategories((prev) => [...prev, row].sort((a, b) => a.name.localeCompare(b.name)));
+      setCategoryChoices((prev) => prev.map((v, idx) => (idx === newCategoryRowIndex ? row.id : v)));
+      cancelNewCategory();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setNewCategorySaving(false);
+    }
   }
 
   async function handleConfirm() {
@@ -871,6 +916,7 @@ function ScanView({ api, onDone }: { api: ReturnType<typeof useApi>; onDone: () 
           location_id: locationChoices[i] || null,
           quantity: it.quantity ?? 1,
           unit: it.unit,
+          expiry_date: expiryChoices[i] || null,
         })),
       });
       onDone();
@@ -933,6 +979,7 @@ function ScanView({ api, onDone }: { api: ReturnType<typeof useApi>; onDone: () 
             <i className="ti ti-sparkles text-[13px]" />
             {t("scan_result_meta", { provider: aiMeta?.provider, model: aiMeta?.model, count: suggestions.length })}
           </div>
+          <p className="mb-3 text-xs text-gray-400">{t("scan_expiry_estimate_hint")}</p>
 
           <div className="space-y-2">
             {suggestions.map((it, i) => (
@@ -943,16 +990,47 @@ function ScanView({ api, onDone }: { api: ReturnType<typeof useApi>; onDone: () 
                   className={`w-16 ${inputCls}`} style={{ fontSize: "16px" }} />
                 <input type="text" value={it.unit ?? ""} onChange={(e) => updateSuggestion(i, { unit: e.target.value })}
                   placeholder={t("field_unit") as string} className={`w-20 ${inputCls}`} style={{ fontSize: "16px" }} />
-                <select value={categoryChoices[i] ?? ""} onChange={(e) => setCategoryChoices((prev) => prev.map((v, idx) => (idx === i ? e.target.value : v)))}
-                  className={`w-28 ${inputCls}`} style={{ fontSize: "16px" }}>
-                  <option value="">{it.category ?? t("uncategorized")}</option>
-                  {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
+                {newCategoryRowIndex === i ? (
+                  <div className="flex items-center gap-1">
+                    <input type="text" value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)}
+                      placeholder={t("category_name_placeholder") as string} autoFocus
+                      className={`w-24 ${inputCls}`} style={{ fontSize: "16px" }}
+                      onKeyDown={(e) => { if (e.key === "Enter") confirmNewCategory(); if (e.key === "Escape") cancelNewCategory(); }} />
+                    <button type="button" onClick={confirmNewCategory} disabled={newCategorySaving || !newCategoryName.trim()}
+                      className="flex-none rounded-lg p-1.5 text-teal-600 hover:bg-teal-50 disabled:opacity-40 dark:hover:bg-teal-950">
+                      {newCategorySaving ? <i className="ti ti-loader-2 animate-spin text-[14px]" /> : <i className="ti ti-check text-[14px]" />}
+                    </button>
+                    <button type="button" onClick={cancelNewCategory}
+                      className="flex-none rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">
+                      <i className="ti ti-x text-[14px]" />
+                    </button>
+                  </div>
+                ) : (
+                  // "+ new category" option (2026-07-19 - "wenn es keine
+                  // passende Kategorie gibt, wäre es gut wenn ich sie direkt
+                  // beim Artikel eintragen kann"): picking it switches this
+                  // row into the inline-create input above; once created,
+                  // it's appended to `categories` so every other row's
+                  // dropdown offers it right away too.
+                  <select value={categoryChoices[i] ?? ""} onChange={(e) => {
+                      if (e.target.value === "__new__") { startNewCategory(i); return; }
+                      setCategoryChoices((prev) => prev.map((v, idx) => (idx === i ? e.target.value : v)));
+                    }}
+                    className={`w-28 ${inputCls}`} style={{ fontSize: "16px" }}>
+                    <option value="">{it.category ?? t("uncategorized")}</option>
+                    {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    <option value="__new__">+ {t("new_category")}</option>
+                  </select>
+                )}
                 <select value={locationChoices[i] ?? ""} onChange={(e) => setLocationChoices((prev) => prev.map((v, idx) => (idx === i ? e.target.value : v)))}
                   className={`w-28 ${inputCls}`} style={{ fontSize: "16px" }}>
                   <option value="">{t("no_location")}</option>
                   {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
                 </select>
+                <input type="date" value={expiryChoices[i] ?? ""}
+                  onChange={(e) => setExpiryChoices((prev) => prev.map((v, idx) => (idx === i ? e.target.value : v)))}
+                  title={t("field_expiry_date") as string}
+                  className={inputCls} style={{ fontSize: "16px" }} />
                 <button type="button" onClick={() => removeSuggestion(i)}
                   className="flex-none rounded-lg p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950">
                   <i className="ti ti-x text-[14px]" />

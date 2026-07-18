@@ -72,6 +72,7 @@
   "scan_in_progress": "Bon wordt gelezen…",
   "scan_upload_prompt": "Bon uploaden",
   "scan_upload_hint": "Foto of PDF",
+  "scan_expiry_estimate_hint": "De bon bevat geen houdbaarheidsdatum — vul deze hieronder per item in waar je hem weet.",
   "scan_result_meta": "{{count}} items gevonden ({{provider}}, {{model}})",
   "scan_confirm_add": "{{count}} items toevoegen",
 

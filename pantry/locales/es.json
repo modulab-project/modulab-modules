@@ -72,6 +72,7 @@
   "scan_in_progress": "Leyendo recibo…",
   "scan_upload_prompt": "Subir un recibo",
   "scan_upload_hint": "Foto o PDF",
+  "scan_expiry_estimate_hint": "El recibo no incluye la fecha de caducidad — introdúcela abajo para cada artículo donde la conozcas.",
   "scan_result_meta": "{{count}} artículos encontrados ({{provider}}, {{model}})",
   "scan_confirm_add": "Añadir {{count}} artículos",
 

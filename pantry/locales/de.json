@@ -72,6 +72,7 @@
   "scan_in_progress": "Bon wird gelesen…",
   "scan_upload_prompt": "Bon hochladen",
   "scan_upload_hint": "Foto oder PDF",
+  "scan_expiry_estimate_hint": "Der Bon enthält kein Ablaufdatum — trage es unten bei jedem Artikel ein, wo du es kennst.",
   "scan_result_meta": "{{count}} Einträge gefunden ({{provider}}, {{model}})",
   "scan_confirm_add": "{{count}} Einträge hinzufügen",
 

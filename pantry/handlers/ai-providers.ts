@@ -43,19 +43,87 @@ export interface ScannedItem {
 const REQUEST_TIMEOUT_MS = 55_000; // headroom under manifest resources.timeout (60s, see manifest.yaml)
 const MODELS_LIST_TIMEOUT_MS = 15_000; // GET .../models is cheap/fast - no reason to wait as long as a vision call
 
-const SYSTEM_PROMPT =
-  "You are a receipt-parsing assistant for a household pantry app. Given a " +
-  "photo of a grocery store receipt, extract every purchased grocery/" +
-  "household item as a separate entry. For each item, give your best guess " +
-  "for: name (short, human-readable, not the receipt's abbreviated code), " +
-  "quantity (a number - assume 1 if the receipt doesn't show a count), unit " +
-  "(e.g. \"pcs\", \"kg\", \"l\" - your best guess, can be null if unclear), and " +
-  "category (a short grocery category like \"Dairy\", \"Canned goods\", " +
-  "\"Produce\", \"Spices\", \"Beverages\", \"Household\" - your best guess). " +
-  "Skip non-item lines (subtotal, tax, payment method, loyalty points, store " +
-  "address). Never refuse - if the image is blurry or partially unreadable, " +
-  "do your best with what's legible and omit only the lines you truly cannot " +
-  "make out at all.";
+// 2026-07-19 user feedback round:
+//  1. "Pfand soll nicht berücksichtigt werden" - deposit lines (bottle/crate
+//     deposit and its refund) were being parsed as grocery items. Now
+//     explicitly excluded, same bucket as tax/subtotal/payment lines.
+//  2. "wird das den [existing item] hinzugefügt?" - matching an existing
+//     item was already exact-name-based server-side (see index.ts's
+//     createItemsBulk), but the AI had no way to know what spelling an
+//     existing item already uses, so e.g. "Mutti Tomaten" on the receipt vs.
+//     "Mutti Tomaten stückig" already in stock wouldn't match and would
+//     silently become a second item. buildSystemPrompt() now includes the
+//     current pantry's item names so the AI can reuse the exact existing
+//     spelling when it recognizes the same product, making the automatic
+//     match in createItemsBulk actually fire.
+//  3. "Ablaufdatum fehlt" - a receipt never prints a best-before date. An
+//     AI-guessed shelf-life estimate was tried and explicitly rejected by
+//     the user ("ich möchte das das MHD nicht geschätzt wird, sondern das
+//     ich es vor dem Import eintragen kann") - the expiry date field on the
+//     confirm screen is simply left blank, the user fills it in by hand
+//     where they know it before importing. No estimation logic here at all.
+//  4. "woher kommen die Kategorien beim Import?" - category used to be a
+//     free-text guess from a hardcoded generic English example list
+//     ("Dairy", "Canned goods", ...), which almost never matched the
+//     household's own (real, often non-English, self-defined) category
+//     names, so nearly every scanned item came back uncategorized.
+//     buildSystemPrompt() now includes the household's actual category
+//     names, same pattern as the known-item-names fix above: use one of
+//     these exactly if it fits, otherwise leave category as an empty string
+//     rather than inventing a new category name outside the app's own list
+//     (normalizeResult's str() already turns "" into null). The frontend
+//     lets the user create a genuinely new category inline when none fits,
+//     which then becomes selectable for the rest of that scan's rows too.
+function buildSystemPrompt(knownItemNames: string[], knownCategoryNames: string[]): string {
+  let prompt =
+    "You are a receipt-parsing assistant for a household pantry app. Given a " +
+    "photo or PDF of a grocery store receipt, extract every purchased " +
+    "grocery/household item as a separate entry. For each item, give your " +
+    "best guess for: name (short, human-readable, not the receipt's " +
+    "abbreviated code), quantity (a number - assume 1 if the receipt " +
+    "doesn't show a count), unit (e.g. \"pcs\", \"kg\", \"l\" - your best " +
+    "guess, can be null if unclear), and category. Skip " +
+    "every line that is not an actual purchased grocery/household product, " +
+    "including but not limited to: subtotal/total/sum lines, tax/VAT lines, " +
+    "payment method and change given, loyalty/rewards points, store name/" +
+    "address/opening hours/receipt footer text, deposit charges and deposit " +
+    "refunds (\"Pfand\", bottle/crate deposit, \"Pfandrückgabe\"/\"Leergut\" " +
+    "or similar), discounts/coupons/vouchers applied (\"Rabatt\", " +
+    "\"Coupon\", \"Gutschein\" or similar - these modify a price, they are " +
+    "not a product), carrier bag fees (\"Tüte\", \"Tragetasche\"), tips or " +
+    "service charges, gift cards, delivery/shipping fees, and any rounding " +
+    "adjustment line. If in doubt whether a line is a real product versus " +
+    "one of these, prefer to skip it. Never refuse - if the image is blurry " +
+    "or partially unreadable, do your best with what's legible and omit " +
+    "only the lines you truly cannot make out at all.";
+
+  if (knownItemNames.length > 0) {
+    prompt +=
+      " The household's pantry already tracks these existing item names: " +
+      knownItemNames.map((n) => `"${n}"`).join(", ") +
+      ". If a purchased item is clearly the same product as one of these, " +
+      "use that exact existing name (same spelling) instead of inventing a " +
+      "new one, so it's recognized as a restock of the existing item rather " +
+      "than a duplicate.";
+  }
+
+  if (knownCategoryNames.length > 0) {
+    prompt +=
+      " For the category field, choose the single best-fitting name from " +
+      "this exact list of the household's existing categories (use the " +
+      "exact spelling, do not translate or rephrase it): " +
+      knownCategoryNames.map((n) => `"${n}"`).join(", ") +
+      ". Do not invent a category name that is not in this list. If truly " +
+      "none of them fit this item, return an empty string for category " +
+      "instead of making one up.";
+  } else {
+    prompt +=
+      " The household has not defined any categories yet, so leave category " +
+      "as an empty string for every item.";
+  }
+
+  return prompt;
+}
 
 const USER_PROMPT = "Parse this receipt into a list of pantry items.";
 
@@ -150,7 +218,7 @@ async function assertOk(res: Response, provider: string): Promise<void> {
   }
 }
 
-async function callOpenAi(apiKey: string, model: string, imageB64: string, mimeType: string): Promise<ScannedItem[]> {
+async function callOpenAi(apiKey: string, model: string, imageB64: string, mimeType: string, knownItemNames: string[], knownCategoryNames: string[]): Promise<ScannedItem[]> {
   if (mimeType === "application/pdf") {
     throw new AiProviderError(
       "OpenAI's receipt scan does not support PDF files here - please upload a photo instead, or switch to Google Gemini or Anthropic Claude for this receipt.",
@@ -164,7 +232,7 @@ async function callOpenAi(apiKey: string, model: string, imageB64: string, mimeT
       body: JSON.stringify({
         model,
         messages: [
-          { role: "system", content: SYSTEM_PROMPT },
+          { role: "system", content: buildSystemPrompt(knownItemNames, knownCategoryNames) },
           {
             role: "user",
             content: [
@@ -187,7 +255,7 @@ async function callOpenAi(apiKey: string, model: string, imageB64: string, mimeT
   });
 }
 
-async function callGoogle(apiKey: string, model: string, imageB64: string, mimeType: string): Promise<ScannedItem[]> {
+async function callGoogle(apiKey: string, model: string, imageB64: string, mimeType: string, knownItemNames: string[], knownCategoryNames: string[]): Promise<ScannedItem[]> {
   return withTimeout(async (signal) => {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
     const res = await fetch(url, {
@@ -195,7 +263,7 @@ async function callGoogle(apiKey: string, model: string, imageB64: string, mimeT
       signal,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+        systemInstruction: { parts: [{ text: buildSystemPrompt(knownItemNames, knownCategoryNames) }] },
         contents: [
           {
             role: "user",
@@ -216,7 +284,7 @@ async function callGoogle(apiKey: string, model: string, imageB64: string, mimeT
   });
 }
 
-async function callAnthropic(apiKey: string, model: string, imageB64: string, mimeType: string): Promise<ScannedItem[]> {
+async function callAnthropic(apiKey: string, model: string, imageB64: string, mimeType: string, knownItemNames: string[], knownCategoryNames: string[]): Promise<ScannedItem[]> {
   // PDF receipts use a "document" content block instead of "image" - GA on
   // the standard API version (no anthropic-beta header needed), supported on
   // every current Claude model. See file-header comment for the source.
@@ -237,7 +305,7 @@ async function callAnthropic(apiKey: string, model: string, imageB64: string, mi
       body: JSON.stringify({
         model,
         max_tokens: 2048,
-        system: SYSTEM_PROMPT,
+        system: buildSystemPrompt(knownItemNames, knownCategoryNames),
         messages: [
           {
             role: "user",
@@ -271,14 +339,20 @@ export async function scanReceiptWithAi(
   model: string,
   imageB64: string,
   mimeType: string,
+  // Existing pantry item/category names, so the AI can reuse an item's
+  // exact spelling and pick from the household's real categories instead of
+  // inventing generic ones - see buildSystemPrompt()'s doc comment
+  // (2026-07-19).
+  knownItemNames: string[] = [],
+  knownCategoryNames: string[] = [],
 ): Promise<ScannedItem[]> {
   switch (provider) {
     case "openai":
-      return callOpenAi(apiKey, model, imageB64, mimeType);
+      return callOpenAi(apiKey, model, imageB64, mimeType, knownItemNames, knownCategoryNames);
     case "google":
-      return callGoogle(apiKey, model, imageB64, mimeType);
+      return callGoogle(apiKey, model, imageB64, mimeType, knownItemNames, knownCategoryNames);
     case "anthropic":
-      return callAnthropic(apiKey, model, imageB64, mimeType);
+      return callAnthropic(apiKey, model, imageB64, mimeType, knownItemNames, knownCategoryNames);
   }
 }
 

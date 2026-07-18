@@ -741,7 +741,26 @@ async function scanReceipt(
     if (!encKey) return { status: 500, body: { error: "MODULAB_MODULE_PII_KEY not configured on server" } };
 
     const apiKey = await decrypt(encKey, row.api_key_enc);
-    const items = await scanReceiptWithAi(row.provider, apiKey, row.model, fileB64, mimeType);
+
+    // Existing item names, so the AI can reuse an item's exact spelling when
+    // it recognizes the same product on the receipt (2026-07-19 - "wird das
+    // dann den [existing item] hinzugefügt?"). createItemsBulk's match is a
+    // plain case-insensitive name comparison; without this the AI has no way
+    // to know what spelling is already on file, so a differently-worded
+    // guess (e.g. an abbreviation on the receipt) would silently create a
+    // second, near-duplicate item instead of adding a batch to the existing
+    // one. Capped at 300 names - a very large pantry shouldn't blow up the
+    // prompt size; the household's real inventory realistically stays well
+    // under that.
+    const knownItemNames = (await db.query<{ name: string }>(`SELECT name FROM pantry_items ORDER BY name ASC LIMIT 300`)).map((r) => r.name);
+
+    // Same reasoning for categories (2026-07-19 - "woher kommen die
+    // Kategorien beim Import?"): without this, the AI invented generic
+    // English category names that almost never matched the household's own,
+    // so nearly everything came back uncategorized.
+    const knownCategoryNames = (await db.query<{ name: string }>(`SELECT name FROM categories ORDER BY sort_order ASC, name ASC LIMIT 100`)).map((r) => r.name);
+
+    const items = await scanReceiptWithAi(row.provider, apiKey, row.model, fileB64, mimeType, knownItemNames, knownCategoryNames);
 
     if (items.length === 0) {
       return badRequest("the AI provider could not identify any items on this receipt");
