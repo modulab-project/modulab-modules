@@ -130,8 +130,15 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
 
   if (method === "POST" && pathname.match(/^\/items\/[^/]+\/image$/)) {
     const id = pathname.split("/")[2];
-    const { file_path } = body as { file_path: string };
+    const { file_path, file_mime_type } = body as { file_path: string; file_mime_type?: string };
     if (!isSafeFilePath(file_path)) return badRequest("invalid file_path");
+    // Core's upload proxy now also accepts application/pdf (2026-07-19,
+    // added for receipt scanning) - an item photo specifically must still be
+    // an actual image, so reject a PDF here even though Core's own allowlist
+    // would let it through.
+    if (file_mime_type && file_mime_type === "application/pdf") {
+      return badRequest("item photo must be an image, not a PDF");
+    }
     const rows = await db.query(
       `UPDATE pantry_items SET image_path = $1, updated_at = now() WHERE id = $2 RETURNING id`,
       [file_path, id],
