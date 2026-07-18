@@ -78,6 +78,12 @@
   "field_min_stock_placeholder": "optioneel",
   "field_notes": "Notities",
 
+  "image": "Foto",
+  "upload_image": "Foto uploaden",
+  "change_image": "Wijzigen",
+  "delete_image": "Foto verwijderen",
+  "uploading": "Bezig met uploaden…",
+
   "batches_title": "Partijen",
   "add_batch": "Partij toevoegen",
   "no_batches": "Nog geen partijen",

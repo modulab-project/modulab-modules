@@ -78,6 +78,12 @@
   "field_min_stock_placeholder": "optional",
   "field_notes": "Notizen",
 
+  "image": "Foto",
+  "upload_image": "Foto hochladen",
+  "change_image": "Ändern",
+  "delete_image": "Foto entfernen",
+  "uploading": "Wird hochgeladen…",
+
   "batches_title": "Chargen",
   "add_batch": "Charge hinzufügen",
   "no_batches": "Noch keine Chargen",

@@ -78,6 +78,12 @@
   "field_min_stock_placeholder": "opcional",
   "field_notes": "Notas",
 
+  "image": "Foto",
+  "upload_image": "Subir una foto",
+  "change_image": "Cambiar",
+  "delete_image": "Eliminar foto",
+  "uploading": "Subiendo…",
+
   "batches_title": "Lotes",
   "add_batch": "Añadir lote",
   "no_batches": "Aún no hay lotes",

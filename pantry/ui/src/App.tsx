@@ -197,6 +197,25 @@ function useApi(apiBase: string, token: string) {
   return { get, mutate, upload };
 }
 
+// Item photo URLs (2026-07-19 - "haben wir noch etwas vergessen?": the
+// backend has always supported POST/DELETE /items/:id/image, but nothing in
+// the frontend ever called it). Same pattern as recipes/ui/src/App.tsx's
+// imageUrl/setStorageBase - module storage is served from {apiBase minus
+// trailing /api}/storage/{relative path}, with the auth token as a query
+// param since <img> tags can't send an Authorization header.
+let _storageBase = "";
+let _token = "";
+
+function setStorageBase(apiBase: string, token: string) {
+  _storageBase = apiBase.replace(/\/api\/?$/, "") + "/storage";
+  _token = token;
+}
+
+function imageUrl(path: string): string {
+  if (!path) return "";
+  return `${_storageBase}/${path}?t=${encodeURIComponent(_token)}`;
+}
+
 // ── Root component ────────────────────────────────────────────────────────────
 
 const NS = "mod_pantry";
@@ -205,6 +224,7 @@ export default function PantryApp({ moduleName, apiBase, token }: ModuleComponen
   const { t } = useTranslation(NS);
   const [view, setView] = useState<View>({ type: "list" });
   const api = useApi(apiBase, token);
+  setStorageBase(apiBase, token);
 
   // isAdmin: same client-side visibility probe as recipes - the Settings tab
   // (AI provider API keys) must be fully hidden from non-Admins, not just
@@ -492,7 +512,11 @@ function ItemList({
                 container entirely - not just illegible, actually
                 inaccessible.) */}
             <div className="flex min-w-0 basis-full items-center gap-2">
-              <i className="ti ti-package flex-none text-[18px] text-gray-400" />
+              {item.image_path ? (
+                <img src={imageUrl(item.image_path)} alt="" className="h-8 w-8 flex-none rounded-lg object-cover" />
+              ) : (
+                <i className="ti ti-package flex-none text-[18px] text-gray-400" />
+              )}
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <p className="truncate text-sm font-medium">{item.name}</p>
@@ -666,6 +690,16 @@ function ItemEditor({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Item photo (2026-07-19 - "haben wir noch etwas vergessen?": the backend
+  // has always had POST/DELETE /items/:id/image, nothing in the UI ever
+  // called it). Only offered once the item actually exists (id is set) -
+  // unlike recipes' non-unique titles, pantry item names are unique, so
+  // there's no safe placeholder-name draft to create up front the way
+  // recipes does for a brand-new, not-yet-saved recipe.
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [imageUploading, setImageUploading] = useState(false);
+
   useEffect(() => {
     api.get<Category[]>("/categories").then(setCategories).catch(() => {});
     api.get<Location[]>("/locations").then(setLocations).catch(() => {});
@@ -680,12 +714,41 @@ function ItemEditor({
     setMinStock(it.min_stock != null ? formatQty(it.min_stock) : "");
     setNotes(it.notes ?? "");
     setBatches(it.batches);
+    setImagePreview(it.image_path ? imageUrl(it.image_path) : null);
   }, [api, id]);
 
   useEffect(() => {
     if (!id) return;
     reloadItem().catch((e) => setError(String(e))).finally(() => setLoading(false));
   }, [id, reloadItem]);
+
+  async function handleImageUpload(file: File) {
+    if (!id) return;
+    setImageUploading(true);
+    setError(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await api.upload<{ image_path: string }>(`/items/${id}/image`, fd);
+      setImagePreview(imageUrl(res.image_path));
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setImageUploading(false);
+    }
+  }
+
+  async function handleImageDelete() {
+    if (!id) return;
+    setError(null);
+    try {
+      await api.mutate("DELETE", `/items/${id}/image`);
+      setImagePreview(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    } catch (e) {
+      setError(String(e));
+    }
+  }
 
   async function handleSave() {
     if (!name.trim()) { setError(t("name_required")); return; }
@@ -793,6 +856,52 @@ function ItemEditor({
       )}
 
       <div className="space-y-3">
+        {/* Item photo - only once the item exists (id set): unlike recipes'
+            non-unique titles, pantry item names are unique, so there's no
+            safe placeholder-name draft to create before the item is saved
+            for real. New items just don't get a photo slot until they've
+            been saved once, then re-opened for editing. */}
+        {id && (
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">{t("image")}</label>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif,image/avif"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleImageUpload(file);
+              }}
+            />
+            {imagePreview ? (
+              <div className="relative">
+                <img src={imagePreview} alt="" className="h-40 w-full rounded-xl object-cover" />
+                <div className="absolute bottom-2 right-2 flex gap-1.5">
+                  <button type="button" onClick={() => fileInputRef.current?.click()} disabled={imageUploading}
+                    className="flex items-center gap-1.5 rounded-lg bg-black/60 px-3 py-1.5 text-xs font-medium text-white hover:bg-black/80 disabled:opacity-50">
+                    {imageUploading
+                      ? <><i className="ti ti-loader-2 animate-spin text-[12px]" /> {t("uploading")}</>
+                      : <><i className="ti ti-camera text-[12px]" /> {t("change_image")}</>}
+                  </button>
+                  <button type="button" onClick={handleImageDelete} disabled={imageUploading}
+                    title={t("delete_image") as string}
+                    className="flex items-center justify-center rounded-lg bg-black/60 px-2 py-1.5 text-xs text-red-300 hover:bg-red-600/80 hover:text-white disabled:opacity-50">
+                    <i className="ti ti-trash text-[13px]" />
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button type="button" onClick={() => fileInputRef.current?.click()} disabled={imageUploading}
+                className="flex h-32 w-full flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-gray-300 text-sm text-gray-400 hover:border-teal-400 hover:text-teal-600 dark:border-gray-700 disabled:opacity-50">
+                {imageUploading
+                  ? <><i className="ti ti-loader-2 animate-spin text-[22px]" /><span>{t("uploading")}</span></>
+                  : <><i className="ti ti-photo text-[28px]" /><span>{t("upload_image")}</span></>}
+              </button>
+            )}
+          </div>
+        )}
+
         <div>
           <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">{t("field_name")}</label>
           <input type="text" value={name} onChange={(e) => setName(e.target.value)} className={inputCls} style={{ fontSize: "16px" }} autoFocus />

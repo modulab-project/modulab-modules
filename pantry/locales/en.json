@@ -78,6 +78,12 @@
   "field_min_stock_placeholder": "optional",
   "field_notes": "Notes",
 
+  "image": "Photo",
+  "upload_image": "Upload a photo",
+  "change_image": "Change",
+  "delete_image": "Remove photo",
+  "uploading": "Uploading…",
+
   "batches_title": "Batches",
   "add_batch": "Add batch",
   "no_batches": "No batches yet",
