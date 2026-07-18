@@ -27,6 +27,7 @@
   "uncategorized": "Ohne Kategorie",
   "no_location": "Kein Lagerort",
   "batch_count": "{{count}} Chargen",
+  "consume_one": "1 Stück entnehmen",
 
   "badge_expired": "abgelaufen",
   "badge_expiring_in": "läuft in {{count}} Tagen ab",
@@ -67,9 +68,10 @@
   "saving": "Wird gespeichert…",
 
   "scan_title": "Kassenbon scannen",
-  "scan_description": "Fotografiere einen Kassenbon und lass dir per KI Einträge für deine Vorratsliste vorschlagen — nichts wird gespeichert, bevor du bestätigst.",
+  "scan_description": "Fotografiere einen Kassenbon (oder lade ihn als PDF hoch) und lass dir per KI Einträge für deine Vorratsliste vorschlagen — nichts wird gespeichert, bevor du bestätigst.",
   "scan_in_progress": "Bon wird gelesen…",
-  "scan_upload_prompt": "Bon-Foto hochladen",
+  "scan_upload_prompt": "Bon hochladen",
+  "scan_upload_hint": "Foto oder PDF",
   "scan_result_meta": "{{count}} Einträge gefunden ({{provider}}, {{model}})",
   "scan_confirm_add": "{{count}} Einträge hinzufügen",
 

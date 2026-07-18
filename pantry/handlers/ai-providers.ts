@@ -11,6 +11,17 @@
 // vision support, and this call always sends an image. See manifest.yaml's
 // egress_allowlist comment.
 //
+// PDF receipts (2026-07-19, "Bon geht nur als Foto? nicht als PDF?"):
+// Gemini accepts application/pdf through the same inlineData field used for
+// images - no code branch needed, it's handled purely by mimeType. Claude
+// needs a "document" content block instead of "image" for a PDF (see
+// callAnthropic below) - this is GA on the standard 2023-06-01 API version,
+// no beta header required, and works on every current Claude model
+// (confirmed against docs.claude.com/.../pdf-support, 2026-07-19). OpenAI's
+// Chat Completions vision endpoint (used here) has no PDF input path at all -
+// callOpenAi rejects a PDF upfront with a clear error rather than silently
+// sending a data URI the API would just fail to parse as an image.
+//
 // Model names are stored per-provider in ai_pantry_providers.model (free
 // text, admin-editable in Settings) rather than hardcoded here - AI model
 // names change too fast to bake into this file (project convention: always
@@ -140,6 +151,11 @@ async function assertOk(res: Response, provider: string): Promise<void> {
 }
 
 async function callOpenAi(apiKey: string, model: string, imageB64: string, mimeType: string): Promise<ScannedItem[]> {
+  if (mimeType === "application/pdf") {
+    throw new AiProviderError(
+      "OpenAI's receipt scan does not support PDF files here - please upload a photo instead, or switch to Google Gemini or Anthropic Claude for this receipt.",
+    );
+  }
   return withTimeout(async (signal) => {
     const res = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -201,6 +217,14 @@ async function callGoogle(apiKey: string, model: string, imageB64: string, mimeT
 }
 
 async function callAnthropic(apiKey: string, model: string, imageB64: string, mimeType: string): Promise<ScannedItem[]> {
+  // PDF receipts use a "document" content block instead of "image" - GA on
+  // the standard API version (no anthropic-beta header needed), supported on
+  // every current Claude model. See file-header comment for the source.
+  const fileBlock =
+    mimeType === "application/pdf"
+      ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: imageB64 } }
+      : { type: "image", source: { type: "base64", media_type: mimeType, data: imageB64 } };
+
   return withTimeout(async (signal) => {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -218,7 +242,7 @@ async function callAnthropic(apiKey: string, model: string, imageB64: string, mi
           {
             role: "user",
             content: [
-              { type: "image", source: { type: "base64", media_type: mimeType, data: imageB64 } },
+              fileBlock,
               { type: "text", text: USER_PROMPT },
             ],
           },

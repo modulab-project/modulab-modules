@@ -16,6 +16,12 @@
  *   POST   /items/bulk            confirm AI scan suggestions: for each, adds a batch to an
  *                                  existing item with a matching name (case-insensitive), or
  *                                  creates a new item + first batch if none matches
+ *   POST   /items/:id/consume     body: { quantity? } (default 1) - take stock OUT (used it
+ *                                  up / threw it away), the "how do I remove an item from
+ *                                  stock" action (2026-07-19). FEFO: decrements whichever
+ *                                  batch expires soonest first, deleting a batch once it
+ *                                  hits zero; spills over into the next-soonest batch if the
+ *                                  requested amount exceeds the first one found.
  *
  * Batches (one physical lot of an item - quantity, expiry date, storage location)
  *   POST   /items/:id/batches               add a batch to an existing item
@@ -94,6 +100,9 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
   }
   if (route === "POST /items/bulk") {
     return createItemsBulk(db, body as { items: ScanConfirmInput[] }, auth.userId);
+  }
+  if (method === "POST" && pathname.match(/^\/items\/[^/]+\/consume$/)) {
+    return consumeItem(db, segId(pathname), body as { quantity?: number } | undefined);
   }
   if (method === "PATCH" && pathname.match(/^\/items\/[^/]+$/)) {
     return updateItem(db, segId(pathname), body as Partial<ItemInput>);
@@ -317,7 +326,10 @@ async function listItems(db: ModuleDbClient, path: string): Promise<HandlerRespo
     args.slice(0, -2),
   );
 
-  return ok({ items: rows, total: parseInt(countRow?.total ?? "0") });
+  // See num()'s doc comment - quantity/min_stock arrive as NUMERIC strings.
+  const items = rows.map((r: any) => ({ ...r, quantity: num(r.quantity) ?? 0, min_stock: num(r.min_stock) }));
+
+  return ok({ items, total: parseInt(countRow?.total ?? "0") });
 }
 
 async function getItem(db: ModuleDbClient, id: string): Promise<HandlerResponse> {
@@ -336,7 +348,12 @@ async function getItem(db: ModuleDbClient, id: string): Promise<HandlerResponse>
     [id],
   );
 
-  return ok({ ...item, batches });
+  // See num()'s doc comment - quantity/min_stock arrive as NUMERIC strings.
+  return ok({
+    ...item,
+    min_stock: num((item as any).min_stock),
+    batches: batches.map((b: any) => ({ ...b, quantity: num(b.quantity) ?? 0 })),
+  });
 }
 
 async function createItem(db: ModuleDbClient, input: ItemInput, userId: string): Promise<HandlerResponse> {
@@ -414,7 +431,7 @@ async function createBatch(
      RETURNING *`,
     [itemId, input.quantity ?? 0, input.expiry_date ?? null, input.location_id ?? null, addedVia, userId],
   );
-  return created(row);
+  return created({ ...row, quantity: num((row as any).quantity) ?? 0 });
 }
 
 async function updateBatch(db: ModuleDbClient, itemId: string, batchId: string, input: Partial<BatchInput>): Promise<HandlerResponse> {
@@ -429,7 +446,7 @@ async function updateBatch(db: ModuleDbClient, itemId: string, batchId: string, 
     [batchId, itemId, n(input.quantity), n(input.expiry_date), n(input.location_id)],
   );
   if (!row) return notFound("batch");
-  return ok(row);
+  return ok({ ...row, quantity: num((row as any).quantity) ?? 0 });
 }
 
 async function deleteBatch(db: ModuleDbClient, itemId: string, batchId: string): Promise<HandlerResponse> {
@@ -473,9 +490,45 @@ async function createItemsBulk(
        RETURNING *`,
       [itemId, it.quantity ?? 1, it.expiry_date ?? null, it.location_id ?? null, userId],
     );
-    results.push({ item_id: itemId, matched_existing_item: !!existing, batch });
+    results.push({ item_id: itemId, matched_existing_item: !!existing, batch: { ...batch, quantity: num((batch as any).quantity) ?? 0 } });
   }
   return created(results);
+}
+
+// "How do I take an item out of stock?" (2026-07-19 user question) - there
+// was no dedicated action for this before; the only way to reduce stock was
+// editing/deleting a batch by hand. This is the one-tap version: FEFO
+// (first-expiry-first-out), so using up whatever's closest to its best-before
+// date happens automatically instead of the user having to pick a batch.
+async function consumeItem(db: ModuleDbClient, itemId: string, input: { quantity?: number } | undefined): Promise<HandlerResponse> {
+  const amount = input?.quantity && input.quantity > 0 ? input.quantity : 1;
+
+  const [item] = await db.query<{ id: string }>(`SELECT id FROM pantry_items WHERE id = $1`, [itemId]);
+  if (!item) return notFound("item");
+
+  const batches = await db.query<{ id: string; quantity: unknown }>(
+    `SELECT id, quantity FROM pantry_item_batches
+     WHERE item_id = $1 AND quantity > 0
+     ORDER BY expiry_date ASC NULLS LAST, created_at ASC`,
+    [itemId],
+  );
+
+  let remaining = amount;
+  for (const b of batches) {
+    if (remaining <= 0) break;
+    const q = num(b.quantity) ?? 0;
+    if (q <= remaining) {
+      // This batch is fully used up by the request - remove it rather than
+      // leaving a zero-quantity row behind.
+      await db.query(`DELETE FROM pantry_item_batches WHERE id = $1`, [b.id]);
+      remaining -= q;
+    } else {
+      await db.query(`UPDATE pantry_item_batches SET quantity = quantity - $2, updated_at = now() WHERE id = $1`, [b.id, remaining]);
+      remaining = 0;
+    }
+  }
+
+  return ok(await getItem(db, itemId).then((r) => r.body));
 }
 
 // ── AI provider settings ─────────────────────────────────────────────────────
@@ -620,9 +673,15 @@ async function listAiProviderModels(
 
 // ── Receipt scan ──────────────────────────────────────────────────────────────
 
-const MAX_SCAN_IMAGE_BYTES = 8 * 1024 * 1024; // 8 MB - generous for a phone photo of a receipt
+const MAX_SCAN_IMAGE_BYTES = 20 * 1024 * 1024; // 20 MB - a phone photo needs ~8MB headroom, a scanned multi-page PDF can run larger
 
-const SUPPORTED_SCAN_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+// PDF added 2026-07-19 ("Bon geht nur als Foto? nicht als PDF?") - Gemini and
+// Claude both take a PDF through the same code path as an image (see
+// ai-providers.ts), just with a different mimeType/content-block shape.
+// OpenAI has no PDF input path here and rejects it itself in callOpenAi with
+// a clear error, rather than this allowlist silently blocking it earlier for
+// every provider regardless of which one is actually configured.
+const SUPPORTED_SCAN_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "application/pdf"]);
 
 async function scanReceipt(
   db: ModuleDbClient,
@@ -710,6 +769,18 @@ function notFound(what: string): HandlerResponse {
 }
 function badRequest(message: string): HandlerResponse {
   return { status: 400, body: { error: message } };
+}
+
+// Postgres NUMERIC(10,3) columns (quantity, min_stock) come back from the
+// driver as fixed-scale strings, e.g. "80.000" - passed straight through to
+// JSON and displayed as-is, that reads to a user as "80.000" (eighty
+// thousand) rather than "80" (2026-07-19 bug report). Every numeric field
+// that reaches the frontend must go through this first, so it serializes as
+// a plain JS number (80, not "80.000") and trailing zeros disappear.
+function num(v: unknown): number | null {
+  if (v === null || v === undefined) return null;
+  const n = typeof v === "number" ? v : parseFloat(String(v));
+  return Number.isNaN(n) ? null : n;
 }
 
 // Same reasoning/implementation as recipes' isSafeFilePath: image_path/

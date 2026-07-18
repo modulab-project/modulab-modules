@@ -27,6 +27,7 @@
   "uncategorized": "Sin categoría",
   "no_location": "Sin ubicación",
   "batch_count": "{{count}} lotes",
+  "consume_one": "Retirar 1 unidad del stock",
 
   "badge_expired": "caducado",
   "badge_expiring_in": "caduca en {{count}} días",
@@ -67,9 +68,10 @@
   "saving": "Guardando…",
 
   "scan_title": "Escanear un recibo",
-  "scan_description": "Fotografía un recibo y deja que la IA sugiera artículos para tu despensa — no se guarda nada hasta que confirmes.",
+  "scan_description": "Fotografía un recibo (o súbelo como PDF) y deja que la IA sugiera artículos para tu despensa — no se guarda nada hasta que confirmes.",
   "scan_in_progress": "Leyendo recibo…",
-  "scan_upload_prompt": "Subir foto del recibo",
+  "scan_upload_prompt": "Subir un recibo",
+  "scan_upload_hint": "Foto o PDF",
   "scan_result_meta": "{{count}} artículos encontrados ({{provider}}, {{model}})",
   "scan_confirm_add": "Añadir {{count}} artículos",
 

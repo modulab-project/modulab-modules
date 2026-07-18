@@ -27,6 +27,7 @@
   "uncategorized": "Sans catégorie",
   "no_location": "Aucun emplacement",
   "batch_count": "{{count}} lots",
+  "consume_one": "Retirer 1 unité du stock",
 
   "badge_expired": "expiré",
   "badge_expiring_in": "expire dans {{count}} j",
@@ -67,9 +68,10 @@
   "saving": "Enregistrement…",
 
   "scan_title": "Scanner un ticket de caisse",
-  "scan_description": "Photographiez un ticket de caisse et laissez l'IA suggérer des articles à ajouter à votre garde-manger — rien n'est enregistré avant confirmation.",
+  "scan_description": "Photographiez un ticket de caisse (ou téléversez-le en PDF) et laissez l'IA suggérer des articles à ajouter à votre garde-manger — rien n'est enregistré avant confirmation.",
   "scan_in_progress": "Lecture du ticket…",
-  "scan_upload_prompt": "Téléverser une photo du ticket",
+  "scan_upload_prompt": "Téléverser un ticket",
+  "scan_upload_hint": "Photo ou PDF",
   "scan_result_meta": "{{count}} articles trouvés ({{provider}}, {{model}})",
   "scan_confirm_add": "Ajouter {{count}} articles",
 

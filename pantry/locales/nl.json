@@ -27,6 +27,7 @@
   "uncategorized": "Zonder categorie",
   "no_location": "Geen locatie",
   "batch_count": "{{count}} partijen",
+  "consume_one": "1 stuk uit voorraad halen",
 
   "badge_expired": "verlopen",
   "badge_expiring_in": "verloopt over {{count}} dagen",
@@ -67,9 +68,10 @@
   "saving": "Bezig met opslaan…",
 
   "scan_title": "Kassabon scannen",
-  "scan_description": "Fotografeer een kassabon en laat AI items voorstellen voor je voorraadkast — er wordt niets opgeslagen totdat je bevestigt.",
+  "scan_description": "Fotografeer een kassabon (of upload hem als PDF) en laat AI items voorstellen voor je voorraadkast — er wordt niets opgeslagen totdat je bevestigt.",
   "scan_in_progress": "Bon wordt gelezen…",
-  "scan_upload_prompt": "Bonfoto uploaden",
+  "scan_upload_prompt": "Bon uploaden",
+  "scan_upload_hint": "Foto of PDF",
   "scan_result_meta": "{{count}} items gevonden ({{provider}}, {{model}})",
   "scan_confirm_add": "{{count}} items toevoegen",
 

@@ -27,6 +27,7 @@
   "uncategorized": "Uncategorized",
   "no_location": "No location",
   "batch_count": "{{count}} batches",
+  "consume_one": "Take 1 out of stock",
 
   "badge_expired": "expired",
   "badge_expiring_in": "expires in {{count}}d",
@@ -67,9 +68,10 @@
   "saving": "Saving…",
 
   "scan_title": "Scan a receipt",
-  "scan_description": "Photograph a receipt and let AI suggest items to add to your pantry — nothing is saved until you confirm.",
+  "scan_description": "Photograph a receipt (or upload it as a PDF) and let AI suggest items to add to your pantry — nothing is saved until you confirm.",
   "scan_in_progress": "Reading receipt…",
-  "scan_upload_prompt": "Upload a receipt photo",
+  "scan_upload_prompt": "Upload a receipt",
+  "scan_upload_hint": "Photo or PDF",
   "scan_result_meta": "{{count}} items found ({{provider}}, {{model}})",
   "scan_confirm_add": "Add {{count}} items",
 

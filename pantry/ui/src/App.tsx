@@ -335,6 +335,19 @@ function ItemList({
     }
   }
 
+  // "Wie entnehme ich einen Artikel aus dem Bestand?" (2026-07-19) - one tap
+  // takes 1 unit out via FEFO (POST /items/:id/consume), no batch-picking
+  // required. For removing more than 1 at once, or from a specific batch,
+  // the item editor's batch list still supports editing/deleting by hand.
+  async function handleConsume(id: string) {
+    try {
+      await api.mutate("POST", `/items/${id}/consume`, { quantity: 1 });
+      await load();
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
   const lowStockCount = items.filter((i) => i.is_low_stock).length;
   const expiringCount = items.filter((i) => i.days_until_expiry != null && i.days_until_expiry <= 3).length;
 
@@ -444,8 +457,13 @@ function ItemList({
               </p>
             </div>
             <span className="flex-none text-sm text-gray-500 dark:text-gray-400">
-              {item.quantity} {item.unit ?? ""}
+              {formatQty(item.quantity)} {item.unit ?? ""}
             </span>
+            <button type="button" onClick={() => handleConsume(item.id)} disabled={item.quantity <= 0}
+              title={t("consume_one") as string}
+              className="flex-none rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 disabled:opacity-30 dark:hover:bg-gray-800">
+              <i className="ti ti-minus text-[14px]" />
+            </button>
             {item.is_expired ? (
               <Badge tone="danger">{t("badge_expired")}</Badge>
             ) : item.days_until_expiry != null && item.days_until_expiry <= 3 ? (
@@ -467,6 +485,19 @@ function ItemList({
       </div>
     </div>
   );
+}
+
+// Defensive display formatting for quantity/min_stock (2026-07-19 bug
+// report: "80" was showing as "80.000 Stück"). The backend now converts its
+// NUMERIC(10,3) columns to real JS numbers before sending them (see
+// handlers/index.ts's num()), but this still guards against a raw numeric
+// string slipping through and formats away any trailing ".000"/".50" noise
+// that Number()'s default toString wouldn't otherwise add back in.
+function formatQty(v: number | string | null | undefined): string {
+  if (v === null || v === undefined) return "";
+  const n = typeof v === "number" ? v : parseFloat(v);
+  if (Number.isNaN(n)) return "";
+  return String(Math.round(n * 1000) / 1000);
 }
 
 function MetricCard({ label, value, tone }: { label: string; value: number; tone?: "warning" | "danger" }) {
@@ -542,7 +573,7 @@ function ItemEditor({
     setName(it.name);
     setCategoryId(it.category_id ?? "");
     setUnit(it.unit ?? "");
-    setMinStock(it.min_stock != null ? String(it.min_stock) : "");
+    setMinStock(it.min_stock != null ? formatQty(it.min_stock) : "");
     setNotes(it.notes ?? "");
     setBatches(it.batches);
   }, [api, id]);
@@ -706,7 +737,7 @@ function ItemEditor({
         )}
         {id && batches.map((b) => (
           <div key={b.id} className="mb-2 flex items-center gap-2">
-            <input type="number" min={0} step="0.01" defaultValue={b.quantity}
+            <input type="number" min={0} step="0.01" defaultValue={formatQty(b.quantity)}
               onBlur={(e) => handleUpdateBatch(b.id, { quantity: parseFloat(e.target.value) || 0 })}
               className={`w-20 ${smallInputCls}`} style={{ fontSize: "16px" }} />
             <input type="date" defaultValue={b.expiry_date ?? ""}
@@ -866,7 +897,7 @@ function ScanView({ api, onDone }: { api: ReturnType<typeof useApi>; onDone: () 
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/jpeg,image/png,image/webp"
+        accept="image/jpeg,image/png,image/webp,application/pdf"
         className="hidden"
         onChange={(e) => {
           const file = e.target.files?.[0];
@@ -890,6 +921,7 @@ function ScanView({ api, onDone }: { api: ReturnType<typeof useApi>; onDone: () 
             <>
               <i className="ti ti-camera text-[28px] text-gray-300 dark:text-gray-700" />
               <span className="text-sm font-medium text-teal-700 dark:text-teal-300">{t("scan_upload_prompt")}</span>
+              <span className="text-xs text-gray-400">{t("scan_upload_hint")}</span>
             </>
           )}
         </button>
