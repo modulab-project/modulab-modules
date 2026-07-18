@@ -51,7 +51,7 @@
     "name": "pantry",
     "version": "0.1.5",
     "release_url": "https://github.com/modulab-project/modulab-modules/releases/download/pantry-v0.1.5/pantry-v0.1.5.zip",
-    "sha256": "0f198ba7c407d9d920686ee02f630705c760559345810c349a826d01ce114707",
+    "sha256": "0aa47004a6758c7069ca6dbd2d73b709f9fd954afdb86b40af92bb9aa37a1634",
     "cosign_sig_url": "https://github.com/modulab-project/modulab-modules/releases/download/pantry-v0.1.5/pantry-v0.1.5.zip.cosign.bundle",
     "category": "productivity",
     "description": {
