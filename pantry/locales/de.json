@@ -58,6 +58,9 @@
   "badge_expiring_in": "läuft in {{count}} Tagen ab",
   "badge_expiry_date": "MHD {{date}}",
   "badge_low_stock": "Bestand niedrig",
+  "stock_status_ok": "Ausreichend vorhanden",
+  "stock_status_warning": "Mindestbestand erreicht",
+  "stock_status_critical": "Mindestbestand unterschritten",
 
   "back": "Zurück",
   "edit_item": "Eintrag bearbeiten",

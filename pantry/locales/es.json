@@ -58,6 +58,9 @@
   "badge_expiring_in": "caduca en {{count}} días",
   "badge_expiry_date": "caduca el {{date}}",
   "badge_low_stock": "stock bajo",
+  "stock_status_ok": "Stock suficiente",
+  "stock_status_warning": "Stock mínimo alcanzado",
+  "stock_status_critical": "Por debajo del stock mínimo",
 
   "back": "Volver",
   "edit_item": "Editar artículo",

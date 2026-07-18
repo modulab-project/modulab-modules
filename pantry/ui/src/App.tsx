@@ -45,6 +45,10 @@ interface PantryItem {
   batch_count: number;
   added_via_ai_scan: boolean; // true if any batch was added via AI scan
   is_low_stock: boolean;
+  // Traffic-light stock indicator (2026-07-19 user request: "grün genug
+  // Menge, gelb Mindestbestand, rot Mindestbestand unterschritten") - null
+  // when the item has no min_stock set (nothing to compare against).
+  stock_status: "ok" | "warning" | "critical" | null;
   is_expired: boolean;
   days_until_expiry: number | null;
   updated_at: string;
@@ -461,17 +465,26 @@ function ItemList({
             key={item.id}
             className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-gray-100 px-4 py-3 last:border-b-0 dark:border-gray-800"
           >
-            {/* Name/category block: full row width on narrow screens
-                (basis-full) so everything below always wraps onto its own
-                line instead of being squeezed or clipped off - the mobile
-                layout bug reported 2026-07-19 ("auf einem mobile device
-                passt nichts", "ich finde nicht die Funktion wenn ich etwas
-                entnehme"): this row used to be a single non-wrapping flex
-                line, so on a narrow screen the quantity/consume/badges/edit/
-                delete controls either got squeezed unreadably or clipped
-                outside the list's rounded (overflow-hidden) container
-                entirely - not just illegible, actually inaccessible. */}
-            <div className="flex min-w-0 basis-full items-center gap-2 sm:basis-auto sm:flex-1">
+            {/* Name/category block: always full row width (basis-full, no
+                sm:basis-auto override) so every item gets the same fixed
+                two-line layout - name/category on line one, quantity/
+                badges/actions on line two - regardless of screen size or
+                how long the name happens to be (2026-07-19 user request:
+                "auf zwei Zeilen aufteilen, dann ist es für alle gleich und
+                nicht nur für lange Namen"). Originally this only kicked in
+                on narrow screens to fix a mobile clipping bug (see below),
+                but a name-length-dependent layout meant short names sat on
+                one line and long ones on two - inconsistent from row to
+                row. Now every row looks the same.
+                (2026-07-19 mobile fix this was built on: "auf einem mobile
+                device passt nichts", "ich finde nicht die Funktion wenn ich
+                etwas entnehme" - this row used to be a single non-wrapping
+                flex line, so on a narrow screen the quantity/consume/
+                badges/edit/delete controls either got squeezed unreadably
+                or clipped outside the list's rounded (overflow-hidden)
+                container entirely - not just illegible, actually
+                inaccessible.) */}
+            <div className="flex min-w-0 basis-full items-center gap-2">
               <i className="ti ti-package flex-none text-[18px] text-gray-400" />
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
@@ -492,8 +505,16 @@ function ItemList({
                 button are grouped into one pill so it reads as "take one of
                 this quantity out" rather than a lone, easy-to-miss icon
                 floating among other icon buttons. */}
-            <div className="ml-auto flex flex-wrap items-center gap-2 sm:ml-0">
-              <div className="flex flex-none items-center gap-1 rounded-lg bg-gray-50 py-1 pl-2.5 pr-1 dark:bg-gray-800">
+            {/* Now always its own second line (name block above is always
+                basis-full) - ml-auto keeps it right-aligned on that line at
+                every screen size, no more sm:ml-0 toggle needed. */}
+            <div className="ml-auto flex flex-wrap items-center gap-2">
+              <div className="flex flex-none items-center gap-1.5 rounded-lg bg-gray-50 py-1 pl-2.5 pr-1 dark:bg-gray-800">
+                {/* Traffic-light stock dot (2026-07-19 user request) - replaces
+                    the old separate red "low stock" text badge below with an
+                    always-visible green/amber/red indicator right next to the
+                    quantity it's about; null (no min_stock set) shows nothing. */}
+                <StockDot status={item.stock_status} t={t} />
                 <span className="text-sm text-gray-600 dark:text-gray-300">{formatQty(item.quantity)} {item.unit ?? ""}</span>
                 <button type="button" onClick={() => handleConsume(item.id)} disabled={item.quantity <= 0}
                   title={t("consume_one") as string}
@@ -508,7 +529,6 @@ function ItemList({
               ) : item.expiry_date ? (
                 <Badge tone="neutral">{t("badge_expiry_date", { date: item.expiry_date })}</Badge>
               ) : null}
-              {item.is_low_stock && <Badge tone="danger">{t("badge_low_stock")}</Badge>}
               <button type="button" onClick={() => onEdit(item.id)}
                 className="flex-none rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800">
                 <i className="ti ti-pencil text-[14px]" />
@@ -557,6 +577,22 @@ function Badge({ tone, children }: { tone: "neutral" | "warning" | "danger"; chi
         ? "bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300"
         : "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400";
   return <span className={`flex-none whitespace-nowrap rounded-full px-2 py-0.5 text-xs ${cls}`}>{children}</span>;
+}
+
+// Traffic-light stock indicator (2026-07-19 - "grün genug Menge, gelb
+// Mindestbestand, rot Mindestbestand unterschritten"). A plain colored dot
+// rather than a text badge - it sits directly against the quantity/consume
+// pill, so its meaning is obvious from position alone without adding more
+// text to an already tight row (see the mobile-overflow fix above). null
+// (no min_stock configured for this item) renders nothing - there's no
+// threshold to show a light for.
+function StockDot({ status, t }: { status: "ok" | "warning" | "critical" | null; t: (key: string) => string }) {
+  if (!status) return null;
+  const color =
+    status === "critical" ? "bg-red-500" : status === "warning" ? "bg-amber-500" : "bg-green-500";
+  const label =
+    status === "critical" ? t("stock_status_critical") : status === "warning" ? t("stock_status_warning") : t("stock_status_ok");
+  return <span className={`h-2 w-2 flex-none rounded-full ${color}`} title={label} />;
 }
 
 // ── ItemEditor ────────────────────────────────────────────────────────────────

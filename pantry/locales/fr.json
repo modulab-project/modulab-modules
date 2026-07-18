@@ -58,6 +58,9 @@
   "badge_expiring_in": "expire dans {{count}} j",
   "badge_expiry_date": "à consommer avant le {{date}}",
   "badge_low_stock": "stock faible",
+  "stock_status_ok": "Stock suffisant",
+  "stock_status_warning": "Stock minimum atteint",
+  "stock_status_critical": "Sous le stock minimum",
 
   "back": "Retour",
   "edit_item": "Modifier l'article",

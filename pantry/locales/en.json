@@ -58,6 +58,9 @@
   "badge_expiring_in": "expires in {{count}}d",
   "badge_expiry_date": "best before {{date}}",
   "badge_low_stock": "low stock",
+  "stock_status_ok": "Enough in stock",
+  "stock_status_warning": "At minimum stock",
+  "stock_status_critical": "Below minimum stock",
 
   "back": "Back",
   "edit_item": "Edit item",

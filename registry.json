@@ -49,10 +49,10 @@
   },
   {
     "name": "pantry",
-    "version": "0.1.8",
-    "release_url": "https://github.com/modulab-project/modulab-modules/releases/download/pantry-v0.1.8/pantry-v0.1.8.zip",
-    "sha256": "a21306b8482eb192bf0df70513ab24ab048f9f43361513d1d7dd7efd1f89403b",
-    "cosign_sig_url": "https://github.com/modulab-project/modulab-modules/releases/download/pantry-v0.1.8/pantry-v0.1.8.zip.cosign.bundle",
+    "version": "0.1.9",
+    "release_url": "https://github.com/modulab-project/modulab-modules/releases/download/pantry-v0.1.9/pantry-v0.1.9.zip",
+    "sha256": "1484c52de467d0c6a23863c8381c15815209f53c662c4b92ca893765b247f16f",
+    "cosign_sig_url": "https://github.com/modulab-project/modulab-modules/releases/download/pantry-v0.1.9/pantry-v0.1.9.zip.cosign.bundle",
     "category": "productivity",
     "description": {
       "en": "Household pantry inventory with expiry tracking and AI receipt scanning",

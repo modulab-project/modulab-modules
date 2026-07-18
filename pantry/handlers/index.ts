@@ -304,6 +304,19 @@ async function listItems(db: ModuleDbClient, path: string): Promise<HandlerRespo
             COALESCE(agg.batch_count, 0) AS batch_count,
             COALESCE(agg.has_ai_scan_batch, false) AS added_via_ai_scan,
             (i.min_stock IS NOT NULL AND COALESCE(agg.total_quantity, 0) <= i.min_stock) AS is_low_stock,
+            -- Traffic-light stock indicator (2026-07-19 user request): null
+            -- when the item has no min_stock set at all (nothing to compare
+            -- against, so no light shown), 'critical' below the threshold,
+            -- 'warning' exactly at it, 'ok' above it. is_low_stock above is
+            -- kept as-is (its <=-based true/false is still what the
+            -- low-stock filter and the metric count use) - this is a finer-
+            -- grained view of the same comparison for the UI dot.
+            (CASE
+               WHEN i.min_stock IS NULL THEN NULL
+               WHEN COALESCE(agg.total_quantity, 0) < i.min_stock THEN 'critical'
+               WHEN COALESCE(agg.total_quantity, 0) = i.min_stock THEN 'warning'
+               ELSE 'ok'
+             END) AS stock_status,
             (agg.nearest_expiry_date IS NOT NULL AND agg.nearest_expiry_date <= CURRENT_DATE) AS is_expired,
             (agg.nearest_expiry_date - CURRENT_DATE) AS days_until_expiry
      FROM pantry_items i

@@ -58,6 +58,9 @@
   "badge_expiring_in": "verloopt over {{count}} dagen",
   "badge_expiry_date": "THT {{date}}",
   "badge_low_stock": "lage voorraad",
+  "stock_status_ok": "Voldoende op voorraad",
+  "stock_status_warning": "Minimumvoorraad bereikt",
+  "stock_status_critical": "Onder minimumvoorraad",
 
   "back": "Terug",
   "edit_item": "Item bewerken",
