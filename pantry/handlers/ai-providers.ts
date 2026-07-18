@@ -467,8 +467,17 @@ export const AI_PROVIDER_NAMES: AiProviderName[] = ["openai", "google", "anthrop
 
 // Defaults picked for multimodal/vision support at each provider, not
 // necessarily the same default model recipes uses for its text-only call.
+//
+// google updated 2026-07-19: "gemini-3.1-flash" no longer appears in
+// Google's current model lineup at all (checked ai.google.dev/gemini-api/
+// docs/models live) - only gemini-3.1-flash-lite, gemini-3.5-flash (stable),
+// gemini-3.1-pro-preview and gemini-3-flash-preview (both preview) remain.
+// gemini-3.5-flash is the current stable, frontier-class model and the
+// right pick for receipt OCR: preview models carry tighter rate limits and
+// no stability guarantee, and 3.1 Pro's reasoning/agentic focus is
+// unnecessary weight for straightforward document extraction.
 export const AI_PROVIDER_DEFAULT_MODELS: Record<AiProviderName, string> = {
   openai: "gpt-5.6",
-  google: "gemini-3.1-flash",
+  google: "gemini-3.5-flash",
   anthropic: "claude-haiku-4-5",
 };

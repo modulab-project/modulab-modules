@@ -1416,7 +1416,7 @@ function LocationsView({ api }: { api: ReturnType<typeof useApi> }) {
 
 const AI_PROVIDERS: { id: string; label: string; placeholder_model: string }[] = [
   { id: "openai", label: "OpenAI", placeholder_model: "gpt-5.6" },
-  { id: "google", label: "Google Gemini", placeholder_model: "gemini-3.1-flash" },
+  { id: "google", label: "Google Gemini", placeholder_model: "gemini-3.5-flash" },
   { id: "anthropic", label: "Anthropic Claude", placeholder_model: "claude-haiku-4-5" },
 ];
 
