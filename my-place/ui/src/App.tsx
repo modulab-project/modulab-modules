@@ -132,6 +132,48 @@ function extractErrorMessage(status: number, txt: string): string {
   return txt;
 }
 
+// Bekannte Backend-Fehlercodes (badRequest("name_required") etc., siehe
+// handlers/index.ts) werden auf i18n-Keys gemappt; alles andere (z. B.
+// Netzwerkfehler, HTML-Fehlerseiten von Cloudflare/Traefik) wird unverändert
+// als Rohtext angezeigt. Jeder Code, den handlers/index.ts zurückgeben kann,
+// muss hier vertreten sein — siehe README/Audit-Vorgabe: keine unbekannten
+// Codes mehr.
+const KNOWN_ERROR_CODES: Record<string, string> = {
+  pii_key_not_configured: "error_pii_key_not_configured",
+  invalid_file_path: "error_invalid_file_path",
+  max_photos_reached: "error_max_photos_reached",
+  name_required: "error_name_required",
+  name_empty: "error_name_empty",
+  invalid_coordinates: "error_invalid_coordinates",
+  not_found: "error_not_found",
+  forbidden: "error_forbidden",
+};
+
+function translateApiError(err: unknown, t: (k: string, opts?: Record<string, unknown>) => string): string {
+  const raw = err instanceof Error ? err.message : String(err);
+
+  // Backend-Fehler kommen als HTTP-Response-Body (JSON) durch useApi.get/
+  // mutate/upload, z. B. {"error":"max_photos_reached","max":20} — nicht als
+  // reiner Code-String. Zusätzliche Felder (z. B. "max") werden als i18n-
+  // Interpolationswerte durchgereicht (siehe error_max_photos_reached in den
+  // locales, das {{max}} nutzt).
+  let code = raw.trim();
+  let params: Record<string, unknown> | undefined;
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed.error === "string") {
+      code = parsed.error;
+      const { error: _error, ...rest } = parsed;
+      if (Object.keys(rest).length > 0) params = rest;
+    }
+  } catch {
+    // kein JSON (z. B. Netzwerkfehler, HTTP-Statustext) — raw bleibt wie es ist
+  }
+
+  const key = KNOWN_ERROR_CODES[code];
+  return key ? t(key, params) : raw;
+}
+
 function useApi(apiBase: string, token: string) {
   const base = apiBase.endsWith("/") ? apiBase.slice(0, -1) : apiBase;
 
@@ -669,7 +711,7 @@ function SpotDetail({ api, id, onBack, onEdit, onDeleted, t }: {
       await api.upload(`/spots/${id}/photos`, fd);
       reload();
     } catch (err) {
-      setUploadErr(String(err));
+      setUploadErr(translateApiError(err, t));
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -682,7 +724,7 @@ function SpotDetail({ api, id, onBack, onEdit, onDeleted, t }: {
       await api.mutate<void>("DELETE", `/spots/${id}/photos/${photoId}`);
       setSpot((prev) => prev ? { ...prev, photos: (prev.photos ?? []).filter((p) => p.id !== photoId) } : prev);
     } catch (err) {
-      setUploadErr(String(err));
+      setUploadErr(translateApiError(err, t));
     }
   }
 
@@ -824,7 +866,7 @@ function SpotEditor({ api, id, trips, categories, onDone, onCancel, t }: {
         setSavedId(c.id);
         // Stay on editor to allow photo upload — user clicks "Fertig" when done
       }
-    } catch (e) { setError(String(e)); }
+    } catch (e) { setError(translateApiError(e, t)); }
     finally { setSaving(false); }
   };
 
@@ -838,7 +880,7 @@ function SpotEditor({ api, id, trips, categories, onDone, onCancel, t }: {
       await api.upload(`/spots/${savedId}/photos`, fd);
       reloadPhotos(savedId);
     } catch (err) {
-      setUploadErr(String(err));
+      setUploadErr(translateApiError(err, t));
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -853,7 +895,7 @@ function SpotEditor({ api, id, trips, categories, onDone, onCancel, t }: {
       setPhotos((prev) => prev.filter((p) => p.id !== photoId));
       reloadPhotos(savedId);
     } catch (err) {
-      setUploadErr(String(err));
+      setUploadErr(translateApiError(err, t));
     }
   }
 
@@ -911,8 +953,8 @@ function SpotEditor({ api, id, trips, categories, onDone, onCancel, t }: {
           <div>
             <label className={labelCls}>{t("spot_location")}</label>
             <div className="grid grid-cols-2 gap-2 mb-2">
-              <input value={lat} onChange={(e) => setLat(e.target.value)} placeholder="Lat" className={inputCls} style={{ fontSize: "16px" }} />
-              <input value={lng} onChange={(e) => setLng(e.target.value)} placeholder="Lng" className={inputCls} style={{ fontSize: "16px" }} />
+              <input value={lat} onChange={(e) => setLat(e.target.value)} placeholder={t("placeholder_lat")} className={inputCls} style={{ fontSize: "16px" }} />
+              <input value={lng} onChange={(e) => setLng(e.target.value)} placeholder={t("placeholder_lng")} className={inputCls} style={{ fontSize: "16px" }} />
             </div>
             <button type="button" onClick={handleGps} className={btnSecondary}>
               <i className="ti ti-current-location text-[13px]" /> {t("btn_use_gps")}
@@ -965,7 +1007,7 @@ function TripsView({ trips, api, onReload, t }: {
   trips: Trip[];
   api: ReturnType<typeof useApi>;
   onReload: () => void;
-  t: (k: string) => string;
+  t: (k: string, opts?: Record<string, unknown>) => string;
 }) {
   const [editingId, setEditingId] = useState<string | "new" | null>(null);
   const [name, setName] = useState("");
@@ -986,7 +1028,7 @@ function TripsView({ trips, api, onReload, t }: {
       if (editingId === "new") await api.mutate("POST", "/trips", body);
       else await api.mutate("PATCH", `/trips/${editingId}`, body);
       cancelEdit(); onReload();
-    } catch (e) { setError(String(e)); }
+    } catch (e) { setError(translateApiError(e, t)); }
     finally { setSaving(false); }
   };
 
@@ -1058,7 +1100,7 @@ function CategoriesView({ categories, api, onReload, t }: {
   categories: Category[];
   api: ReturnType<typeof useApi>;
   onReload: () => void;
-  t: (k: string) => string;
+  t: (k: string, opts?: Record<string, unknown>) => string;
 }) {
   const [editingId, setEditingId] = useState<string | "new" | null>(null);
   const [name, setName] = useState("");
@@ -1078,7 +1120,7 @@ function CategoriesView({ categories, api, onReload, t }: {
       if (editingId === "new") await api.mutate("POST", "/categories", body);
       else await api.mutate("PATCH", `/categories/${editingId}`, body);
       cancelEdit(); onReload();
-    } catch (e) { setError(String(e)); }
+    } catch (e) { setError(translateApiError(e, t)); }
     finally { setSaving(false); }
   };
 

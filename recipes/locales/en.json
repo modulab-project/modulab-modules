@@ -142,5 +142,35 @@
   "servings_increase": "More servings",
   "servings_reset": "reset to {{count}}",
 
-  "nutrition_per_serving": "Nutrition per serving"
+  "nutrition_per_serving": "Nutrition per serving",
+
+  "error_not_found": "Not found.",
+  "error_invalid_file_path": "Invalid file path.",
+  "error_invalid_day": "Day must be between 1 and 7.",
+  "error_invalid_slot": "Invalid meal slot.",
+  "error_invalid_source_url": "Invalid source URL.",
+  "error_invalid_step_image_path": "Invalid image path for a step.",
+  "error_forbidden": "You don't have permission to do this.",
+  "error_invalid_provider": "Invalid AI provider.",
+  "error_pii_key_not_configured": "Encryption key is not configured on the server.",
+  "error_api_key_required_first_time": "An API key is required when configuring a provider for the first time.",
+  "error_no_api_key_configured": "No API key configured for this provider.",
+  "error_provider_not_configured": "This provider is not configured or is disabled. Set it up under Settings first.",
+  "error_no_ai_provider_configured": "No AI provider is configured. Set one up under Settings first.",
+  "error_no_ingredients_to_estimate": "This recipe has no ingredients to estimate from.",
+  "error_category_not_found": "Category not found.",
+  "error_provider_config_not_found": "Provider configuration not found.",
+  "error_no_nutrition_data": "The AI provider returned no usable nutrition data.",
+  "error_ai_provider_api_error": "{{provider}} reported an error (status {{status}}).",
+  "error_ai_provider_bad_response": "The AI provider's response could not be processed.",
+
+  "unit_tablespoon": "tbsp",
+  "unit_teaspoon": "tsp",
+  "unit_piece": "pc",
+  "unit_pinch": "pinch",
+  "unit_bunch": "bunch",
+  "unit_can": "can",
+  "unit_package": "pkg",
+  "unit_slice": "slice",
+  "unit_clove": "clove"
 }

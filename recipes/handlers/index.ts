@@ -1,5 +1,5 @@
 /**
- * Recipes module — Deno Tier 2 handler
+ * Recipes module — Deno Tier 3 handler
  *
  * Routes (all under /v1/modules/recipes/api/):
  *
@@ -99,7 +99,7 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
   if (method === "POST" && pathname.match(/^\/recipes\/[^/]+\/image$/)) {
     const id = pathname.split("/")[2];
     const { file_path } = body as { file_path: string };
-    if (!isSafeFilePath(file_path)) return badRequest("invalid file_path");
+    if (!isSafeFilePath(file_path)) return badRequest("invalid_file_path");
     await db.query(
       `UPDATE recipes SET image_path = $1, updated_at = now() WHERE id = $2`,
       [file_path, id],
@@ -237,15 +237,15 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
     // chars" shape, not the actual allowed range/values — an out-of-range
     // day or unknown slot reached the INSERT and hit meal_plan_entries' own
     // CHECK constraints as a raw, unhandled 500 instead of a clear 400.
-    if (!isValidDayOfWeek(dayNum)) return badRequest("day must be between 1 and 7");
-    if (!isValidMealSlot(slot)) return badRequest(`slot must be one of: ${VALID_MEAL_SLOTS.join(", ")}`);
+    if (!isValidDayOfWeek(dayNum)) return badRequest("invalid_day");
+    if (!isValidMealSlot(slot)) return badRequest("invalid_slot");
     return setMealPlanEntry(db, weekStart, dayNum, slot, body as MealPlanInput, auth.userId);
   }
   if (method === "DELETE" && pathname.match(/^\/meal-plan\/[^/]+\/\d+\/\w+$/)) {
     const [, , weekStart, day, slot] = pathname.split("/");
     const dayNum = parseInt(day);
-    if (!isValidDayOfWeek(dayNum)) return badRequest("day must be between 1 and 7");
-    if (!isValidMealSlot(slot)) return badRequest(`slot must be one of: ${VALID_MEAL_SLOTS.join(", ")}`);
+    if (!isValidDayOfWeek(dayNum)) return badRequest("invalid_day");
+    if (!isValidMealSlot(slot)) return badRequest("invalid_slot");
     await db.query(
       `DELETE FROM meal_plan_entries WHERE week_start = $1 AND day_of_week = $2 AND meal_slot = $3`,
       [weekStart, dayNum, slot],
@@ -276,7 +276,7 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
     return estimateNutritionWithAi(db, id, body as { provider?: string } | undefined, piiCrypto);
   }
 
-  return { status: 404, body: { error: "not found" } };
+  return { status: 404, body: { error: "not_found" } };
 }
 
 // ── Recipe helpers ────────────────────────────────────────────────────────────
@@ -387,8 +387,8 @@ async function createRecipe(
   // Bugfix (2026-07-05): title has a NOT NULL constraint but no non-empty
   // check, so a bare "" previously reached the INSERT and created an
   // untitled, effectively unusable recipe.
-  if (!input.title || !input.title.trim()) return badRequest("title is required");
-  if (input.source_url && !isSafeUrl(input.source_url)) return badRequest("invalid source_url");
+  if (!input.title || !input.title.trim()) return badRequest("title_required");
+  if (input.source_url && !isSafeUrl(input.source_url)) return badRequest("invalid_source_url");
   const [row] = await db.query(
     `INSERT INTO recipes
        (title, description, category_id, servings, prep_time_min, cook_time_min,
@@ -420,8 +420,8 @@ async function updateRecipe(
   // COALESCE($n, col) correctly falls back to the existing column value.
   const n = (v: unknown) => (v === undefined || v === "" ? null : v);
 
-  if (input.title !== undefined && !input.title.trim()) return badRequest("title cannot be empty");
-  if (input.source_url && !isSafeUrl(input.source_url)) return badRequest("invalid source_url");
+  if (input.title !== undefined && !input.title.trim()) return badRequest("title_required");
+  if (input.source_url && !isSafeUrl(input.source_url)) return badRequest("invalid_source_url");
 
   const [row] = await db.query(
     `UPDATE recipes SET
@@ -504,7 +504,7 @@ async function replaceSteps(
 ): Promise<HandlerResponse> {
   for (const step of inputs) {
     if (step.image_path && !isSafeFilePath(step.image_path)) {
-      return badRequest(`invalid image_path for step: ${step.image_path}`);
+      return badRequest("invalid_step_image_path");
     }
   }
   await db.query(`DELETE FROM recipe_steps WHERE recipe_id = $1`, [recipeId]);
@@ -660,7 +660,7 @@ function isAdmin(auth: ModuleAuthContext): boolean {
 }
 
 function forbidden(): HandlerResponse {
-  return { status: 403, body: { error: "Forbidden" } };
+  return { status: 403, body: { error: "forbidden" } };
 }
 
 interface AiProviderRow {
@@ -704,10 +704,10 @@ async function upsertAiProvider(
 ): Promise<HandlerResponse> {
   if (!isAdmin(auth)) return forbidden();
   if (!AI_PROVIDER_NAMES.includes(provider as AiProviderName)) {
-    return badRequest(`provider must be one of: ${AI_PROVIDER_NAMES.join(", ")}`);
+    return badRequest("invalid_provider");
   }
   const encKey = piiCrypto.key;
-  if (!encKey) return { status: 500, body: { error: "MODULAB_MODULE_PII_KEY not configured on server" } };
+  if (!encKey) return { status: 500, body: { error: "pii_key_not_configured" } };
 
   const { api_key, model, enabled, is_default } = body as {
     api_key?: string;
@@ -720,7 +720,7 @@ async function upsertAiProvider(
     `SELECT * FROM ai_nutrition_providers WHERE provider = $1`,
     [provider],
   );
-  if (!existing && !api_key) return badRequest("api_key is required when configuring a provider for the first time");
+  if (!existing && !api_key) return badRequest("api_key_required_first_time");
 
   const resolvedModel = (model && model.trim()) || existing?.model || AI_PROVIDER_DEFAULT_MODELS[provider as AiProviderName];
   const resolvedEnabled = enabled ?? existing?.enabled ?? true;
@@ -762,7 +762,7 @@ async function deleteAiProvider(db: ModuleDbClient, auth: ModuleAuthContext, pro
     `DELETE FROM ai_nutrition_providers WHERE provider = $1 RETURNING provider`,
     [provider],
   );
-  if (rows.length === 0) return notFound("provider config");
+  if (rows.length === 0) return notFound("provider_config");
   return noContent();
 }
 
@@ -790,12 +790,12 @@ async function listAiProviderModels(
 ): Promise<HandlerResponse> {
   if (!isAdmin(auth)) return forbidden();
   if (!AI_PROVIDER_NAMES.includes(provider as AiProviderName)) {
-    return badRequest(`provider must be one of: ${AI_PROVIDER_NAMES.join(", ")}`);
+    return badRequest("invalid_provider");
   }
 
   try {
     const encKey = piiCrypto.key;
-    if (!encKey) return { status: 500, body: { error: "MODULAB_MODULE_PII_KEY not configured on server" } };
+    if (!encKey) return { status: 500, body: { error: "pii_key_not_configured" } };
 
     const [existing] = await db.query<AiProviderRow>(
       `SELECT * FROM ai_nutrition_providers WHERE provider = $1`,
@@ -804,15 +804,14 @@ async function listAiProviderModels(
     // Matches Core's 503 ("no admin API key configured for this provider")
     // rather than a 400 — this isn't a malformed request, the provider is
     // just not set up yet.
-    if (!existing) return { status: 503, body: { error: "no API key configured for this provider" } };
+    if (!existing) return { status: 503, body: { error: "no_api_key_configured" } };
 
     const apiKey = await decrypt(encKey, existing.api_key_enc);
     const models = await listAvailableModels(provider as AiProviderName, apiKey);
     return ok({ models });
   } catch (err) {
     console.error(`[recipes] listAiProviderModels(${provider}) failed:`, err);
-    const message = err instanceof AiProviderError ? err.message : String(err);
-    return { status: 502, body: { error: `could not list models (${provider}): ${message}` } };
+    return aiErrorResponse(err);
   }
 }
 
@@ -847,11 +846,11 @@ async function estimateNutritionWithAi(
       `SELECT name, amount, unit FROM ingredients WHERE recipe_id = $1 ORDER BY position ASC`,
       [recipeId],
     );
-    if (ingredients.length === 0) return badRequest("recipe has no ingredients to estimate from");
+    if (ingredients.length === 0) return badRequest("no_ingredients_to_estimate");
 
     const requestedProvider = input?.provider;
     if (requestedProvider && !AI_PROVIDER_NAMES.includes(requestedProvider as AiProviderName)) {
-      return badRequest(`provider must be one of: ${AI_PROVIDER_NAMES.join(", ")}`);
+      return badRequest("invalid_provider");
     }
 
     const [row] = requestedProvider
@@ -863,15 +862,11 @@ async function estimateNutritionWithAi(
           `SELECT * FROM ai_nutrition_providers WHERE enabled = true ORDER BY is_default DESC, updated_at DESC LIMIT 1`,
         );
     if (!row) {
-      return badRequest(
-        requestedProvider
-          ? `provider "${requestedProvider}" is not configured or disabled — set it up under Settings first`
-          : "no AI provider is configured — set one up under Settings first",
-      );
+      return badRequest(requestedProvider ? "provider_not_configured" : "no_ai_provider_configured");
     }
 
     const encKey = piiCrypto.key;
-    if (!encKey) return { status: 500, body: { error: "MODULAB_MODULE_PII_KEY not configured on server" } };
+    if (!encKey) return { status: 500, body: { error: "pii_key_not_configured" } };
 
     const apiKey = await decrypt(encKey, row.api_key_enc);
     // callNutritionAi returns TOTALS for the whole recipe now (2026-07-12
@@ -906,8 +901,7 @@ async function estimateNutritionWithAi(
     return ok({ ...updated, ai_provider: row.provider, ai_model: row.model });
   } catch (err) {
     console.error(`[recipes] estimateNutritionWithAi(recipe=${recipeId}) failed:`, err);
-    const message = err instanceof AiProviderError ? err.message : String(err);
-    return { status: 502, body: { error: `AI nutrition estimation failed: ${message}` } };
+    return aiErrorResponse(err);
   }
 }
 
@@ -934,11 +928,30 @@ function created(body: unknown): HandlerResponse {
 function noContent(): HandlerResponse {
   return { status: 204, body: null };
 }
+// what is a snake_case entity name (e.g. "recipe", "category",
+// "provider_config") — the resulting error code (e.g. "recipe_not_found") is
+// looked up in the frontend's KNOWN_ERROR_CODES map (App.tsx), never shown
+// as raw English text to the user.
 function notFound(what: string): HandlerResponse {
-  return { status: 404, body: { error: `${what} not found` } };
+  return { status: 404, body: { error: `${what}_not_found` } };
 }
-function badRequest(message: string): HandlerResponse {
-  return { status: 400, body: { error: message } };
+function badRequest(code: string): HandlerResponse {
+  return { status: 400, body: { error: code } };
+}
+
+// Shared by listAiProviderModels()/estimateNutritionWithAi() below: turns
+// whatever failed inside an AI provider call into a structured, snake_case
+// error code (never an ad-hoc English sentence) — AiProviderError.code plus
+// any extra fields (e.g. { provider, status } for ai_provider_api_error) are
+// forwarded as-is so the frontend's translateApiError() can interpolate them
+// into the translated message. Anything that isn't an AiProviderError at all
+// (an unexpected bug, not a provider-reported failure) still becomes a valid
+// known code instead of an uncaught exception reaching the caller.
+function aiErrorResponse(err: unknown): HandlerResponse {
+  if (err instanceof AiProviderError) {
+    return { status: 502, body: { error: err.code, ...(err.details ?? {}) } };
+  }
+  return { status: 502, body: { error: "ai_provider_bad_response" } };
 }
 
 // Mirrors migrations/0001_initial.sql's meal_plan_entries CHECK constraints

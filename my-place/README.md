@@ -8,7 +8,7 @@ My Places lets you build a personal (or shared, per-location) catalog of places 
 
 - **Spots** — the core entity: a place with a name, location, category, notes, and photos.
 - **Trips** — group spots together (e.g. "Summer 2026 in Portugal").
-- **Categories** — organize spots by type (restaurant, beach, hotel, sight, ...); comes with system defaults, and you can add your own.
+- **Categories** — organize spots by type (restaurant, beach, hotel, sight, ...); you start with an empty list and create your own.
 - **Photos** — attach one or more photos to a spot.
 
 ## Setup

@@ -1,5 +1,5 @@
 /**
- * Recipes module — React frontend  v0.4.0
+ * Recipes module — React frontend
  *
  * Changes vs 0.3.20:
  *  - AI nutrition estimation (2026-07-12): a "Nährwerte per KI berechnen"
@@ -95,8 +95,28 @@ type View =
   | { type: "settings" }
   | { type: "info" };
 
-// Common ingredient units shown in datalist
-const UNITS = ["g", "kg", "ml", "l", "EL", "TL", "Stk", "Prise", "Bund", "Dose", "Pck", "Scheibe", "Zehe"];
+// Common ingredient units shown in the datalist (RecipeEditor). g/kg/ml/l
+// are metric symbols, identical in every supported UI language, so they stay
+// as literal strings. The word-based units (tablespoon, teaspoon, piece,
+// ...) previously were hardcoded German abbreviations here regardless of the
+// active UI language — fixed by resolving them through i18n at render time
+// instead of a fixed const (see unitOptions() below, called from inside
+// RecipeEditor where `t` is in scope).
+const METRIC_UNITS = ["g", "kg", "ml", "l"];
+function unitOptions(t: (key: string) => string): string[] {
+  return [
+    ...METRIC_UNITS,
+    t("unit_tablespoon"),
+    t("unit_teaspoon"),
+    t("unit_piece"),
+    t("unit_pinch"),
+    t("unit_bunch"),
+    t("unit_can"),
+    t("unit_package"),
+    t("unit_slice"),
+    t("unit_clove"),
+  ];
+}
 
 // ── API helper ────────────────────────────────────────────────────────────────
 
@@ -166,6 +186,68 @@ function useApi(apiBase: string, token: string) {
   );
 
   return { get, mutate, upload };
+}
+
+// ── Backend error codes ──────────────────────────────────────────────────────
+//
+// Same pattern as unifi-network's ui/src/App.tsx: the backend (handlers/
+// index.ts, handlers/ai-providers.ts) never returns an ausformulierten
+// English sentence, only a short snake_case error code — e.g.
+// badRequest("title_required") — as the JSON body {"error": "code", ...}.
+// KNOWN_ERROR_CODES maps every code this module's backend can produce to an
+// i18n key; translateApiError() below parses the JSON body out of the
+// Error thrown by useApi's get/mutate/upload, looks the code up, and passes
+// any extra top-level fields through as i18next interpolation params (used
+// by ai_provider_api_error's {{provider}}/{{status}}). Any code NOT in this
+// map falls back to the raw text — that should never happen for an error
+// this module's own backend produced; only for unexpected/foreign errors.
+const KNOWN_ERROR_CODES: Record<string, string> = {
+  not_found: "error_not_found",
+  invalid_file_path: "error_invalid_file_path",
+  invalid_day: "error_invalid_day",
+  invalid_slot: "error_invalid_slot",
+  title_required: "title_required",
+  invalid_source_url: "error_invalid_source_url",
+  invalid_step_image_path: "error_invalid_step_image_path",
+  forbidden: "error_forbidden",
+  invalid_provider: "error_invalid_provider",
+  pii_key_not_configured: "error_pii_key_not_configured",
+  api_key_required_first_time: "error_api_key_required_first_time",
+  no_api_key_configured: "error_no_api_key_configured",
+  provider_not_configured: "error_provider_not_configured",
+  no_ai_provider_configured: "error_no_ai_provider_configured",
+  no_ingredients_to_estimate: "error_no_ingredients_to_estimate",
+  recipe_not_found: "recipe_not_found",
+  category_not_found: "error_category_not_found",
+  provider_config_not_found: "error_provider_config_not_found",
+  no_nutrition_data: "error_no_nutrition_data",
+  ai_provider_api_error: "error_ai_provider_api_error",
+  ai_provider_bad_response: "error_ai_provider_bad_response",
+};
+
+function translateApiError(err: unknown, t: (key: string, options?: Record<string, unknown>) => string): string {
+  const raw = err instanceof Error ? err.message : String(err);
+
+  // Backend errors arrive as the HTTP response body (JSON), e.g.
+  // {"error":"title_required"} or
+  // {"error":"ai_provider_api_error","provider":"OpenAI","status":429} — not
+  // as a bare code string. Any extra top-level fields besides "error" are
+  // forwarded to t() as interpolation params.
+  let code = raw.trim();
+  let params: Record<string, unknown> | undefined;
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && typeof parsed.error === "string") {
+      code = parsed.error;
+      const { error: _error, ...rest } = parsed;
+      if (Object.keys(rest).length > 0) params = rest;
+    }
+  } catch {
+    // Not JSON (e.g. a network error or bare HTTP status text) — raw stays as-is.
+  }
+
+  const key = KNOWN_ERROR_CODES[code];
+  return key ? t(key, params) : raw;
 }
 
 // ── Root component ────────────────────────────────────────────────────────────
@@ -500,7 +582,7 @@ function RecipeDetail({
       const updated = await api.mutate<Recipe>("POST", `/recipes/${id}/nutrition/ai`, {});
       setRecipe((prev) => (prev ? { ...prev, ...updated } : prev));
     } catch (e) {
-      setAiError(String(e));
+      setAiError(translateApiError(e, t));
     } finally {
       setAiCalculating(false);
     }
@@ -853,7 +935,7 @@ function RecipeEditor({
 
       onDone(recipeId);
     } catch (e) {
-      setError(String(e));
+      setError(translateApiError(e, t));
     } finally {
       setSaving(false);
     }
@@ -873,7 +955,7 @@ function RecipeEditor({
         // If we used a placeholder, prefill title so user can see + edit it
         if (!title.trim()) setTitle(t("draft_recipe_title"));
       } catch (e) {
-        setError(String(e));
+        setError(translateApiError(e, t));
         return;
       }
     }
@@ -886,7 +968,7 @@ function RecipeEditor({
       const res = await api.upload<{ image_path: string }>(`/recipes/${recipeIdRef.current}/image`, fd);
       setImagePreview(imageUrl(res.image_path));
     } catch (e) {
-      setError(String(e));
+      setError(translateApiError(e, t));
     } finally {
       setImageUploading(false);
     }
@@ -900,7 +982,7 @@ function RecipeEditor({
       setImagePreview(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
     } catch (e) {
-      setError(String(e));
+      setError(translateApiError(e, t));
     }
   }
 
@@ -917,7 +999,7 @@ function RecipeEditor({
       setAllTags((prev) => [...prev.filter((t) => t.id !== created.id), created]);
       addTag(created);
     } catch (e) {
-      setError(String(e));
+      setError(translateApiError(e, t));
     }
   }
 
@@ -1090,7 +1172,7 @@ function RecipeEditor({
           <label className={labelCls}>{t("ingredients")}</label>
           {/* datalist for units */}
           <datalist id="unit-list">
-            {UNITS.map((u) => <option key={u} value={u} />)}
+            {unitOptions(t).map((u) => <option key={u} value={u} />)}
           </datalist>
           <div className="space-y-2">
             {ingredients.map((ing, i) => (
@@ -1520,7 +1602,7 @@ function CategoriesView({ api }: { api: ReturnType<typeof useApi> }) {
       setEditingId(null);
       await load();
     } catch (e) {
-      setError(String(e));
+      setError(translateApiError(e, t));
     } finally {
       setSaving(false);
     }
@@ -1532,7 +1614,7 @@ function CategoriesView({ api }: { api: ReturnType<typeof useApi> }) {
       await api.mutate("DELETE", `/categories/${id}`);
       await load();
     } catch (e) {
-      setError(String(e));
+      setError(translateApiError(e, t));
     }
   }
 
@@ -1714,7 +1796,7 @@ function AISettingsView({ api }: { api: ReturnType<typeof useApi> }) {
         setModelInput(models[0]);
       }
     } catch (e) {
-      setModelsError(String(e));
+      setModelsError(translateApiError(e, t));
     } finally {
       setModelsLoading(false);
     }
@@ -1730,7 +1812,7 @@ function AISettingsView({ api }: { api: ReturnType<typeof useApi> }) {
       setEditingId(null);
       await load();
     } catch (e) {
-      setError(String(e));
+      setError(translateApiError(e, t));
     } finally {
       setSaving(false);
     }
@@ -1742,7 +1824,7 @@ function AISettingsView({ api }: { api: ReturnType<typeof useApi> }) {
       await api.mutate("PUT", `/ai-providers/${providerId}`, { is_default: true });
       await load();
     } catch (e) {
-      setError(String(e));
+      setError(translateApiError(e, t));
     }
   }
 
@@ -1753,7 +1835,7 @@ function AISettingsView({ api }: { api: ReturnType<typeof useApi> }) {
       await api.mutate("DELETE", `/ai-providers/${providerId}`);
       await load();
     } catch (e) {
-      setError(String(e));
+      setError(translateApiError(e, t));
     }
   }
 

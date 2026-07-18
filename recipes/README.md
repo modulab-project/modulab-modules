@@ -6,7 +6,7 @@ A recipe collection with a weekly meal plan.
 
 Recipes is a self-hosted recipe manager: keep your recipes with ingredients, step-by-step instructions, tags, and categories, then plan your week by dropping recipes into a meal-plan grid (breakfast/lunch/dinner/snack, Monday to Sunday).
 
-- **Recipes** — title, image, ingredients, steps, tags, and category.
+- **Recipes** — title, image, ingredients, steps, tags, category, and notes.
 - **Portion calculator** — recalculates ingredient quantities and nutrition for any number of servings, based on the nutrition values you enter per ingredient or the AI-estimated per-serving totals.
 - **AI nutrition estimation** — optionally configure an API key for OpenAI, Google Gemini, Anthropic Claude, or DeepSeek under the module's own Settings tab (Admin only), then estimate a recipe's nutrition from its title, servings, and ingredient list with one click. Fully optional — the module works without any AI provider configured, falling back to manual entry / the ingredient-based portion calculator.
 - **Meal plan** — a weekly grid; assign any recipe to a day and slot.
@@ -14,7 +14,7 @@ Recipes is a self-hosted recipe manager: keep your recipes with ingredients, ste
 
 ## Details
 
-- **Tier:** 2 (sandboxed Deno handler, own database schema)
+- **Tier:** 3 (sandboxed Deno handler, own database schema)
 - **Scope:** per-location — each ModuLab location gets its own independent recipe collection
 - **Category:** Productivity
 - **Storage:** database + uploaded recipe images

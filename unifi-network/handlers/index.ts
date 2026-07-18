@@ -1,5 +1,5 @@
 /**
- * unifi-network module — Deno Tier 2 handler
+ * unifi-network module — Deno Tier 3 handler
  *
  * Routes (all under /v1/modules/unifi-network/api/):
  *
@@ -424,10 +424,10 @@ async function listGateways(db: ModuleDbClient, encKey: CryptoKey | null): Promi
 
 async function createGateway(db: ModuleDbClient, auth: ModuleAuthContext, body: unknown, encKey: CryptoKey | null): Promise<HandlerResponse> {
   if (!isAdmin(auth)) return forbidden();
-  if (!encKey) return { status: 500, body: { error: "MODULAB_MODULE_PII_KEY not configured on server" } };
+  if (!encKey) return { status: 500, body: { error: "server_encryption_not_configured" } };
 
   const { name, base_url, api_key } = body as { name?: string; base_url?: string; api_key?: string };
-  if (!name || !base_url || !api_key) return badRequest("name, base_url and api_key are required");
+  if (!name || !base_url || !api_key) return badRequest("gateway_fields_required");
 
   const nameEnc = await encrypt(encKey, name);
   const baseUrlEnc = await encrypt(encKey, base_url);
@@ -455,7 +455,7 @@ async function updateGateway(
   if (!isAdmin(auth)) return forbidden();
   const { name, base_url, api_key } = body as { name?: string; base_url?: string; api_key?: string };
 
-  if (!encKey) return { status: 500, body: { error: "MODULAB_MODULE_PII_KEY not configured on server" } };
+  if (!encKey) return { status: 500, body: { error: "server_encryption_not_configured" } };
 
   const nameEnc = name ? await encrypt(encKey, name) : null;
   const baseUrlEnc = base_url ? await encrypt(encKey, base_url) : null;
@@ -630,18 +630,18 @@ async function createDevice(
   try {
     sanitized = sanitizeMac(input.mac);
   } catch (err) {
-    if (err instanceof InvalidMacError) return badRequest(err.message);
+    if (err instanceof InvalidMacError) return badRequest("invalid_mac");
     throw err;
   }
 
   // note ist Pflichtfeld beim Anlegen (Entscheidungsvorlage 4.13). Kein
   // alias/Name-Feld mehr (2026-07-01) — note ist das einzige Freitextfeld.
   if (!input.note || input.note.trim().length === 0) {
-    return badRequest("note is required");
+    return badRequest("note_required");
   }
 
   if (!encKey || !macHashKey) {
-    return { status: 500, body: { error: "Encryption keys not configured on server" } };
+    return { status: 500, body: { error: "server_encryption_not_configured" } };
   }
 
   const macEnc = await encrypt(encKey, sanitized);
@@ -677,7 +677,7 @@ async function createDevice(
       [requestedGatewayIds],
     );
     if (foundGateways.length !== requestedGatewayIds.length) {
-      return badRequest("one or more target_gateway_ids do not exist");
+      return badRequest("invalid_target_gateways");
     }
   }
 
@@ -762,7 +762,7 @@ async function applyDeviceEdit(
   // wird abgelehnt; wird note im Body gar nicht mitgeschickt, bleibt der
   // bestehende Wert unverändert.
   if (note !== undefined && note.trim().length === 0) {
-    return badRequest("note cannot be empty");
+    return badRequest("note_empty");
   }
 
   // Bugfix (2026-07-01): updateDevice() speicherte die Notiz bisher nur in
@@ -885,7 +885,7 @@ async function applyDeviceGatewayChange(
   encKey: CryptoKey | null,
 ): Promise<HandlerResponse> {
   const id = device.id;
-  if (!encKey) return { status: 500, body: { error: "MODULAB_MODULE_PII_KEY not configured on server" } };
+  if (!encKey) return { status: 500, body: { error: "server_encryption_not_configured" } };
 
   const currentRows = await db.query<DeviceGatewayRow>(`SELECT * FROM device_gateways WHERE device_id = $1`, [id]);
   const currentGatewayIds = new Set(currentRows.map((r) => r.gateway_id));
@@ -1154,7 +1154,7 @@ async function requestDeviceChange(
   encKey: CryptoKey | null,
 ): Promise<HandlerResponse> {
   if (device.pending_action) {
-    return badRequest("A change is already pending approval for this device.");
+    return badRequest("change_already_pending");
   }
 
   let noteEnc: string | null = null;
@@ -1164,13 +1164,13 @@ async function requestDeviceChange(
   if (action === "edit") {
     const input = payload as DeviceEditInput;
     if (input.note !== undefined) {
-      if (input.note.trim().length === 0) return badRequest("note cannot be empty");
-      if (!encKey) return { status: 500, body: { error: "MODULAB_MODULE_PII_KEY not configured on server" } };
+      if (input.note.trim().length === 0) return badRequest("note_empty");
+      if (!encKey) return { status: 500, body: { error: "server_encryption_not_configured" } };
       noteEnc = await encrypt(encKey, input.note);
     }
     if (input.target_vlan_name) targetVlanName = input.target_vlan_name;
     if (noteEnc === null && targetVlanName === null) {
-      return badRequest("Nothing to change.");
+      return badRequest("nothing_to_change");
     }
   } else if (action === "gateway_change") {
     targetGatewayIds = payload as string[];
@@ -1275,7 +1275,7 @@ async function approveDeviceChange(db: ModuleDbClient, auth: ModuleAuthContext, 
   if (!isAdmin(auth)) return forbidden();
   const [device] = await db.query<DeviceRow>(`SELECT * FROM devices WHERE id = $1`, [id]);
   if (!device) return notFound();
-  if (!device.pending_action) return badRequest("No pending change for this device.");
+  if (!device.pending_action) return badRequest("no_pending_change");
 
   const action = device.pending_action;
   const requestedBy = device.pending_requested_by ?? "?";
@@ -1304,7 +1304,7 @@ async function approveDeviceChange(db: ModuleDbClient, auth: ModuleAuthContext, 
     [id],
   );
   if (cleared.length === 0) {
-    return badRequest("This change request was already handled.");
+    return badRequest("change_already_handled");
   }
 
   const clearedDevice: DeviceRow = {
@@ -1350,7 +1350,7 @@ async function rejectDeviceChange(db: ModuleDbClient, auth: ModuleAuthContext, i
   if (!isAdmin(auth)) return forbidden();
   const [device] = await db.query<DeviceRow>(`SELECT * FROM devices WHERE id = $1`, [id]);
   if (!device) return notFound();
-  if (!device.pending_action) return badRequest("No pending change for this device.");
+  if (!device.pending_action) return badRequest("no_pending_change");
 
   const action = device.pending_action;
   const requestedBy = device.pending_requested_by ?? "?";
@@ -1373,7 +1373,7 @@ async function rejectDeviceChange(db: ModuleDbClient, auth: ModuleAuthContext, i
     [id],
   );
   if (cleared.length === 0) {
-    return badRequest("This change request was already handled.");
+    return badRequest("change_already_handled");
   }
 
   await audit(db, auth.userEmail, `device.change_rejected.${action}`, "device", id, requestedBy);
@@ -1446,9 +1446,9 @@ async function approveDevice(db: ModuleDbClient, auth: ModuleAuthContext, id: st
 
   const [device] = await db.query<DeviceRow>(`SELECT * FROM devices WHERE id = $1`, [id]);
   if (!device) return notFound();
-  if (device.status !== "pending_approval") return badRequest("Device is not pending approval");
+  if (device.status !== "pending_approval") return badRequest("device_not_pending_approval");
 
-  if (!encKey) return { status: 500, body: { error: "MODULAB_MODULE_PII_KEY not configured on server" } };
+  if (!encKey) return { status: 500, body: { error: "server_encryption_not_configured" } };
 
   const mac = await decrypt(encKey, device.mac_enc);
   const note = await decrypt(encKey, device.note_enc).catch(() => undefined);
@@ -1635,9 +1635,9 @@ async function resolveNoteDiscrepancy(
   encKey: CryptoKey | null,
 ): Promise<HandlerResponse> {
   const { canonical_note } = body as { canonical_note?: string };
-  if (!canonical_note || canonical_note.trim().length === 0) return badRequest("canonical_note is required");
+  if (!canonical_note || canonical_note.trim().length === 0) return badRequest("canonical_note_required");
 
-  if (!encKey) return { status: 500, body: { error: "MODULAB_MODULE_PII_KEY not configured on server" } };
+  if (!encKey) return { status: 500, body: { error: "server_encryption_not_configured" } };
 
   // Loaded before the update so the notification below can mention the
   // device's prior note, not just the new canonical one — helps an admin

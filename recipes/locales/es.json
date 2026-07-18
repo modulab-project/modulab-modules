@@ -66,6 +66,8 @@
   "recipe_not_found": "Receta no encontrada",
   "recipe_load_error": "No se pudo cargar la receta",
   "recipe_delete_confirm": "¿Eliminar esta receta definitivamente?",
+  "recipe_delete_error": "No se pudo eliminar",
+  "meal_plan_clear_error": "No se pudo eliminar la entrada",
 
   "new_recipe": "Nueva receta",
   "edit_recipe": "Editar receta",
@@ -140,5 +142,35 @@
   "servings_increase": "Más porciones",
   "servings_reset": "restablecer a {{count}}",
 
-  "nutrition_per_serving": "Valores nutricionales por porción"
+  "nutrition_per_serving": "Valores nutricionales por porción",
+
+  "error_not_found": "No encontrado.",
+  "error_invalid_file_path": "Ruta de archivo no válida.",
+  "error_invalid_day": "El día debe estar entre 1 y 7.",
+  "error_invalid_slot": "Franja de comida no válida.",
+  "error_invalid_source_url": "URL de origen no válida.",
+  "error_invalid_step_image_path": "Ruta de imagen no válida para un paso.",
+  "error_forbidden": "No tienes permiso para hacer esto.",
+  "error_invalid_provider": "Proveedor de IA no válido.",
+  "error_pii_key_not_configured": "La clave de cifrado no está configurada en el servidor.",
+  "error_api_key_required_first_time": "Se requiere una clave API al configurar un proveedor por primera vez.",
+  "error_no_api_key_configured": "No hay ninguna clave API configurada para este proveedor.",
+  "error_provider_not_configured": "Este proveedor no está configurado o está desactivado. Configúralo primero en Ajustes.",
+  "error_no_ai_provider_configured": "No hay ningún proveedor de IA configurado. Configura uno primero en Ajustes.",
+  "error_no_ingredients_to_estimate": "Esta receta no tiene ingredientes a partir de los cuales estimar.",
+  "error_category_not_found": "Categoría no encontrada.",
+  "error_provider_config_not_found": "Configuración del proveedor no encontrada.",
+  "error_no_nutrition_data": "El proveedor de IA no devolvió datos nutricionales utilizables.",
+  "error_ai_provider_api_error": "{{provider}} devolvió un error (estado {{status}}).",
+  "error_ai_provider_bad_response": "No se pudo procesar la respuesta del proveedor de IA.",
+
+  "unit_tablespoon": "cda",
+  "unit_teaspoon": "cdta",
+  "unit_piece": "ud",
+  "unit_pinch": "pizca",
+  "unit_bunch": "manojo",
+  "unit_can": "lata",
+  "unit_package": "paq",
+  "unit_slice": "loncha",
+  "unit_clove": "diente"
 }

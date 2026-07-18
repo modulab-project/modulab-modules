@@ -142,5 +142,35 @@
   "servings_increase": "Mehr Portionen",
   "servings_reset": "zurück auf {{count}}",
 
-  "nutrition_per_serving": "Nährwerte pro Portion"
+  "nutrition_per_serving": "Nährwerte pro Portion",
+
+  "error_not_found": "Nicht gefunden.",
+  "error_invalid_file_path": "Ungültiger Dateipfad.",
+  "error_invalid_day": "Der Tag muss zwischen 1 und 7 liegen.",
+  "error_invalid_slot": "Ungültiger Mahlzeiten-Slot.",
+  "error_invalid_source_url": "Ungültige Quell-URL.",
+  "error_invalid_step_image_path": "Ungültiger Bildpfad für einen Zubereitungsschritt.",
+  "error_forbidden": "Du hast keine Berechtigung für diese Aktion.",
+  "error_invalid_provider": "Ungültiger KI-Anbieter.",
+  "error_pii_key_not_configured": "Verschlüsselungsschlüssel ist serverseitig nicht konfiguriert.",
+  "error_api_key_required_first_time": "Beim erstmaligen Einrichten eines Anbieters ist ein API-Schlüssel erforderlich.",
+  "error_no_api_key_configured": "Für diesen Anbieter ist kein API-Schlüssel hinterlegt.",
+  "error_provider_not_configured": "Dieser Anbieter ist nicht eingerichtet oder deaktiviert. Bitte zuerst unter Einstellungen konfigurieren.",
+  "error_no_ai_provider_configured": "Es ist kein KI-Anbieter eingerichtet. Bitte zuerst unter Einstellungen konfigurieren.",
+  "error_no_ingredients_to_estimate": "Dieses Rezept hat keine Zutaten, aus denen geschätzt werden kann.",
+  "error_category_not_found": "Kategorie nicht gefunden.",
+  "error_provider_config_not_found": "Anbieter-Konfiguration nicht gefunden.",
+  "error_no_nutrition_data": "Der KI-Anbieter hat keine verwertbaren Nährwertdaten geliefert.",
+  "error_ai_provider_api_error": "{{provider}} meldete einen Fehler (Status {{status}}).",
+  "error_ai_provider_bad_response": "Die Antwort des KI-Anbieters konnte nicht verarbeitet werden.",
+
+  "unit_tablespoon": "EL",
+  "unit_teaspoon": "TL",
+  "unit_piece": "Stk",
+  "unit_pinch": "Prise",
+  "unit_bunch": "Bund",
+  "unit_can": "Dose",
+  "unit_package": "Pck",
+  "unit_slice": "Scheibe",
+  "unit_clove": "Zehe"
 }

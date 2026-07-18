@@ -84,7 +84,7 @@ function normalizeResult(raw: unknown): NutritionEstimate {
     return Number.isFinite(n) && n >= 0 ? n : 0;
   };
   if (!o || typeof o !== "object" || o.kcal == null || !Number.isFinite(Number(o.kcal))) {
-    throw new AiProviderError("provider returned no usable nutrition data");
+    throw new AiProviderError("no_nutrition_data");
   }
   return {
     kcal: num(o.kcal),
@@ -95,10 +95,20 @@ function normalizeResult(raw: unknown): NutritionEstimate {
   };
 }
 
+// code is a short snake_case error code (never an ad-hoc English sentence,
+// see the project-wide "no hardcoded UI-visible text" convention) — index.ts
+// (aiErrorResponse) forwards it, plus details, straight into the HTTP error
+// body as {"error": code, ...details}; the frontend's KNOWN_ERROR_CODES map
+// (App.tsx) resolves it to a translated, optionally interpolated message via
+// translateApiError().
 export class AiProviderError extends Error {
-  constructor(message: string) {
-    super(message);
+  code: string;
+  details?: Record<string, unknown>;
+  constructor(code: string, details?: Record<string, unknown>) {
+    super(code);
     this.name = "AiProviderError";
+    this.code = code;
+    this.details = details;
   }
 }
 
@@ -115,7 +125,11 @@ async function withTimeout<T>(fn: (signal: AbortSignal) => Promise<T>, timeoutMs
 async function assertOk(res: Response, provider: string): Promise<void> {
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new AiProviderError(`${provider} API error ${res.status}: ${text.slice(0, 500)}`);
+    // The raw response body is logged server-side only (may contain details
+    // not meant for the client, e.g. provider-internal diagnostics) — the
+    // client only ever gets the structured code + provider/status.
+    console.error(`[recipes] ${provider} API error ${res.status}:`, text.slice(0, 500));
+    throw new AiProviderError("ai_provider_api_error", { provider, status: res.status });
   }
 }
 
@@ -166,7 +180,7 @@ async function callOpenAi(apiKey: string, model: string, userPrompt: string): Pr
     await assertOk(res, "OpenAI");
     const data = await res.json();
     const content = data?.choices?.[0]?.message?.content;
-    if (typeof content !== "string") throw new AiProviderError("OpenAI response had no message content");
+    if (typeof content !== "string") throw new AiProviderError("ai_provider_bad_response");
     return normalizeResult(JSON.parse(content));
   });
 }
@@ -190,7 +204,7 @@ async function callGoogle(apiKey: string, model: string, userPrompt: string): Pr
     await assertOk(res, "Google Gemini");
     const data = await res.json();
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (typeof text !== "string") throw new AiProviderError("Gemini response had no candidate text");
+    if (typeof text !== "string") throw new AiProviderError("ai_provider_bad_response");
     return normalizeResult(JSON.parse(text));
   });
 }
@@ -223,7 +237,7 @@ async function callAnthropic(apiKey: string, model: string, userPrompt: string):
     await assertOk(res, "Anthropic Claude");
     const data = await res.json();
     const toolUse = (data?.content ?? []).find((b: { type?: string }) => b?.type === "tool_use");
-    if (!toolUse?.input) throw new AiProviderError("Claude response had no tool_use block");
+    if (!toolUse?.input) throw new AiProviderError("ai_provider_bad_response");
     return normalizeResult(toolUse.input);
   });
 }
@@ -253,7 +267,7 @@ async function callDeepSeek(apiKey: string, model: string, userPrompt: string): 
     await assertOk(res, "DeepSeek");
     const data = await res.json();
     const content = data?.choices?.[0]?.message?.content;
-    if (typeof content !== "string") throw new AiProviderError("DeepSeek response had no message content");
+    if (typeof content !== "string") throw new AiProviderError("ai_provider_bad_response");
     return normalizeResult(JSON.parse(content));
   });
 }

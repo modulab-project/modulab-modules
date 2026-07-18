@@ -66,6 +66,8 @@
   "recipe_not_found": "Recette introuvable",
   "recipe_load_error": "Impossible de charger la recette",
   "recipe_delete_confirm": "Vraiment supprimer cette recette ?",
+  "recipe_delete_error": "Impossible de supprimer",
+  "meal_plan_clear_error": "Impossible de supprimer l'entrée",
 
   "new_recipe": "Nouvelle recette",
   "edit_recipe": "Modifier la recette",
@@ -140,5 +142,35 @@
   "servings_increase": "Plus de portions",
   "servings_reset": "revenir à {{count}}",
 
-  "nutrition_per_serving": "Valeurs nutritionnelles par portion"
+  "nutrition_per_serving": "Valeurs nutritionnelles par portion",
+
+  "error_not_found": "Introuvable.",
+  "error_invalid_file_path": "Chemin de fichier invalide.",
+  "error_invalid_day": "Le jour doit être compris entre 1 et 7.",
+  "error_invalid_slot": "Créneau de repas invalide.",
+  "error_invalid_source_url": "URL source invalide.",
+  "error_invalid_step_image_path": "Chemin d'image invalide pour une étape.",
+  "error_forbidden": "Vous n'avez pas la permission de faire cela.",
+  "error_invalid_provider": "Fournisseur d'IA invalide.",
+  "error_pii_key_not_configured": "La clé de chiffrement n'est pas configurée sur le serveur.",
+  "error_api_key_required_first_time": "Une clé API est requise lors de la première configuration d'un fournisseur.",
+  "error_no_api_key_configured": "Aucune clé API configurée pour ce fournisseur.",
+  "error_provider_not_configured": "Ce fournisseur n'est pas configuré ou est désactivé. Configurez-le d'abord dans les paramètres.",
+  "error_no_ai_provider_configured": "Aucun fournisseur d'IA n'est configuré. Configurez-en un d'abord dans les paramètres.",
+  "error_no_ingredients_to_estimate": "Cette recette n'a pas d'ingrédients à partir desquels estimer.",
+  "error_category_not_found": "Catégorie introuvable.",
+  "error_provider_config_not_found": "Configuration du fournisseur introuvable.",
+  "error_no_nutrition_data": "Le fournisseur d'IA n'a renvoyé aucune donnée nutritionnelle utilisable.",
+  "error_ai_provider_api_error": "{{provider}} a signalé une erreur (statut {{status}}).",
+  "error_ai_provider_bad_response": "La réponse du fournisseur d'IA n'a pas pu être traitée.",
+
+  "unit_tablespoon": "c. à s.",
+  "unit_teaspoon": "c. à c.",
+  "unit_piece": "pc",
+  "unit_pinch": "pincée",
+  "unit_bunch": "botte",
+  "unit_can": "boîte",
+  "unit_package": "paq.",
+  "unit_slice": "tranche",
+  "unit_clove": "gousse"
 }

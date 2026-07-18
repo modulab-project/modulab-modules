@@ -66,6 +66,8 @@
   "recipe_not_found": "Recept niet gevonden",
   "recipe_load_error": "Recept kon niet worden geladen",
   "recipe_delete_confirm": "Dit recept echt verwijderen?",
+  "recipe_delete_error": "Verwijderen mislukt",
+  "meal_plan_clear_error": "Item kon niet worden verwijderd",
 
   "new_recipe": "Nieuw recept",
   "edit_recipe": "Recept bewerken",
@@ -140,5 +142,35 @@
   "servings_increase": "Meer porties",
   "servings_reset": "terug naar {{count}}",
 
-  "nutrition_per_serving": "Voedingswaarden per portie"
+  "nutrition_per_serving": "Voedingswaarden per portie",
+
+  "error_not_found": "Niet gevonden.",
+  "error_invalid_file_path": "Ongeldig bestandspad.",
+  "error_invalid_day": "De dag moet tussen 1 en 7 liggen.",
+  "error_invalid_slot": "Ongeldig maaltijdmoment.",
+  "error_invalid_source_url": "Ongeldige bron-URL.",
+  "error_invalid_step_image_path": "Ongeldig afbeeldingspad voor een stap.",
+  "error_forbidden": "Je hebt geen rechten voor deze actie.",
+  "error_invalid_provider": "Ongeldige AI-aanbieder.",
+  "error_pii_key_not_configured": "Versleutelingssleutel is niet geconfigureerd op de server.",
+  "error_api_key_required_first_time": "Bij het voor het eerst instellen van een aanbieder is een API-sleutel vereist.",
+  "error_no_api_key_configured": "Voor deze aanbieder is geen API-sleutel ingesteld.",
+  "error_provider_not_configured": "Deze aanbieder is niet geconfigureerd of is uitgeschakeld. Stel deze eerst in bij Instellingen.",
+  "error_no_ai_provider_configured": "Er is geen AI-aanbieder geconfigureerd. Stel er eerst een in bij Instellingen.",
+  "error_no_ingredients_to_estimate": "Dit recept heeft geen ingrediënten om een schatting op te baseren.",
+  "error_category_not_found": "Categorie niet gevonden.",
+  "error_provider_config_not_found": "Aanbiederconfiguratie niet gevonden.",
+  "error_no_nutrition_data": "De AI-aanbieder leverde geen bruikbare voedingsgegevens.",
+  "error_ai_provider_api_error": "{{provider}} meldde een fout (status {{status}}).",
+  "error_ai_provider_bad_response": "Het antwoord van de AI-aanbieder kon niet worden verwerkt.",
+
+  "unit_tablespoon": "el",
+  "unit_teaspoon": "tl",
+  "unit_piece": "st",
+  "unit_pinch": "snufje",
+  "unit_bunch": "bosje",
+  "unit_can": "blik",
+  "unit_package": "pak",
+  "unit_slice": "plak",
+  "unit_clove": "teentje"
 }

@@ -12,13 +12,15 @@ UniFi Network centralizes device onboarding and network access control for one o
 - **Live status** — a per-minute background job polls all gateways in parallel for VLANs, RADIUS accounts, users, and client history, and surfaces connection status and errors per gateway.
 - **Note discrepancy detection** — if a device's note is edited directly in a gateway's own UI instead of through ModuLab, the module detects the mismatch and offers a one-click resolution.
 
+New devices normally go through the approval flow described above: a user submits a MAC address, and an admin approves or rejects it before it's provisioned. However, if the background poll job finds a RADIUS account that already exists on a gateway but has no matching `devices` row in ModuLab (e.g. it was created directly on the controller, outside ModuLab), it is auto-adopted: the module creates the corresponding device record immediately with status `active` and a placeholder note, without going through the approval workflow. This is intentional — the account is already active on the gateway, so there is nothing left to approve; the auto-adopt step only makes ModuLab's records match reality.
+
 ## Setup
 
 An admin adds each UniFi gateway with its base URL and an API key from that controller. The module only ever talks to the private IP addresses of gateways you've explicitly configured — its network access is re-scoped automatically every time a gateway is added, changed, or removed.
 
 ## Details
 
-- **Tier:** 2 (sandboxed Deno handler, own database schema)
+- **Tier:** 3 (sandboxed Deno handler, own database schema)
 - **Scope:** per-location
 - **Category:** Network
 - **Storage:** database (gateway credentials stored AES-256-GCM encrypted)

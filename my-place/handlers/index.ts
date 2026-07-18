@@ -81,7 +81,7 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
         return forbidden();
       }
       if (!encKey) {
-        return { status: 500, body: { error: "MODULAB_MODULE_PII_KEY not configured on server" } };
+        return { status: 500, body: { error: "pii_key_not_configured" } };
       }
       const { maptiler_api_key } = body as { maptiler_api_key?: string };
       if (maptiler_api_key !== undefined) {
@@ -117,7 +117,7 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
   if (method === "POST" && pathname.match(/^\/spots\/[^/]+\/photos$/)) {
     const spotId = pathname.split("/")[2];
     const { file_path, position } = body as { file_path: string; position?: number };
-    if (!isSafeFilePath(file_path)) return badRequest("invalid file_path");
+    if (!isSafeFilePath(file_path)) return badRequest("invalid_file_path");
     if (!(await ownerCheck(db, "spots", spotId, auth.userId))) return forbidden();
     // Cap on photos per spot (found 2026-07-05): nothing previously limited
     // how many photos could be attached to a single spot.
@@ -126,7 +126,7 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
       [spotId],
     );
     if (parseInt(count, 10) >= MAX_PHOTOS_PER_SPOT) {
-      return badRequest(`maximum of ${MAX_PHOTOS_PER_SPOT} photos per spot reached`);
+      return badRequest("max_photos_reached", { max: MAX_PHOTOS_PER_SPOT });
     }
     const [row] = await db.query(
       `INSERT INTO spot_photos (spot_id, file_path, position, created_by)
@@ -156,7 +156,7 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
   }
   if (route === "POST /trips") {
     const { name, year, description } = body as TripInput;
-    if (!name || !name.trim()) return badRequest("name is required");
+    if (!name || !name.trim()) return badRequest("name_required");
     const [row] = await db.query(
       `INSERT INTO trips (name, year, description, created_by)
        VALUES ($1, $2, $3, $4) RETURNING *`,
@@ -167,7 +167,7 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
   if (method === "PATCH" && pathname.match(/^\/trips\/[^/]+$/)) {
     const id = segId(pathname);
     const { name, year, description } = body as Partial<TripInput>;
-    if (name !== undefined && !name.trim()) return badRequest("name cannot be empty");
+    if (name !== undefined && !name.trim()) return badRequest("name_empty");
     // Bugfix (2026-07-05): ownership was checked via a separate SELECT, then
     // the UPDATE ran without any ownership clause of its own — a second
     // request racing between the two could mutate a row the check had
@@ -208,7 +208,7 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
   }
   if (route === "POST /categories") {
     const { name, color, icon, sort_order } = body as CategoryInput;
-    if (!name || !name.trim()) return badRequest("name is required");
+    if (!name || !name.trim()) return badRequest("name_required");
     const [row] = await db.query(
       `INSERT INTO categories (name, color, icon, sort_order, created_by)
        VALUES ($1, $2, $3, $4, $5) RETURNING *`,
@@ -219,7 +219,7 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
   if (method === "PATCH" && pathname.match(/^\/categories\/[^/]+$/)) {
     const id = segId(pathname);
     const { name, color, icon, sort_order } = body as Partial<CategoryInput>;
-    if (name !== undefined && !name.trim()) return badRequest("name cannot be empty");
+    if (name !== undefined && !name.trim()) return badRequest("name_empty");
     // Same TOCTOU fix as trips/spots above: ownership condition moved into
     // the UPDATE's own WHERE clause instead of a prior separate SELECT.
     const [row] = await db.query(
@@ -244,7 +244,7 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
     return noContent();
   }
 
-  return { status: 404, body: { error: "not found" } };
+  return { status: 404, body: { error: "not_found" } };
 }
 
 // ── Spot helpers ───────────────────────────────────────────────────────────────
@@ -315,8 +315,8 @@ async function getSpot(db: ModuleDbClient, id: string, encKey: CryptoKey | null)
 }
 
 async function createSpot(db: ModuleDbClient, input: SpotInput, userId: string, encKey: CryptoKey | null): Promise<HandlerResponse> {
-  if (!input.name || !input.name.trim()) return badRequest("name is required");
-  if (!isValidLatLng(input.lat, input.lng)) return badRequest("lat must be between -90 and 90, lng between -180 and 180");
+  if (!input.name || !input.name.trim()) return badRequest("name_required");
+  if (!isValidLatLng(input.lat, input.lng)) return badRequest("invalid_coordinates");
   const nameEnc = encKey ? await encrypt(encKey, input.name.trim()) : input.name.trim();
   const noteEnc = encKey && input.note ? await encrypt(encKey, input.note) : (input.note ?? null);
   const [row] = await db.query<SpotRow>(
@@ -336,12 +336,12 @@ async function updateSpot(
   userId: string,
   encKey: CryptoKey | null,
 ): Promise<HandlerResponse> {
-  if (input.name !== undefined && !input.name.trim()) return badRequest("name cannot be empty");
+  if (input.name !== undefined && !input.name.trim()) return badRequest("name_empty");
   if (
     (input.lat !== undefined || input.lng !== undefined) &&
     !isValidLatLng(input.lat ?? 0, input.lng ?? 0)
   ) {
-    return badRequest("lat must be between -90 and 90, lng between -180 and 180");
+    return badRequest("invalid_coordinates");
   }
   const nameEnc = encKey && input.name ? await encrypt(encKey, input.name.trim()) : (input.name?.trim() ?? null);
 
@@ -445,9 +445,15 @@ function segId(path: string): string {
 function ok(body: unknown): HandlerResponse      { return { status: 200, body }; }
 function created(body: unknown): HandlerResponse { return { status: 201, body }; }
 function noContent(): HandlerResponse            { return { status: 204, body: null }; }
-function notFound(w: string): HandlerResponse    { return { status: 404, body: { error: `${w} not found` } }; }
+// error is a short snake_case code (see this file's header re: no hardcoded
+// English UI text server-side) — "what" is included so the frontend can
+// distinguish which resource type was involved if it ever needs to, though
+// it currently maps every "not_found" to a single generic i18n string.
+function notFound(what: string): HandlerResponse { return { status: 404, body: { error: "not_found", what } }; }
 function forbidden(): HandlerResponse            { return { status: 403, body: { error: "forbidden" } }; }
-function badRequest(message: string): HandlerResponse { return { status: 400, body: { error: message } }; }
+function badRequest(code: string, extra?: Record<string, unknown>): HandlerResponse {
+  return { status: 400, body: { error: code, ...extra } };
+}
 
 // file_path is meant to be a relative path under this module's own storage
 // directory, written by Core's upload step ("Core writes file, sends path",

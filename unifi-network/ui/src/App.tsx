@@ -566,8 +566,11 @@ function OverviewView({ api }: { api: ReturnType<typeof useApi> }) {
                 <p className="mt-1.5 text-[11px] text-amber-600 dark:text-amber-400">{t("paused_hint")}</p>
               )}
               {gw.last_error && (gw.status === "offline" || gw.status === "config_error") && (
-                <p className="mt-1.5 truncate text-[11px] text-red-500" title={gw.last_error}>
-                  {gw.last_error}
+                <p
+                  className="mt-1.5 truncate text-[11px] text-red-500"
+                  title={`${t("error_from_gateway")}: ${gw.last_error}`}
+                >
+                  {t("error_from_gateway")}: {gw.last_error}
                 </p>
               )}
             </div>
@@ -737,7 +740,11 @@ function OverviewView({ api }: { api: ReturnType<typeof useApi> }) {
                                 ? "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300"
                                 : "bg-red-50 text-red-600 dark:bg-red-950 dark:text-red-300"
                             }`}
-                            title={g.provisioning_status !== "ok" ? (g.provisioning_error ?? "") : undefined}
+                            title={
+                              g.provisioning_status !== "ok" && g.provisioning_error
+                                ? `${t("error_from_gateway")}: ${g.provisioning_error}`
+                                : undefined
+                            }
                           >
                             {g.gateway_name}
                             {g.provisioning_status === "vlan_not_found" && ` — ${t("vlan_not_found")}`}
@@ -814,12 +821,28 @@ function OverviewView({ api }: { api: ReturnType<typeof useApi> }) {
 // Backend-Regel abweichen könnte.
 
 // Bekannte Backend-Fehlercodes (badRequest("device_mac_pending") etc., siehe
-// createDevice() in handlers/index.ts) werden auf i18n-Keys gemappt; alles
-// andere (z. B. Netzwerkfehler) wird unverändert als Rohtext angezeigt.
+// handlers/index.ts) werden auf i18n-Keys gemappt; alles andere (z. B.
+// Netzwerkfehler, oder rohe Fremdtexte von der UniFi-Gegenstelle) wird
+// unverändert als Rohtext angezeigt bzw. an den Stellen, die solche
+// externen Texte rendern, mit dem i18n-Key "error_from_gateway" als
+// Label-Prefix versehen (siehe z. B. gw.last_error weiter oben in dieser
+// Datei).
 const KNOWN_ERROR_CODES: Record<string, string> = {
   device_mac_pending: "error_device_mac_pending",
   device_mac_rejected: "error_device_mac_rejected",
   device_mac_exists: "error_device_mac_exists",
+  invalid_mac: "error_invalid_mac",
+  note_required: "error_note_required",
+  note_empty: "error_note_empty",
+  invalid_target_gateways: "error_invalid_target_gateways",
+  gateway_fields_required: "error_gateway_fields_required",
+  server_encryption_not_configured: "error_server_encryption_not_configured",
+  change_already_pending: "error_change_already_pending",
+  nothing_to_change: "error_nothing_to_change",
+  no_pending_change: "error_no_pending_change",
+  change_already_handled: "error_change_already_handled",
+  device_not_pending_approval: "error_device_not_pending_approval",
+  canonical_note_required: "error_canonical_note_required",
 };
 
 function translateApiError(err: unknown, t: (k: string) => string): string {
@@ -1447,7 +1470,10 @@ function PendingApprovalList({
                       <span className="text-red-500">{t("vlan_not_found")}</span>
                     )}
                     {g.provisioning_status === "error" && (
-                      <span className="text-red-500" title={g.provisioning_error ?? ""}>
+                      <span
+                        className="text-red-500"
+                        title={g.provisioning_error ? `${t("error_from_gateway")}: ${g.provisioning_error}` : ""}
+                      >
                         {t("provisioning_error")}
                       </span>
                     )}
