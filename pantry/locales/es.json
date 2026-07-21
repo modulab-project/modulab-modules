@@ -25,6 +25,7 @@
   "error_scan_no_provider_configured": "No hay ningún proveedor de IA configurado — configura uno primero en Ajustes.",
   "error_scan_no_items_found": "El proveedor de IA no pudo identificar ningún artículo en este recibo.",
   "error_scan_failed": "Error al escanear el recibo: {{message}}",
+  "error_scan_required_fields": "Rellena cantidad, unidad, nombre y ubicación para cada artículo.",
 
   "nav_items": "Despensa",
   "nav_scan": "Escanear recibo",

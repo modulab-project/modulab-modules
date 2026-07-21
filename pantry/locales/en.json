@@ -25,6 +25,7 @@
   "error_scan_no_provider_configured": "No AI provider is configured — set one up under Settings first.",
   "error_scan_no_items_found": "The AI provider could not identify any items on this receipt.",
   "error_scan_failed": "Receipt scan failed: {{message}}",
+  "error_scan_required_fields": "Please fill in quantity, unit, name, and storage location for every item.",
 
   "nav_items": "Items",
   "nav_scan": "Scan receipt",

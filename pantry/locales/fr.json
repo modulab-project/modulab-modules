@@ -25,6 +25,7 @@
   "error_scan_no_provider_configured": "Aucun fournisseur d'IA n'est configuré — configurez-en un d'abord dans Paramètres.",
   "error_scan_no_items_found": "Le fournisseur d'IA n'a identifié aucun article sur ce ticket.",
   "error_scan_failed": "Échec du scan du ticket : {{message}}",
+  "error_scan_required_fields": "Merci de renseigner quantité, unité, nom et emplacement pour chaque article.",
 
   "nav_items": "Garde-manger",
   "nav_scan": "Scanner un ticket",

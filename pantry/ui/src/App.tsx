@@ -1002,11 +1002,8 @@ function ItemEditor({
 
   return (
     <div className="mx-auto max-w-lg">
-      <button type="button" onClick={onBack}
-        className="mb-4 flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200">
-        <i className="ti ti-arrow-left text-[14px]" /> {t("back")}
-      </button>
-
+      {/* Top "Zurück" link removed (2026-07-21 user request) - the bottom
+          "Abbrechen" button still calls the same onBack. */}
       <h1 className="mb-4 text-lg font-semibold">{id ? t("edit_item") : t("new_item")}</h1>
 
       {error && (
@@ -1115,6 +1112,12 @@ function ItemEditor({
             <span className="w-20">{t("field_quantity")}{!id && " *"}</span>
             <span className="w-32">{t("field_mhd")}</span>
             <span className="flex-1">{t("field_location")}{!id && " *"}</span>
+            {/* Matches the trailing delete button's fixed width below (2026-
+                07-21 fix: "Menge, MHD, Lagerort passt von der Anordnung noch
+                nicht") - without this spacer the Lagerort select (flex-1)
+                claims the space the delete button actually occupies in the
+                row underneath, so its header label sat too wide. */}
+            <span className="w-7 flex-none" />
           </div>
         )}
 
@@ -1138,7 +1141,7 @@ function ItemEditor({
             </select>
             {b.added_via === "ai_scan" && <i className="ti ti-sparkles text-[12px] text-teal-500" title={t("added_via_ai_scan") as string} />}
             <button type="button" onClick={() => handleDeleteBatch(b.id)}
-              className="flex-none rounded-lg p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950">
+              className="flex w-7 flex-none items-center justify-center rounded-lg p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950">
               <i className="ti ti-trash text-[14px]" />
             </button>
           </div>
@@ -1159,7 +1162,7 @@ function ItemEditor({
               {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
             </select>
             <button type="button" onClick={() => removeNewBatchRow(i)}
-              className="flex-none rounded-lg p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950">
+              className="flex w-7 flex-none items-center justify-center rounded-lg p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950">
               <i className="ti ti-trash text-[14px]" />
             </button>
           </div>
@@ -1296,6 +1299,15 @@ function ScanView({ api, onDone }: { api: ReturnType<typeof useApi>; onDone: () 
 
   async function handleConfirm() {
     if (!suggestions || suggestions.length === 0) return;
+    // Pflichtfelder pro Zeile (2026-07-21 user request): Anzahl, Einheit,
+    // Name, Lagerort müssen für jeden Vorschlag ausgefüllt sein, bevor der
+    // Import bestätigt werden kann - anders als beim manuellen Neuanlegen
+    // gibt es hier kein überspringbares MHD-Warnfenster, weil ein Bon
+    // ohnehin nie ein Ablaufdatum enthält (siehe scan_expiry_estimate_hint).
+    const rowInvalid = suggestions.some(
+      (it, i) => !it.name.trim() || !(it.unit ?? "").trim() || !it.quantity || it.quantity <= 0 || !locationChoices[i],
+    );
+    if (rowInvalid) { setError(t("error_scan_required_fields")); return; }
     setSaving(true);
     setError(null);
     try {
@@ -1370,6 +1382,7 @@ function ScanView({ api, onDone }: { api: ReturnType<typeof useApi>; onDone: () 
             {t("scan_result_meta", { provider: aiMeta?.provider, model: aiMeta?.model, count: suggestions.length })}
           </div>
           <p className="mb-3 text-xs text-gray-400">{t("scan_expiry_estimate_hint")}</p>
+          <datalist id="pantry-scan-units">{UNIT_CODES.map((u) => <option key={u} value={t(`unit_${u}`)} />)}</datalist>
 
           <div className="space-y-2">
             {suggestions.map((it, i) => (
@@ -1381,7 +1394,14 @@ function ScanView({ api, onDone }: { api: ReturnType<typeof useApi>; onDone: () 
                 <div className="flex items-center gap-2">
                   <input type="number" min={0} step="0.01" value={it.quantity ?? ""} onChange={(e) => updateSuggestion(i, { quantity: parseFloat(e.target.value) || null })}
                     className={`w-16 ${inputCls}`} style={{ fontSize: "16px" }} />
-                  <input type="text" value={it.unit ?? ""} onChange={(e) => updateSuggestion(i, { unit: e.target.value })}
+                  {/* 2026-07-21 user request: "Einheiten anzeigen wenn man
+                      den KI-Eintrag aus Einheit entfernt, es dürfen auch nur
+                      die Einheiten von der KI genutzt werden die vorhanden
+                      sind" - clearing the AI's guess now offers the same
+                      fixed, translated unit list (UNIT_CODES) the item
+                      editor's own datalist suggests, instead of a bare empty
+                      text field. */}
+                  <input type="text" list="pantry-scan-units" value={it.unit ?? ""} onChange={(e) => updateSuggestion(i, { unit: e.target.value })}
                     placeholder={t("field_unit") as string} className={`w-20 ${inputCls}`} style={{ fontSize: "16px" }} />
                   <input type="text" value={it.name} onChange={(e) => updateSuggestion(i, { name: e.target.value })}
                     className={`flex-1 min-w-[100px] ${inputCls}`} style={{ fontSize: "16px" }} />

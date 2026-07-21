@@ -25,6 +25,7 @@
   "error_scan_no_provider_configured": "Er is geen AI-provider geconfigureerd — stel er eerst een in bij Instellingen.",
   "error_scan_no_items_found": "De AI-provider kon geen items herkennen op deze bon.",
   "error_scan_failed": "Bon scannen mislukt: {{message}}",
+  "error_scan_required_fields": "Vul voor elk item aantal, eenheid, naam en locatie in.",
 
   "nav_items": "Voorraad",
   "nav_scan": "Bon scannen",
