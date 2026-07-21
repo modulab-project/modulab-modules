@@ -42,8 +42,6 @@
   "search_placeholder": "Buscar…",
   "all_categories": "Todas las categorías",
   "all_locations": "Todas las ubicaciones",
-  "filter_low_stock": "Stock bajo",
-  "filter_expiring_soon": "Caduca pronto",
 
   "loading": "Cargando…",
   "no_items": "Aún no hay artículos",
@@ -51,7 +49,7 @@
   "added_via_ai_scan": "Añadido mediante escaneo de recibo por IA",
   "uncategorized": "Sin categoría",
   "no_location": "Sin ubicación",
-  "batch_count": "{{count}} lotes",
+  "batch_count": "{{count}} ubicaciones",
   "consume_one": "Retirar 1 unidad del stock",
   "consume_choose_location_title": "¿De qué ubicación retirar \"{{name}}\"?",
 
@@ -78,6 +76,11 @@
   "field_min_stock": "Stock mínimo",
   "field_min_stock_placeholder": "opcional",
   "field_notes": "Notas",
+  "field_mhd": "Caducidad",
+  "batch_mhd_missing_confirm": "No se ha indicado fecha de caducidad — ¿guardar de todos modos sin fecha?",
+  "error_unit_required": "La unidad es obligatoria.",
+  "error_quantity_required": "La cantidad es obligatoria.",
+  "error_location_required": "El lugar de almacenamiento es obligatorio.",
 
   "image": "Foto",
   "upload_image": "Subir una foto",
@@ -85,9 +88,9 @@
   "delete_image": "Eliminar foto",
   "uploading": "Subiendo…",
 
-  "batches_title": "Lotes",
-  "add_batch": "Añadir lote",
-  "no_batches": "Aún no hay lotes",
+  "batches_title": "Ubicaciones",
+  "add_batch": "Añadir artículo",
+  "no_batches": "Aún no hay ubicaciones",
 
   "unit_pcs": "uds",
   "unit_kg": "kg",

@@ -42,8 +42,6 @@
   "search_placeholder": "Search…",
   "all_categories": "All categories",
   "all_locations": "All locations",
-  "filter_low_stock": "Low stock",
-  "filter_expiring_soon": "Expiring soon",
 
   "loading": "Loading…",
   "no_items": "No items yet",
@@ -51,7 +49,7 @@
   "added_via_ai_scan": "Added via AI receipt scan",
   "uncategorized": "Uncategorized",
   "no_location": "No location",
-  "batch_count": "{{count}} batches",
+  "batch_count": "{{count}} locations",
   "consume_one": "Take 1 out of stock",
   "consume_choose_location_title": "Take \"{{name}}\" from which location?",
 
@@ -78,6 +76,11 @@
   "field_min_stock": "Minimum stock",
   "field_min_stock_placeholder": "optional",
   "field_notes": "Notes",
+  "field_mhd": "Best before",
+  "batch_mhd_missing_confirm": "No best-before date entered — save without an expiry date anyway?",
+  "error_unit_required": "Unit is required.",
+  "error_quantity_required": "Quantity is required.",
+  "error_location_required": "Storage location is required.",
 
   "image": "Photo",
   "upload_image": "Upload a photo",
@@ -85,9 +88,9 @@
   "delete_image": "Remove photo",
   "uploading": "Uploading…",
 
-  "batches_title": "Batches",
-  "add_batch": "Add batch",
-  "no_batches": "No batches yet",
+  "batches_title": "Locations",
+  "add_batch": "Add item",
+  "no_batches": "No locations yet",
 
   "unit_pcs": "pcs",
   "unit_kg": "kg",

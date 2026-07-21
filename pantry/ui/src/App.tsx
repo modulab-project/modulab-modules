@@ -447,10 +447,29 @@ function ItemList({
           this list, so it replaces this one. */}
       <h1 className="mb-4 text-lg font-semibold">{t("nav_items")}</h1>
 
+      {/* Metric cards double as filter toggles (2026-07-21 user request:
+          "kann man anstatt den Buttons Niedriger Bestand und Läuft bald ab,
+          die bisherigen Felder Laufen bald ab und Niedriger Bestand dafür
+          nutzen?") - the separate filter-button row below this used to
+          duplicate the same two labels the metric cards already show, so
+          the cards themselves now toggle the filter and highlight when
+          active, and the redundant buttons are gone. */}
       <div className="mb-4 grid grid-cols-3 gap-3">
         <MetricCard label={t("metric_total")} value={items.length} />
-        <MetricCard label={t("metric_expiring")} value={expiringCount} tone="warning" />
-        <MetricCard label={t("metric_low_stock")} value={lowStockCount} tone="danger" />
+        <MetricCard
+          label={t("metric_expiring")}
+          value={expiringCount}
+          tone="warning"
+          active={expiringSoonOnly}
+          onClick={() => setExpiringSoonOnly((v) => !v)}
+        />
+        <MetricCard
+          label={t("metric_low_stock")}
+          value={lowStockCount}
+          tone="danger"
+          active={lowStockOnly}
+          onClick={() => setLowStockOnly((v) => !v)}
+        />
       </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -484,31 +503,6 @@ function ItemList({
             <option key={l.id} value={l.id}>{l.name}</option>
           ))}
         </select>
-      </div>
-
-      {/* Low-stock/expiring-soon toggles on their own row (2026-07-18 user
-          request), separate from the search/category/location row above. */}
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onClick={() => setLowStockOnly((v) => !v)}
-          className={`rounded-lg border px-3 py-1.5 text-sm ${
-            lowStockOnly ? "border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300"
-                         : "border-gray-300 text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-900"
-          }`}
-        >
-          {t("filter_low_stock")}
-        </button>
-        <button
-          type="button"
-          onClick={() => setExpiringSoonOnly((v) => !v)}
-          className={`rounded-lg border px-3 py-1.5 text-sm ${
-            expiringSoonOnly ? "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300"
-                              : "border-gray-300 text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-900"
-          }`}
-        >
-          {t("filter_expiring_soon")}
-        </button>
       </div>
 
       {error && (
@@ -598,7 +592,7 @@ function ItemList({
               ) : item.days_until_expiry != null && item.days_until_expiry <= 3 ? (
                 <Badge tone="warning">{t("badge_expiring_in", { count: item.days_until_expiry })}</Badge>
               ) : item.expiry_date ? (
-                <Badge tone="neutral">{t("badge_expiry_date", { date: item.expiry_date })}</Badge>
+                <Badge tone="neutral">{t("badge_expiry_date", { date: formatDate(item.expiry_date) })}</Badge>
               ) : null}
               <button type="button" onClick={() => onEdit(item.id)}
                 className="flex-none rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800">
@@ -685,11 +679,48 @@ function displayUnit(unit: string | null | undefined, t: (key: string) => string
   return code ? t(`unit_${code}`) : unit;
 }
 
-function MetricCard({ label, value, tone }: { label: string; value: number; tone?: "warning" | "danger" }) {
+// Formats a "YYYY-MM-DD" expiry date in the current UI language's own date
+// format (2026-07-21 user request: MHD should read like a date a German -
+// or French, Dutch, Spanish - user actually writes, not always ISO order).
+// Parsed as y/m/d explicitly rather than via `new Date(dateStr)` so this
+// never shifts a day across UTC/local-timezone midnight.
+function formatDate(dateStr: string | null | undefined): string {
+  if (!dateStr) return "";
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(dateStr);
+  if (!m) return dateStr;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return d.toLocaleDateString(i18next.language);
+}
+
+function MetricCard({
+  label,
+  value,
+  tone,
+  active,
+  onClick,
+}: {
+  label: string;
+  value: number;
+  tone?: "warning" | "danger";
+  active?: boolean;
+  onClick?: () => void;
+}) {
   const valueColor =
     tone === "danger" ? "text-red-600 dark:text-red-400" : tone === "warning" ? "text-amber-600 dark:text-amber-400" : "";
-  return (
-    <div className="rounded-xl bg-gray-50 p-3 dark:bg-gray-900">
+  const activeRing =
+    active && tone === "danger"
+      ? "ring-2 ring-red-300 bg-red-50 dark:ring-red-800 dark:bg-red-950"
+      : active && tone === "warning"
+        ? "ring-2 ring-amber-300 bg-amber-50 dark:ring-amber-800 dark:bg-amber-950"
+        : "bg-gray-50 dark:bg-gray-900";
+  const cls = `w-full rounded-xl p-3 text-left ${activeRing} ${onClick ? "cursor-pointer hover:opacity-90" : ""}`;
+  return onClick ? (
+    <button type="button" onClick={onClick} className={cls}>
+      <p className="text-xs text-gray-500 dark:text-gray-400">{label}</p>
+      <p className={`text-xl font-semibold ${valueColor}`}>{value}</p>
+    </button>
+  ) : (
+    <div className={cls}>
       <p className="text-xs text-gray-500 dark:text-gray-400">{label}</p>
       <p className={`text-xl font-semibold ${valueColor}`}>{value}</p>
     </div>
@@ -772,13 +803,18 @@ function ItemEditor({
 
   // Item photo (2026-07-19 - "haben wir noch etwas vergessen?": the backend
   // has always had POST/DELETE /items/:id/image, nothing in the UI ever
-  // called it). Only offered once the item actually exists (id is set) -
-  // unlike recipes' non-unique titles, pantry item names are unique, so
-  // there's no safe placeholder-name draft to create up front the way
-  // recipes does for a brand-new, not-yet-saved recipe.
+  // called it).
+  //
+  // 2026-07-21 user request ("hier soll es schon möglich sein ein Foto
+  // hochzuladen" - referring to the new-item form): a new item has no id
+  // yet, so POST/DELETE /items/:id/image can't be called until after the
+  // item is created. pendingImageFile holds the chosen file locally (with a
+  // local object-URL preview) for that case; handleSave uploads it right
+  // after the item's own POST /items succeeds.
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [imageUploading, setImageUploading] = useState(false);
+  const [pendingImageFile, setPendingImageFile] = useState<File | null>(null);
 
   useEffect(() => {
     api.get<Category[]>("/categories").then(setCategories).catch(() => {});
@@ -803,7 +839,15 @@ function ItemEditor({
   }, [id, reloadItem]);
 
   async function handleImageUpload(file: File) {
-    if (!id) return;
+    if (!id) {
+      // New item: no id to attach the photo to yet - hold it locally and
+      // preview it via an object URL, upload happens in handleSave once the
+      // item exists.
+      if (imagePreview && imagePreview.startsWith("blob:")) URL.revokeObjectURL(imagePreview);
+      setPendingImageFile(file);
+      setImagePreview(URL.createObjectURL(file));
+      return;
+    }
     setImageUploading(true);
     setError(null);
     try {
@@ -819,7 +863,13 @@ function ItemEditor({
   }
 
   async function handleImageDelete() {
-    if (!id) return;
+    if (!id) {
+      if (imagePreview && imagePreview.startsWith("blob:")) URL.revokeObjectURL(imagePreview);
+      setPendingImageFile(null);
+      setImagePreview(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
     setError(null);
     try {
       await api.mutate("DELETE", `/items/${id}/image`);
@@ -831,9 +881,27 @@ function ItemEditor({
   }
 
   async function handleSave() {
-    if (!name.trim()) { setError(t("name_required")); return; }
-    setSaving(true);
     setError(null);
+    if (!name.trim()) { setError(t("name_required")); return; }
+
+    // Pflichtfelder für einen neuen Eintrag (2026-07-21 user request): Name,
+    // Einheit, Anzahl und Lagerort sind erforderlich. MHD bleibt optional -
+    // nicht jedes Produkt hat ein Mindesthaltbarkeitsdatum - aber ein leeres
+    // MHD zeigt erst eine überspringbare Warnung, statt stillschweigend
+    // durchzugehen.
+    let firstBatch: { quantity: string; expiry_date: string; location_id: string } | undefined;
+    if (!id) {
+      if (!unit.trim()) { setError(t("error_unit_required")); return; }
+      firstBatch = newBatches[0];
+      if (!firstBatch || !firstBatch.quantity.trim() || parseFloat(firstBatch.quantity) <= 0) {
+        setError(t("error_quantity_required"));
+        return;
+      }
+      if (!firstBatch.location_id) { setError(t("error_location_required")); return; }
+      if (!firstBatch.expiry_date && !window.confirm(t("batch_mhd_missing_confirm"))) return;
+    }
+
+    setSaving(true);
     try {
       if (id) {
         await api.mutate("PATCH", `/items/${id}`, {
@@ -869,6 +937,18 @@ function ItemEditor({
             expiry_date: b.expiry_date || null,
             location_id: b.location_id || null,
           });
+        }
+        // Upload the photo picked before the item existed (2026-07-21 user
+        // request). Best-effort: the item itself is already saved at this
+        // point, so a failed image upload shouldn't block navigating away.
+        if (pendingImageFile) {
+          try {
+            const fd = new FormData();
+            fd.append("file", pendingImageFile);
+            await api.upload(`/items/${created.id}/image`, fd);
+          } catch {
+            // item was created successfully; the photo can be added again from the edit view
+          }
         }
         onDone();
       }
@@ -936,13 +1016,12 @@ function ItemEditor({
       )}
 
       <div className="space-y-3">
-        {/* Item photo - only once the item exists (id set): unlike recipes'
-            non-unique titles, pantry item names are unique, so there's no
-            safe placeholder-name draft to create before the item is saved
-            for real. New items just don't get a photo slot until they've
-            been saved once, then re-opened for editing. */}
-        {id && (
-          <div>
+        {/* Item photo - offered for new items too now (2026-07-21 user
+            request: "hier soll es schon möglich sein ein Foto hochzuladen").
+            Without an id, handleImageUpload just holds the file locally
+            (pendingImageFile + an object-URL preview) and handleSave
+            uploads it right after the item itself is created. */}
+        <div>
             <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">{t("image")}</label>
             <input
               ref={fileInputRef}
@@ -979,11 +1058,10 @@ function ItemEditor({
                   : <><i className="ti ti-photo text-[28px]" /><span>{t("upload_image")}</span></>}
               </button>
             )}
-          </div>
-        )}
+        </div>
 
         <div>
-          <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">{t("field_name")}</label>
+          <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">{t("field_name")} *</label>
           <input type="text" value={name} onChange={(e) => setName(e.target.value)} className={inputCls} style={{ fontSize: "16px" }} autoFocus />
         </div>
 
@@ -996,7 +1074,7 @@ function ItemEditor({
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">{t("field_unit")}</label>
+            <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">{t("field_unit")}{!id && " *"}</label>
             <input type="text" list="pantry-units" value={unit} onChange={(e) => setUnit(e.target.value)} className={inputCls} style={{ fontSize: "16px" }} />
             <datalist id="pantry-units">{UNIT_CODES.map((u) => <option key={u} value={t(`unit_${u}`)} />)}</datalist>
           </div>
@@ -1015,6 +1093,10 @@ function ItemEditor({
 
       <div className="mt-5 border-t border-gray-100 pt-4 dark:border-gray-800">
         <div className="mb-2 flex items-center justify-between">
+          {/* "Chargen" renamed to "Lagerorte" (2026-07-21 user request) - each
+              row here is a quantity sitting at one storage location, so the
+              location-centric name reads more naturally than the old
+              manufacturing-lot term. */}
           <h2 className="text-sm font-semibold">{t("batches_title")}</h2>
           {id && (
             <button type="button" onClick={handleAddBatch}
@@ -1023,6 +1105,18 @@ function ItemEditor({
             </button>
           )}
         </div>
+
+        {/* Column labels above the repeated Anzahl/MHD/Lagerort fields
+            (2026-07-21 user request: "Über die Felder eine Beschriftung
+            Anzahl, MHD, Lagerort") - widths match the input/select columns
+            below exactly so the labels line up. */}
+        {(id ? batches.length > 0 : newBatches.length > 0) && (
+          <div className="mb-1 flex items-center gap-2 px-0.5 text-xs font-medium text-gray-500 dark:text-gray-400">
+            <span className="w-20">{t("field_quantity")}{!id && " *"}</span>
+            <span className="w-32">{t("field_mhd")}</span>
+            <span className="flex-1">{t("field_location")}{!id && " *"}</span>
+          </div>
+        )}
 
         {/* Existing item: batches are saved immediately, one API call per field change. */}
         {id && batches.length === 0 && (
@@ -1035,7 +1129,7 @@ function ItemEditor({
               className={`w-20 ${smallInputCls}`} style={{ fontSize: "16px" }} />
             <input type="date" defaultValue={b.expiry_date ?? ""}
               onBlur={(e) => handleUpdateBatch(b.id, { expiry_date: e.target.value || null })}
-              className={smallInputCls} style={{ fontSize: "16px" }} />
+              className={`w-32 ${smallInputCls}`} style={{ fontSize: "16px" }} />
             <select defaultValue={b.location_id ?? ""}
               onChange={(e) => handleUpdateBatch(b.id, { location_id: e.target.value || null })}
               className={`flex-1 ${smallInputCls}`} style={{ fontSize: "16px" }}>
@@ -1058,7 +1152,7 @@ function ItemEditor({
             <input type="number" min={0} step="0.01" value={b.quantity} onChange={(e) => updateNewBatchRow(i, { quantity: e.target.value })}
               className={`w-20 ${smallInputCls}`} style={{ fontSize: "16px" }} />
             <input type="date" value={b.expiry_date} onChange={(e) => updateNewBatchRow(i, { expiry_date: e.target.value })}
-              className={smallInputCls} style={{ fontSize: "16px" }} />
+              className={`w-32 ${smallInputCls}`} style={{ fontSize: "16px" }} />
             <select value={b.location_id} onChange={(e) => updateNewBatchRow(i, { location_id: e.target.value })}
               className={`flex-1 ${smallInputCls}`} style={{ fontSize: "16px" }}>
               <option value="">{t("no_location")}</option>
@@ -1279,58 +1373,66 @@ function ScanView({ api, onDone }: { api: ReturnType<typeof useApi>; onDone: () 
 
           <div className="space-y-2">
             {suggestions.map((it, i) => (
-              <div key={i} className="flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 p-2.5 dark:border-gray-800">
-                <input type="text" value={it.name} onChange={(e) => updateSuggestion(i, { name: e.target.value })}
-                  className={`flex-1 min-w-[100px] ${inputCls}`} style={{ fontSize: "16px" }} />
-                <input type="number" min={0} step="0.01" value={it.quantity ?? ""} onChange={(e) => updateSuggestion(i, { quantity: parseFloat(e.target.value) || null })}
-                  className={`w-16 ${inputCls}`} style={{ fontSize: "16px" }} />
-                <input type="text" value={it.unit ?? ""} onChange={(e) => updateSuggestion(i, { unit: e.target.value })}
-                  placeholder={t("field_unit") as string} className={`w-20 ${inputCls}`} style={{ fontSize: "16px" }} />
-                {newCategoryRowIndex === i ? (
-                  <div className="flex items-center gap-1">
-                    <input type="text" value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)}
-                      placeholder={t("category_name_placeholder") as string} autoFocus
-                      className={`w-24 ${inputCls}`} style={{ fontSize: "16px" }}
-                      onKeyDown={(e) => { if (e.key === "Enter") confirmNewCategory(); if (e.key === "Escape") cancelNewCategory(); }} />
-                    <button type="button" onClick={confirmNewCategory} disabled={newCategorySaving || !newCategoryName.trim()}
-                      className="flex-none rounded-lg p-1.5 text-teal-600 hover:bg-teal-50 disabled:opacity-40 dark:hover:bg-teal-950">
-                      {newCategorySaving ? <i className="ti ti-loader-2 animate-spin text-[14px]" /> : <i className="ti ti-check text-[14px]" />}
-                    </button>
-                    <button type="button" onClick={cancelNewCategory}
-                      className="flex-none rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">
-                      <i className="ti ti-x text-[14px]" />
-                    </button>
-                  </div>
-                ) : (
-                  // "+ new category" option (2026-07-19 - "wenn es keine
-                  // passende Kategorie gibt, wäre es gut wenn ich sie direkt
-                  // beim Artikel eintragen kann"): picking it switches this
-                  // row into the inline-create input above; once created,
-                  // it's appended to `categories` so every other row's
-                  // dropdown offers it right away too.
-                  <select value={categoryChoices[i] ?? ""} onChange={(e) => {
-                      if (e.target.value === "__new__") { startNewCategory(i); return; }
-                      setCategoryChoices((prev) => prev.map((v, idx) => (idx === i ? e.target.value : v)));
-                    }}
+              // Two-row layout (2026-07-21 user request: "Zeile 1 Anzahl,
+              // Einheit, Name / Zeile 2 Kategorie, Lagerort, MHD") - was a
+              // single flex-wrap line where the order depended on available
+              // width; now it's a fixed two-row card every time.
+              <div key={i} className="rounded-xl border border-gray-200 p-2.5 dark:border-gray-800">
+                <div className="flex items-center gap-2">
+                  <input type="number" min={0} step="0.01" value={it.quantity ?? ""} onChange={(e) => updateSuggestion(i, { quantity: parseFloat(e.target.value) || null })}
+                    className={`w-16 ${inputCls}`} style={{ fontSize: "16px" }} />
+                  <input type="text" value={it.unit ?? ""} onChange={(e) => updateSuggestion(i, { unit: e.target.value })}
+                    placeholder={t("field_unit") as string} className={`w-20 ${inputCls}`} style={{ fontSize: "16px" }} />
+                  <input type="text" value={it.name} onChange={(e) => updateSuggestion(i, { name: e.target.value })}
+                    className={`flex-1 min-w-[100px] ${inputCls}`} style={{ fontSize: "16px" }} />
+                  <button type="button" onClick={() => removeSuggestion(i)}
+                    className="flex-none rounded-lg p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950">
+                    <i className="ti ti-x text-[14px]" />
+                  </button>
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {newCategoryRowIndex === i ? (
+                    <div className="flex items-center gap-1">
+                      <input type="text" value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)}
+                        placeholder={t("category_name_placeholder") as string} autoFocus
+                        className={`w-24 ${inputCls}`} style={{ fontSize: "16px" }}
+                        onKeyDown={(e) => { if (e.key === "Enter") confirmNewCategory(); if (e.key === "Escape") cancelNewCategory(); }} />
+                      <button type="button" onClick={confirmNewCategory} disabled={newCategorySaving || !newCategoryName.trim()}
+                        className="flex-none rounded-lg p-1.5 text-teal-600 hover:bg-teal-50 disabled:opacity-40 dark:hover:bg-teal-950">
+                        {newCategorySaving ? <i className="ti ti-loader-2 animate-spin text-[14px]" /> : <i className="ti ti-check text-[14px]" />}
+                      </button>
+                      <button type="button" onClick={cancelNewCategory}
+                        className="flex-none rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">
+                        <i className="ti ti-x text-[14px]" />
+                      </button>
+                    </div>
+                  ) : (
+                    // "+ new category" option (2026-07-19 - "wenn es keine
+                    // passende Kategorie gibt, wäre es gut wenn ich sie direkt
+                    // beim Artikel eintragen kann"): picking it switches this
+                    // row into the inline-create input above; once created,
+                    // it's appended to `categories` so every other row's
+                    // dropdown offers it right away too.
+                    <select value={categoryChoices[i] ?? ""} onChange={(e) => {
+                        if (e.target.value === "__new__") { startNewCategory(i); return; }
+                        setCategoryChoices((prev) => prev.map((v, idx) => (idx === i ? e.target.value : v)));
+                      }}
+                      className={`w-28 ${inputCls}`} style={{ fontSize: "16px" }}>
+                      <option value="">{it.category ?? t("uncategorized")}</option>
+                      {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      <option value="__new__">+ {t("new_category")}</option>
+                    </select>
+                  )}
+                  <select value={locationChoices[i] ?? ""} onChange={(e) => setLocationChoices((prev) => prev.map((v, idx) => (idx === i ? e.target.value : v)))}
                     className={`w-28 ${inputCls}`} style={{ fontSize: "16px" }}>
-                    <option value="">{it.category ?? t("uncategorized")}</option>
-                    {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                    <option value="__new__">+ {t("new_category")}</option>
+                    <option value="">{t("no_location")}</option>
+                    {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
                   </select>
-                )}
-                <select value={locationChoices[i] ?? ""} onChange={(e) => setLocationChoices((prev) => prev.map((v, idx) => (idx === i ? e.target.value : v)))}
-                  className={`w-28 ${inputCls}`} style={{ fontSize: "16px" }}>
-                  <option value="">{t("no_location")}</option>
-                  {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-                </select>
-                <input type="date" value={expiryChoices[i] ?? ""}
-                  onChange={(e) => setExpiryChoices((prev) => prev.map((v, idx) => (idx === i ? e.target.value : v)))}
-                  title={t("field_expiry_date") as string}
-                  className={inputCls} style={{ fontSize: "16px" }} />
-                <button type="button" onClick={() => removeSuggestion(i)}
-                  className="flex-none rounded-lg p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950">
-                  <i className="ti ti-x text-[14px]" />
-                </button>
+                  <input type="date" value={expiryChoices[i] ?? ""}
+                    onChange={(e) => setExpiryChoices((prev) => prev.map((v, idx) => (idx === i ? e.target.value : v)))}
+                    title={t("field_expiry_date") as string}
+                    className={inputCls} style={{ fontSize: "16px" }} />
+                </div>
               </div>
             ))}
           </div>

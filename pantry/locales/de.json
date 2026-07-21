@@ -42,8 +42,6 @@
   "search_placeholder": "Suchen…",
   "all_categories": "Alle Kategorien",
   "all_locations": "Alle Lagerorte",
-  "filter_low_stock": "Niedriger Bestand",
-  "filter_expiring_soon": "Läuft bald ab",
 
   "loading": "Wird geladen…",
   "no_items": "Noch keine Einträge",
@@ -51,7 +49,7 @@
   "added_via_ai_scan": "Per KI-Bon-Scan hinzugefügt",
   "uncategorized": "Ohne Kategorie",
   "no_location": "Kein Lagerort",
-  "batch_count": "{{count}} Chargen",
+  "batch_count": "{{count}} Lagerorte",
   "consume_one": "1 Stück entnehmen",
   "consume_choose_location_title": "Aus welchem Lagerort \"{{name}}\" entnehmen?",
 
@@ -78,6 +76,11 @@
   "field_min_stock": "Mindestbestand",
   "field_min_stock_placeholder": "optional",
   "field_notes": "Notizen",
+  "field_mhd": "MHD",
+  "batch_mhd_missing_confirm": "Kein MHD eingetragen — trotzdem ohne Ablaufdatum speichern?",
+  "error_unit_required": "Einheit ist erforderlich.",
+  "error_quantity_required": "Anzahl ist erforderlich.",
+  "error_location_required": "Lagerort ist erforderlich.",
 
   "image": "Foto",
   "upload_image": "Foto hochladen",
@@ -85,9 +88,9 @@
   "delete_image": "Foto entfernen",
   "uploading": "Wird hochgeladen…",
 
-  "batches_title": "Chargen",
-  "add_batch": "Charge hinzufügen",
-  "no_batches": "Noch keine Chargen",
+  "batches_title": "Lagerorte",
+  "add_batch": "Artikel hinzufügen",
+  "no_batches": "Noch keine Lagerorte",
 
   "unit_pcs": "Stk",
   "unit_kg": "kg",

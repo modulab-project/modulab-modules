@@ -42,8 +42,6 @@
   "search_placeholder": "Zoeken…",
   "all_categories": "Alle categorieën",
   "all_locations": "Alle locaties",
-  "filter_low_stock": "Lage voorraad",
-  "filter_expiring_soon": "Verloopt binnenkort",
 
   "loading": "Bezig met laden…",
   "no_items": "Nog geen items",
@@ -51,7 +49,7 @@
   "added_via_ai_scan": "Toegevoegd via AI-bonscan",
   "uncategorized": "Zonder categorie",
   "no_location": "Geen locatie",
-  "batch_count": "{{count}} partijen",
+  "batch_count": "{{count}} locaties",
   "consume_one": "1 stuk uit voorraad halen",
   "consume_choose_location_title": "\"{{name}}\" uit welke locatie halen?",
 
@@ -78,6 +76,11 @@
   "field_min_stock": "Minimale voorraad",
   "field_min_stock_placeholder": "optioneel",
   "field_notes": "Notities",
+  "field_mhd": "THT",
+  "batch_mhd_missing_confirm": "Geen THT ingevuld — toch opslaan zonder houdbaarheidsdatum?",
+  "error_unit_required": "Eenheid is verplicht.",
+  "error_quantity_required": "Aantal is verplicht.",
+  "error_location_required": "Opslaglocatie is verplicht.",
 
   "image": "Foto",
   "upload_image": "Foto uploaden",
@@ -85,9 +88,9 @@
   "delete_image": "Foto verwijderen",
   "uploading": "Bezig met uploaden…",
 
-  "batches_title": "Partijen",
-  "add_batch": "Partij toevoegen",
-  "no_batches": "Nog geen partijen",
+  "batches_title": "Locaties",
+  "add_batch": "Item toevoegen",
+  "no_batches": "Nog geen locaties",
 
   "unit_pcs": "stk",
   "unit_kg": "kg",

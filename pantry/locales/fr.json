@@ -42,8 +42,6 @@
   "search_placeholder": "Rechercher…",
   "all_categories": "Toutes les catégories",
   "all_locations": "Tous les emplacements",
-  "filter_low_stock": "Stock faible",
-  "filter_expiring_soon": "Expire bientôt",
 
   "loading": "Chargement…",
   "no_items": "Aucun article pour le moment",
@@ -51,7 +49,7 @@
   "added_via_ai_scan": "Ajouté via scan de ticket par IA",
   "uncategorized": "Sans catégorie",
   "no_location": "Aucun emplacement",
-  "batch_count": "{{count}} lots",
+  "batch_count": "{{count}} emplacements",
   "consume_one": "Retirer 1 unité du stock",
   "consume_choose_location_title": "Retirer \"{{name}}\" de quel emplacement ?",
 
@@ -78,6 +76,11 @@
   "field_min_stock": "Stock minimum",
   "field_min_stock_placeholder": "optionnel",
   "field_notes": "Notes",
+  "field_mhd": "À consommer avant",
+  "batch_mhd_missing_confirm": "Aucune date de péremption saisie — enregistrer quand même sans date ?",
+  "error_unit_required": "L'unité est requise.",
+  "error_quantity_required": "La quantité est requise.",
+  "error_location_required": "Le lieu de stockage est requis.",
 
   "image": "Photo",
   "upload_image": "Téléverser une photo",
@@ -85,9 +88,9 @@
   "delete_image": "Supprimer la photo",
   "uploading": "Téléversement…",
 
-  "batches_title": "Lots",
-  "add_batch": "Ajouter un lot",
-  "no_batches": "Aucun lot pour le moment",
+  "batches_title": "Emplacements",
+  "add_batch": "Ajouter un article",
+  "no_batches": "Aucun emplacement pour le moment",
 
   "unit_pcs": "pcs",
   "unit_kg": "kg",
