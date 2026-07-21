@@ -1110,13 +1110,20 @@ function ItemEditor({
         {(id ? batches.length > 0 : newBatches.length > 0) && (
           <div className="mb-1 flex items-center gap-2 px-0.5 text-xs font-medium text-gray-500 dark:text-gray-400">
             <span className="w-20">{t("field_quantity")}{!id && " *"}</span>
-            <span className="w-32">{t("field_mhd")}</span>
+            {/* w-32 is a real Tailwind class but Core's own build never uses
+                it, and modules ship no Tailwind compiler of their own - only
+                utility classes that appear in Core's source survive Core's
+                CSS purge (see the confirmed teal/gray/red/amber-only color
+                whitelist bug this same purge caused elsewhere). w-32 has no
+                matching CSS rule at all, so it silently rendered at 0 extra
+                width - exactly why this still didn't line up after the
+                first attempt. An inline style sidesteps the purge question
+                entirely, the same fix already used for StockDot's colors. */}
+            <span style={{ width: "128px" }}>{t("field_mhd")}</span>
             <span className="flex-1">{t("field_location")}{!id && " *"}</span>
-            {/* Matches the trailing delete button's fixed width below (2026-
-                07-21 fix: "Menge, MHD, Lagerort passt von der Anordnung noch
-                nicht") - without this spacer the Lagerort select (flex-1)
-                claims the space the delete button actually occupies in the
-                row underneath, so its header label sat too wide. */}
+            {/* Matches the trailing delete button's fixed width below - w-7
+                itself is confirmed present in Core's own CSS (AppShell.tsx
+                uses h-7 w-7), so this one is safe as a plain class. */}
             <span className="w-7 flex-none" />
           </div>
         )}
@@ -1132,7 +1139,7 @@ function ItemEditor({
               className={`w-20 ${smallInputCls}`} style={{ fontSize: "16px" }} />
             <input type="date" defaultValue={b.expiry_date ?? ""}
               onBlur={(e) => handleUpdateBatch(b.id, { expiry_date: e.target.value || null })}
-              className={`w-32 ${smallInputCls}`} style={{ fontSize: "16px" }} />
+              className={smallInputCls} style={{ fontSize: "16px", width: "128px" }} />
             <select defaultValue={b.location_id ?? ""}
               onChange={(e) => handleUpdateBatch(b.id, { location_id: e.target.value || null })}
               className={`flex-1 ${smallInputCls}`} style={{ fontSize: "16px" }}>
@@ -1155,7 +1162,7 @@ function ItemEditor({
             <input type="number" min={0} step="0.01" value={b.quantity} onChange={(e) => updateNewBatchRow(i, { quantity: e.target.value })}
               className={`w-20 ${smallInputCls}`} style={{ fontSize: "16px" }} />
             <input type="date" value={b.expiry_date} onChange={(e) => updateNewBatchRow(i, { expiry_date: e.target.value })}
-              className={`w-32 ${smallInputCls}`} style={{ fontSize: "16px" }} />
+              className={smallInputCls} style={{ fontSize: "16px", width: "128px" }} />
             <select value={b.location_id} onChange={(e) => updateNewBatchRow(i, { location_id: e.target.value })}
               className={`flex-1 ${smallInputCls}`} style={{ fontSize: "16px" }}>
               <option value="">{t("no_location")}</option>
@@ -1437,14 +1444,16 @@ function ScanView({ api, onDone }: { api: ReturnType<typeof useApi>; onDone: () 
                         if (e.target.value === "__new__") { startNewCategory(i); return; }
                         setCategoryChoices((prev) => prev.map((v, idx) => (idx === i ? e.target.value : v)));
                       }}
-                      className={`w-28 ${inputCls}`} style={{ fontSize: "16px" }}>
+                      className={inputCls} style={{ fontSize: "16px", width: "112px" }}>
                       <option value="">{it.category ?? t("uncategorized")}</option>
                       {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                       <option value="__new__">+ {t("new_category")}</option>
                     </select>
                   )}
+                  {/* w-28 also has no matching rule in Core's purged CSS
+                      (same as w-32 above) - inline width instead. */}
                   <select value={locationChoices[i] ?? ""} onChange={(e) => setLocationChoices((prev) => prev.map((v, idx) => (idx === i ? e.target.value : v)))}
-                    className={`w-28 ${inputCls}`} style={{ fontSize: "16px" }}>
+                    className={inputCls} style={{ fontSize: "16px", width: "112px" }}>
                     <option value="">{t("no_location")}</option>
                     {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
                   </select>
