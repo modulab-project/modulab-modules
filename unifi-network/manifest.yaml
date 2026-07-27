@@ -1,5 +1,5 @@
 name: "unifi-network"
-version: "0.5.1"
+version: "0.5.2"
 display_name:
   en: "UniFi Network"
   de: "UniFi Netzwerk"
@@ -38,11 +38,14 @@ storage:
 # Dynamische Netzwerk-Erlaubnis: Gateway-URLs werden vom Nutzer zur Laufzeit
 # angelegt, eine statische egress_allowlist kann das zum Installationszeitpunkt
 # nicht abbilden — deshalb bleibt sie hier leer (= kein Netzzugriff, bis der
-# erste Gateway angelegt wird). Core unterstützt bewusst KEIN "*"-Sentinel
-# für "beliebiger Host": das würde die OS-Sandbox faktisch abschalten und nur
-# noch auf isPrivateHost() (Anwendungslogik im Handler, s.u.) als einzige
-# Schranke setzen — eine Kontrolle, die sich selbst absichern soll, ist keine
-# zweite Verteidigungslinie mehr.
+# erste Gateway angelegt wird). Der Rahmen, innerhalb dessen die Laufzeit-Hosts
+# liegen dürfen, steht stattdessen weiter unten in dynamic_egress_allow.
+#
+# Core ließe dort auch "*" ("beliebiger Host") zu — dieses Modul deklariert
+# bewusst keinen solchen Rahmen: das würde die OS-Sandbox faktisch abschalten
+# und nur noch auf isPrivateHost() (Anwendungslogik im Handler, s.u.) als
+# einzige Schranke setzen — eine Kontrolle, die sich selbst absichern soll,
+# ist keine zweite Verteidigungslinie mehr.
 #
 # Stattdessen ruft der Handler bei jedem Gateway-Create/Update/Delete
 # computeEgressHosts() auf (handlers/index.ts) und hängt das Ergebnis als
@@ -69,6 +72,44 @@ egress_allowlist: []
 # oder ob ein Manifest-Autor Hosts bewusst entfernt hat (recipes-Fall, s.
 # modulab-core backend/internal/modules/installer.go, Manifest.DynamicEgress).
 dynamic_egress: true
+
+# dynamic_egress_allow ist die Obergrenze für alles, was dieses Modul sich zur
+# Laufzeit selbst gewähren kann — also für restartHosts (Handler) und für das
+# Ergebnis des egress_hosts_handler weiter unten. Core schneidet jede gemeldete
+# Hostliste dagegen; was nicht passt, wird verworfen, geloggt und als
+# module.egress_denied im Audit-Log festgehalten (Core, modules/egresspolicy.go).
+#
+# Notwendig geworden im Security-Audit vom 2026-07-27: bis dahin übernahm Core
+# eine gemeldete Hostliste ungeprüft in --allow-net. Ein Modul konnte damit an
+# jeder Antwort restartHosts: ["angreifer.example"] anhängen und sich Sekunden
+# später genau diesen Zugriff verschaffen — das Manifest, das ein Admin vor der
+# Installation liest, war für den Netzzugriff faktisch unverbindlich. Die
+# Laufzeit-Erkennung bleibt erhalten, sie bewegt sich jetzt nur noch in einem
+# vorab deklarierten Rahmen.
+#
+# Die Liste spiegelt exakt isPrivateIPv4()/isPrivateHost() in
+# handlers/unifi-client.ts — beide Prüfungen müssen denselben Adressraum
+# beschreiben, sonst lehnt Core einen Host ab, den der Handler für gültig hält
+# (oder umgekehrt). Wird dort etwas geändert, gehört es auch hierher.
+#
+# Kein Widerspruch zur leeren egress_allowlist oben: die zählt konkrete Ziele
+# auf (hier: keine, weil zur Installationszeit keines bekannt ist), diese Liste
+# beschreibt nur, welche Form ein Ziel haben darf. Der Worker bekommt weiterhin
+# nur die Gateways, die tatsächlich in der DB stehen.
+#
+# CIDR-Einträge greifen ausschließlich bei IP-Literalen — Core löst hier bewusst
+# keine Namen auf. Das passt: computeEgressHosts() liefert new URL().hostname,
+# und Gateways werden seit 2026-07-02 ausschließlich per privater IP
+# konfiguriert (s. u. bei tls_skip_verify). "*.local" ist der Vollständigkeit
+# halber dabei, weil isPrivateHost() mDNS-Namen noch akzeptiert; das
+# Gateway-Formular im Frontend lässt sie nicht mehr zu, ein Altbestand-Eintrag
+# würde ohne diese Zeile aber stillschweigend seinen Netzzugriff verlieren.
+dynamic_egress_allow:
+  - "10.0.0.0/8"
+  - "172.16.0.0/12"
+  - "192.168.0.0/16"
+  - "127.0.0.0/8"
+  - "*.local"
 
 # egress_hosts_handler schließt eine Lücke, die dynamic_egress allein NICHT
 # abdeckt: dynamic_egress hilft nur, wenn beim Neustart bereits ein
