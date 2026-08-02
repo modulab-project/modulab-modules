@@ -577,7 +577,13 @@ async function consumeItem(
 // *using* a configured provider to scan a receipt (scanReceipt below) is not
 // gated - any user who can add items can trigger a scan.
 
-const ADMIN_ROLES = ["super-admin", "org-admin"];
+// Core collapsed its role model from four roles to three on 2026-07-29
+// (super-admin/org-admin/user/pending -> admin/user/pending, see
+// backend/internal/auth/role.go's RoleAdmin/RoleUser/RolePending) - this
+// module's own admin gate still checked the two old role names until found
+// and fixed 2026-08-02, which meant every admin-only route below (AI
+// provider config) silently rejected every real admin for those four days.
+const ADMIN_ROLES = ["admin"];
 
 function isAdmin(auth: ModuleAuthContext): boolean {
   return auth.roles.some((r) => ADMIN_ROLES.includes(r));

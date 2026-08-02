@@ -42,6 +42,14 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
   const route = `${method} ${pathname}`;
 
   // ── Settings (admin: GET + PUT, all users: GET /config) ──────────────────
+  //
+  // Core collapsed its role model from four roles to three on 2026-07-29
+  // (super-admin/org-admin/user/pending -> admin/user/pending, see
+  // backend/internal/auth/role.go's RoleAdmin/RoleUser/RolePending) - the
+  // three admin checks below (here, PUT /settings, and migratePiiKey further
+  // down) still checked the two old role names until found and fixed
+  // 2026-08-02, which meant every admin-only action here silently rejected
+  // every real admin for those four days.
 
   if (route === "GET /config") {
     const [row] = await db.query<{ value: string }>(
@@ -66,7 +74,7 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
   }
 
   if (route === "GET /settings") {
-    if (!auth.roles.includes("super-admin") && !auth.roles.includes("org-admin")) {
+    if (!auth.roles.includes("admin")) {
       return forbidden();
     }
     const [row] = await db.query<{ value: string }>(
@@ -77,7 +85,7 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
 
   if (route === "PUT /settings") {
     try {
-      if (!auth.roles.includes("super-admin") && !auth.roles.includes("org-admin")) {
+      if (!auth.roles.includes("admin")) {
         return forbidden();
       }
       if (!encKey) {
@@ -281,7 +289,7 @@ async function migratePiiKey(
   piiCrypto: ModulePiiCrypto,
   legacyCrypto: ModulePiiCrypto,
 ): Promise<HandlerResponse> {
-  if (!auth.roles.includes("super-admin") && !auth.roles.includes("org-admin")) return forbidden();
+  if (!auth.roles.includes("admin")) return forbidden();
   const oldKey = piiCrypto.key; // still the raw shared key pre-migration
   const newKey = legacyCrypto.key; // this module's derived key, the migration target
   if (!newKey) {
