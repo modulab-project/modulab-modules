@@ -18,7 +18,19 @@ export interface HandlerRequest {
   auth: ModuleAuthContext;
   credentials?: Record<string, string>;
   db: ModuleDbClient;
+  // crypto.key stays the OLD raw shared key (unchanged from before this
+  // module's PII rotation feature existed) until POST /admin/migrate-pii-key
+  // has re-encrypted every PII column and Core records pii_migrated_at (see
+  // docs/Modul-DB-Sandbox_Plan_2026-08-02.md Part B) - only THEN does it
+  // switch to this module's own derived key. Never assume crypto.key is
+  // already the derived key.
   crypto: ModulePiiCrypto;
+  // legacyCrypto carries this module's NEW derived key, granted only during
+  // that same pre-migration window, purely as the re-encryption target for
+  // the migrate-pii-key handler below - key/hashKey are both null once
+  // migration is done. Nothing in this module should read legacyCrypto
+  // anywhere except that one migration handler.
+  legacyCrypto: ModulePiiCrypto;
 }
 
 // ModulePiiCrypto carries the module-scoped PII encryption key material,

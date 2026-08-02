@@ -350,7 +350,136 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
   if (method === "POST" && pathname.match(/^\/devices\/[^/]+\/resolve-note$/))
     return resolveNoteDiscrepancy(db, auth, segId(pathname, -2), body, encKey);
 
+  // ── PII key migration (Admin only, Core-triggered) ────────────────────────
+
+  if (route === "POST /admin/migrate-pii-key") {
+    return migratePiiKey(db, auth, req.crypto, req.legacyCrypto);
+  }
+
   return notFound();
+}
+
+// ── PII key migration ─────────────────────────────────────────────────────────
+//
+// One-time action triggered by Core's POST /v1/admin/modules/{name}/
+// migrate-pii-key (adminReauthOnly-gated, see backend/internal/modules/
+// handlers.go's MigratePIIKeyHandler). Core keeps piiCrypto.key/hashKey as
+// the OLD raw shared MODULAB_MODULE_PII_KEY/hashKey until this handler
+// succeeds - it only exposes this module's new per-module HKDF-derived key/
+// hashKey via legacyCrypto during the migration window (see deno.go's
+// buildWorker doc comment on why - an earlier version got this backwards
+// and broke every module's existing PII the moment it shipped). Re-encrypts
+// every AES-256-GCM PII column across gateways/devices/device_gateways from
+// the old key to the new one, AND recomputes devices.mac_hash under the new
+// hashKey, so Core can then flip piiCrypto over to the derived key/hashKey
+// for good (see docs/Modul-DB-Sandbox_Plan_2026-08-02.md Part B and
+// internal/crypto/modulekey.go's DeriveModuleKey).
+//
+// Idempotent/retry-safe for the AES-GCM columns: reencryptField() below tries
+// the NEW key first - a value already migrated by an earlier, partially-
+// failed run decrypts fine under newKey and is left untouched, so re-running
+// this after a partial failure only redoes the rows that didn't finish.
+// mac_hash has no equivalent "try new key first" option (HMAC has no verify
+// step), so it is always recomputed from the freshly-decrypted mac_enc
+// plaintext under the new hashKey regardless of whether mac_enc itself
+// changed this run - deterministic, so recomputing on every call (including
+// a retry) is harmless. Core only calls SetModulePIIMigrated (marking the
+// module done, and only then switching piiCrypto over) on a 200 from this
+// handler - any non-2xx is always safe to retry.
+async function migratePiiKey(
+  db: ModuleDbClient,
+  auth: ModuleAuthContext,
+  piiCrypto: ModulePiiCrypto,
+  legacyCrypto: ModulePiiCrypto,
+): Promise<HandlerResponse> {
+  if (!isAdmin(auth)) return forbidden();
+  const oldKey = piiCrypto.key; // still the raw shared key pre-migration
+  const oldHashKey = piiCrypto.hashKey;
+  const newKey = legacyCrypto.key; // this module's derived key, the migration target
+  const newHashKey = legacyCrypto.hashKey;
+  if (!newKey || !newHashKey) {
+    // No derived key granted - either Core already completed migration for
+    // this module (pii_migrated_at already set, piiCrypto IS the derived
+    // key/hashKey by now) or this module never had PII configured to begin
+    // with. Either way there's nothing to re-encrypt; treat as success
+    // rather than erroring on a duplicate/late-retried call.
+    return ok({ migrated_rows: 0, note: "no_legacy_key_granted" });
+  }
+  if (!oldKey || !oldHashKey) return { status: 500, body: { error: "server_encryption_not_configured" } };
+
+  let migratedRows = 0;
+
+  const gateways = await db.query<GatewayRow>(
+    `SELECT id, name_enc, base_url_enc, api_key_enc, created_by_enc FROM gateways`,
+  );
+  for (const gw of gateways) {
+    const nameEnc = await reencryptField(gw.name_enc, newKey, oldKey);
+    const baseUrlEnc = await reencryptField(gw.base_url_enc, newKey, oldKey);
+    const apiKeyEnc = await reencryptField(gw.api_key_enc, newKey, oldKey);
+    const createdByEnc = await reencryptField(gw.created_by_enc, newKey, oldKey);
+    if (
+      nameEnc !== gw.name_enc || baseUrlEnc !== gw.base_url_enc ||
+      apiKeyEnc !== gw.api_key_enc || createdByEnc !== gw.created_by_enc
+    ) {
+      await db.query(
+        `UPDATE gateways SET name_enc = $2, base_url_enc = $3, api_key_enc = $4, created_by_enc = $5 WHERE id = $1`,
+        [gw.id, nameEnc, baseUrlEnc, apiKeyEnc, createdByEnc],
+      );
+      migratedRows++;
+    }
+  }
+
+  const devices = await db.query<DeviceRow>(
+    `SELECT id, mac_enc, mac_hash, note_enc, pending_note_enc FROM devices`,
+  );
+  for (const d of devices) {
+    const macEnc = await reencryptField(d.mac_enc, newKey, oldKey);
+    const noteEnc = await reencryptField(d.note_enc, newKey, oldKey);
+    const pendingNoteEnc = d.pending_note_enc ? await reencryptField(d.pending_note_enc, newKey, oldKey) : d.pending_note_enc;
+    const mac = await decrypt(newKey, macEnc);
+    const newMacHash = await macHash(newHashKey, mac);
+    if (
+      macEnc !== d.mac_enc || noteEnc !== d.note_enc ||
+      pendingNoteEnc !== d.pending_note_enc || newMacHash !== d.mac_hash
+    ) {
+      await db.query(
+        `UPDATE devices SET mac_enc = $2, mac_hash = $3, note_enc = $4, pending_note_enc = $5 WHERE id = $1`,
+        [d.id, macEnc, newMacHash, noteEnc, pendingNoteEnc],
+      );
+      migratedRows++;
+    }
+  }
+
+  const deviceGateways = await db.query<{ device_id: string; gateway_id: string; gateway_note_enc: string | null }>(
+    `SELECT device_id, gateway_id, gateway_note_enc FROM device_gateways WHERE gateway_note_enc IS NOT NULL`,
+  );
+  for (const dg of deviceGateways) {
+    const gatewayNoteEnc = await reencryptField(dg.gateway_note_enc!, newKey, oldKey);
+    if (gatewayNoteEnc !== dg.gateway_note_enc) {
+      await db.query(
+        `UPDATE device_gateways SET gateway_note_enc = $3 WHERE device_id = $1 AND gateway_id = $2`,
+        [dg.device_id, dg.gateway_id, gatewayNoteEnc],
+      );
+      migratedRows++;
+    }
+  }
+
+  return ok({ migrated_rows: migratedRows });
+}
+
+// Re-encrypts one AES-256-GCM ciphertext column from the legacy shared key to
+// this module's new derived key. Tries newKey first (see migratePiiKey's doc
+// comment on retry-safety) - only falls through to legacyKey if that fails,
+// which also means a genuinely corrupt/tampered value throws here (from the
+// legacyKey attempt) rather than being silently swallowed.
+async function reencryptField(value: string, newKey: CryptoKey, legacyKey: CryptoKey): Promise<string> {
+  try {
+    await decrypt(newKey, value);
+    return value; // already re-encrypted under the new key
+  } catch {
+    const plain = await decrypt(legacyKey, value);
+    return encrypt(newKey, plain);
+  }
 }
 
 function segId(pathname: string, fromEnd = -1): string {

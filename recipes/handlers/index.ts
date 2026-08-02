@@ -67,7 +67,7 @@ import {
 } from "./ai-providers.ts";
 
 export default async function handler(req: HandlerRequest): Promise<HandlerResponse> {
-  const { method, path, body, auth, db, crypto: piiCrypto } = req;
+  const { method, path, body, auth, db, crypto: piiCrypto, legacyCrypto } = req;
 
   // path may include a query string (e.g. "/recipes?search=foo").
   // Split it so route matching works on the pathname only, while filter
@@ -274,6 +274,12 @@ export default async function handler(req: HandlerRequest): Promise<HandlerRespo
   if (method === "POST" && pathname.match(/^\/recipes\/[^/]+\/nutrition\/ai$/)) {
     const id = pathname.split("/")[2];
     return estimateNutritionWithAi(db, id, body as { provider?: string } | undefined, piiCrypto);
+  }
+
+  // ── PII key migration (Admin only, Core-triggered) ────────────────────────
+
+  if (route === "POST /admin/migrate-pii-key") {
+    return migratePiiKey(db, auth, piiCrypto, legacyCrypto);
   }
 
   return { status: 404, body: { error: "not_found" } };
@@ -902,6 +908,82 @@ async function estimateNutritionWithAi(
   } catch (err) {
     console.error(`[recipes] estimateNutritionWithAi(recipe=${recipeId}) failed:`, err);
     return aiErrorResponse(err);
+  }
+}
+
+// ── PII key migration ─────────────────────────────────────────────────────────
+//
+// One-time action triggered by Core's POST /v1/admin/modules/{name}/
+// migrate-pii-key (adminReauthOnly-gated, see backend/internal/modules/
+// handlers.go's MigratePIIKeyHandler). Core keeps piiCrypto.key as the OLD
+// raw shared MODULAB_MODULE_PII_KEY until this handler succeeds - it only
+// exposes this module's new per-module HKDF-derived key via legacyCrypto.key
+// during the migration window (see deno.go's buildWorker doc comment on why
+// - an earlier version got this backwards and broke every module's existing
+// PII the moment it shipped). Re-encrypts
+// ai_nutrition_providers.api_key_enc/created_by_enc - the only PII this
+// module stores - from the old key to the new one, so Core can then flip
+// piiCrypto.key over to it for good (see
+// docs/Modul-DB-Sandbox_Plan_2026-08-02.md Part B and
+// internal/crypto/modulekey.go's DeriveModuleKey).
+//
+// Idempotent/retry-safe: reencryptField() below tries the NEW key first - a
+// value already migrated by an earlier, partially-failed run decrypts fine
+// under newKey and is left untouched, so re-running this after a partial
+// failure only redoes the rows that didn't finish. Core only calls
+// SetModulePIIMigrated (marking the module done, and only then switching
+// piiCrypto.key over) on a 200 from this handler - any non-2xx is always
+// safe to retry.
+async function migratePiiKey(
+  db: ModuleDbClient,
+  auth: ModuleAuthContext,
+  piiCrypto: ModulePiiCrypto,
+  legacyCrypto: ModulePiiCrypto,
+): Promise<HandlerResponse> {
+  if (!isAdmin(auth)) return forbidden();
+  const oldKey = piiCrypto.key; // still the raw shared key pre-migration
+  const newKey = legacyCrypto.key; // this module's derived key, the migration target
+  if (!newKey) {
+    // No derived key granted - either Core already completed migration for
+    // this module (pii_migrated_at already set, piiCrypto.key IS the
+    // derived key by now) or this module never had PII configured to begin
+    // with. Either way there's nothing to re-encrypt; treat as success
+    // rather than erroring on a duplicate/late-retried call.
+    return ok({ migrated_rows: 0, note: "no_legacy_key_granted" });
+  }
+  if (!oldKey) return { status: 500, body: { error: "pii_key_not_configured" } };
+
+  let migratedRows = 0;
+  const rows = await db.query<{ id: string; api_key_enc: string; created_by_enc: string }>(
+    `SELECT id, api_key_enc, created_by_enc FROM ai_nutrition_providers`,
+  );
+  for (const row of rows) {
+    const apiKeyEnc = await reencryptField(row.api_key_enc, newKey, oldKey);
+    const createdByEnc = await reencryptField(row.created_by_enc, newKey, oldKey);
+    if (apiKeyEnc !== row.api_key_enc || createdByEnc !== row.created_by_enc) {
+      await db.query(
+        `UPDATE ai_nutrition_providers SET api_key_enc = $2, created_by_enc = $3 WHERE id = $1`,
+        [row.id, apiKeyEnc, createdByEnc],
+      );
+      migratedRows++;
+    }
+  }
+
+  return ok({ migrated_rows: migratedRows });
+}
+
+// Re-encrypts one AES-256-GCM ciphertext column from the legacy shared key to
+// this module's new derived key. Tries newKey first (see migratePiiKey's doc
+// comment on retry-safety) - only falls through to legacyKey if that fails,
+// which also means a genuinely corrupt/tampered value throws here (from the
+// legacyKey attempt) rather than being silently swallowed.
+async function reencryptField(value: string, newKey: CryptoKey, legacyKey: CryptoKey): Promise<string> {
+  try {
+    await decrypt(newKey, value);
+    return value; // already re-encrypted under the new key
+  } catch {
+    const plain = await decrypt(legacyKey, value);
+    return encrypt(newKey, plain);
   }
 }
 
