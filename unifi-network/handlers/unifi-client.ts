@@ -119,20 +119,23 @@ interface GatewayConn {
   apiKey: string; // already decrypted by caller
 }
 
-async function unifiFetch<T>(
-  conn: GatewayConn,
-  path: string,
-  init: RequestInit = {},
-  timeoutMs = DEFAULT_TIMEOUT_MS,
-): Promise<T> {
-  if (!(await isPrivateHost(conn.baseUrl))) {
-    throw new PrivateHostViolationError(conn.baseUrl);
-  }
+// FIX (2026-08-02): unifiFetch() used to call Deno.createHttpClient() fresh
+// on every single request and never close it. Deno.createHttpClient() holds
+// its own connection pool/TLS context that is only released via an explicit
+// client.close() — never calling it leaks memory for the lifetime of the
+// worker process. With 4 unifiFetch calls per gateway per minute from
+// poll_gateways alone (plus every provision/edit/delete path also going
+// through unifiFetch), this accumulated steadily and OOM-killed the
+// unifi-network Deno worker every ~10-11 days (observed 2026-07-10,
+// 2026-07-21, 2026-08-01 via dmesg cgroup OOM kills of the "deno" process).
+// The certificate-trust behavior this client provides (see comment below)
+// is process-wide and identical for every request in this worker — there is
+// no reason to construct a new one per call. A single client is now created
+// once, lazily, and reused for the life of the worker.
+let sharedHttpClient: Deno.HttpClient | undefined;
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
+function getHttpClient(): Deno.HttpClient {
+  if (!sharedHttpClient) {
     // REVISED (2026-07-02): back to accepting the controller's own
     // certificate without CA validation. Gateways are now addressed by
     // private IP (10.x/172.16-31.x/192.168.x), entered directly by the
@@ -147,7 +150,7 @@ async function unifiFetch<T>(
     // only removes cert-chain validation against the gateway's own
     // (self-signed or private-CA) certificate — it does not widen which
     // hosts this module will talk to.
-    const client = Deno.createHttpClient({
+    sharedHttpClient = Deno.createHttpClient({
       // Deno has no fetch()-level "ignore this one cert" option; the
       // sanctioned way is a named HttpClient built with the process-wide
       // --unsafely-ignore-certificate-errors flag scoped to specific
@@ -155,6 +158,25 @@ async function unifiFetch<T>(
       // gateway IPs, not a blanket "ignore everything"). This still prints
       // Deno's own startup warning — intentional, not hidden.
     });
+  }
+  return sharedHttpClient;
+}
+
+async function unifiFetch<T>(
+  conn: GatewayConn,
+  path: string,
+  init: RequestInit = {},
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+): Promise<T> {
+  if (!(await isPrivateHost(conn.baseUrl))) {
+    throw new PrivateHostViolationError(conn.baseUrl);
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const client = getHttpClient();
     const res = await fetch(`${conn.baseUrl}${API_PREFIX}${path}`, {
       ...init,
       client,
